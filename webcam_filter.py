@@ -16,162 +16,90 @@ class MatrixRain:
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
+        # Lens size
+        self.lens_size = 80
 
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
+        # Pre-calculate fisheye mapping once
+        self.offset_x, self.offset_y = self.create_fisheye_map(self.lens_size)
 
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
-
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+        # Calculate grid
+        self.cols = width // self.lens_size
+        self.rows = height // self.lens_size
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
+        """Update method - not needed for square lenses"""
+        pass
 
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
+    def create_fisheye_map(self, size):
+        """Pre-calculate fisheye mapping for a given lens size"""
+        half_size = size // 2
+        strength = 1.5
 
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        # Create coordinate grids
+        y_coords, x_coords = np.mgrid[0:size, 0:size]
+
+        # Normalized coordinates from -1 to 1
+        nx = (x_coords - half_size) / half_size
+        ny = (y_coords - half_size) / half_size
+
+        # Distance from center
+        r = np.sqrt(nx * nx + ny * ny)
+
+        # Apply fisheye distortion
+        theta = np.arctan2(ny, nx)
+        r_distorted = r * (1 + strength * r * r)
+
+        # Source coordinates (relative to lens center)
+        offset_x = (r_distorted * half_size * np.cos(theta)).astype(np.int32)
+        offset_y = (r_distorted * half_size * np.sin(theta)).astype(np.int32)
+
+        return offset_x, offset_y
+
+    def apply_fisheye_to_region(self, frame, center_x, center_y, size, offset_x, offset_y):
+        """Apply pre-calculated fisheye distortion to a square region"""
+        height, width = frame.shape[:2]
+
+        # Calculate source coordinates
+        source_x = center_x + offset_x
+        source_y = center_y + offset_y
+
+        # Clip to valid bounds
+        source_x = np.clip(source_x, 0, width - 1)
+        source_y = np.clip(source_y, 0, height - 1)
+
+        # Use advanced indexing to grab all pixels at once
+        lens_region = frame[source_y, source_x]
+
+        return lens_region
 
     def draw(self, frame, face_mask=None):
-        """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        """Square lenses with fisheye effect - grid of magnified regions"""
+        # Create result image
+        result = np.zeros_like(frame)
 
-        # Soften edges with blur
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Draw each lens
+        for row in range(self.rows):
+            for col in range(self.cols):
+                # Position in result image
+                result_x = col * self.lens_size
+                result_y = row * self.lens_size
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+                # Center point in source image for this lens
+                center_x = result_x + self.lens_size // 2
+                center_y = result_y + self.lens_size // 2
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
+                # Apply pre-calculated fisheye to this region
+                lens_region = self.apply_fisheye_to_region(frame, center_x, center_y,
+                                                          self.lens_size, self.offset_x, self.offset_y)
 
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
+                # Place lens in result
+                result[result_y:result_y+self.lens_size, result_x:result_x+self.lens_size] = lens_region
 
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
-
-        # Start with this background
-        result = background.copy()
-
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
-
-        # Create character layer
-        char_layer = np.zeros_like(frame)
-
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
-
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
-
-                # Sample brightness from background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
-
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
-
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
-
-                # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
-                if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
-                else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
-
-                if final_intensity < 20:
-                    continue  # Don't draw very dark characters
-
-                # Get character
-                char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
-
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
-
-        # Composite characters on top of background
-        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
+                # Draw border around lens
+                cv2.rectangle(result,
+                            (result_x, result_y),
+                            (result_x + self.lens_size, result_y + self.lens_size),
+                            (50, 50, 50), 1)
 
         return result
 
