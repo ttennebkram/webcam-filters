@@ -93,7 +93,7 @@ class MatrixRain:
         saturated_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
         # Dim the saturated frame for background
-        background = cv2.convertScaleAbs(saturated_frame, alpha=0.3, beta=0)
+        background = cv2.convertScaleAbs(saturated_frame, alpha=0.5, beta=0)
 
         # Create edge-detected overlay with color
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -114,69 +114,64 @@ class MatrixRain:
         # Start with this background
         result = background.copy()
 
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        # Create Canny edge layer for each bit plane of each RGB channel
+        # Start with a floating-point accumulator for blending
+        edge_accumulator = np.zeros(frame.shape, dtype=np.float32)
 
-        # Create character layer
-        char_layer = np.zeros_like(frame)
+        # Split into BGR channels
+        b_channel, g_channel, r_channel = cv2.split(saturated_frame)
 
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
+        # Process each color channel
+        channels = [
+            (b_channel, np.array([1.0, 0.0, 0.0], dtype=np.float32)),  # Blue
+            (g_channel, np.array([0.0, 1.0, 0.0], dtype=np.float32)),  # Green
+            (r_channel, np.array([0.0, 0.0, 1.0], dtype=np.float32))   # Red
+        ]
 
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
+        for channel_data, color_mask in channels:
+            # Process each bit plane (8 bits, MSB to LSB)
+            for bit in range(7, -1, -1):  # 7 is MSB, 0 is LSB
+                # Extract bit plane
+                bit_plane = ((channel_data >> bit) & 1) * 255
+                bit_plane = bit_plane.astype(np.uint8)
 
-                # Sample color and brightness from saturated background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
-                bg_color = saturated_frame[min(y_pos, self.height-1), min(x_pos, self.width-1)]
+                # Apply Canny edge detection to this bit plane
+                blurred = cv2.GaussianBlur(bit_plane, (3, 3), 0)
+                edges = cv2.Canny(blurred, 50, 150)
 
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
+                # MSB = thicker, LSB = thinner
+                # Thickness: Only MSB planes get slight dilation
+                if bit >= 6:  # Only bits 6 and 7 (top 2 MSB)
+                    kernel = np.ones((3, 3), np.uint8)
+                    edges = cv2.dilate(edges, kernel, iterations=1)  # Just 1 iteration
 
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
+                # Soften edges
+                edges = cv2.GaussianBlur(edges, (3, 3), 0)
 
-                # Combine background brightness with streamer intensity
-                if streamer_intensity > 0:
-                    # Streamer - use white for head, colored for tail
-                    if streamer_intensity > 240:
-                        # Head - white
-                        color = (255, 255, 255)
-                        thickness = 2
-                    else:
-                        # Tail - take hue from background, boost saturation
-                        intensity_scale = streamer_intensity / 200.0
-                        color = tuple(int(c * intensity_scale * 1.5) for c in bg_color)
-                        thickness = 1
-                else:
-                    # No streamer - characters use background color, saturated
-                    intensity_scale = brightness / 255.0 * 1.2  # Boost brightness
-                    color = tuple(int(c * intensity_scale) for c in bg_color)
-                    thickness = 1
+                # Brightness: Keep intensity more consistent across bit planes
+                # The thickness variation does most of the work
+                intensity = (bit + 1) / 8.0  # Linear falloff
 
-                # Check if color is too dark
-                if max(color) < 20:
-                    continue  # Don't draw very dark characters
+                # Overall reduction factor
+                intensity *= 0.5  # Reduce all edges to 50% intensity
 
-                # Get character
-                char = self.grid[row][col]['char']
+                # Create colored edge layer for this bit plane
+                # Convert edges to float and normalize
+                edges_float = edges.astype(np.float32) / 255.0
 
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
+                # Apply intensity scaling
+                edges_float *= intensity * 255.0
 
-        # Composite characters on top of background
+                # Add to accumulator with color (transparent blending)
+                for c in range(3):
+                    edge_accumulator[:, :, c] += edges_float * color_mask[c]
+
+        # Normalize and convert accumulator to uint8
+        # Clip values to prevent overflow
+        edge_accumulator = np.clip(edge_accumulator, 0, 255)
+        char_layer = edge_accumulator.astype(np.uint8)
+
+        # Composite edge layer on top of background
         result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
 
         return result
