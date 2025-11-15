@@ -98,8 +98,11 @@ class MatrixRain:
         edge_background = np.zeros_like(frame)
         edge_background[:, :, 1] = edges  # Green channel only
 
-        # Dim original frame
-        dimmed_frame = cv2.convertScaleAbs(frame, alpha=0.15, beta=0)  # Very dim
+        # Convert original frame to grayscale, then to green-only
+        # This removes all color, keeping only brightness
+        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
+        dimmed_frame = np.zeros_like(frame)
+        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
 
         # Combine dimmed frame with green edges
         background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
