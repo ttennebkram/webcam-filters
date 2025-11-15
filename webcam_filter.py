@@ -10,81 +10,120 @@ import signal
 
 
 class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+    """Heat wave effect with thermal refraction"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
+        # Heat waves - horizontal cylinders with refraction
+        self.heat_waves = []
+        for _ in range(8):  # 8 heat waves at various positions
+            # Create slightly irregular horizontal cylinder
+            wave_width = random.randint(width // 3, width // 2)
+            wave_height = random.randint(40, 80)
 
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
+            # Precompute refraction displacement map for this heat wave
+            # Create a lens-like distortion pattern
+            displacement_map = np.zeros((wave_height, wave_width, 2), dtype=np.float32)
 
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
+            for y in range(wave_height):
+                for x in range(wave_width):
+                    # Distance from center of wave (normalized)
+                    center_y = wave_height / 2.0
+                    dist_from_center = abs(y - center_y) / center_y
 
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+                    # Create refraction effect - strongest at center, weak at edges
+                    # Use sine wave for smooth falloff
+                    strength = (1.0 - dist_from_center) * np.sin(dist_from_center * np.pi)
+
+                    # Horizontal displacement (wave-like pattern)
+                    x_offset = strength * np.sin(x * 0.1 + y * 0.05) * 8.0
+
+                    # Vertical displacement (slight upward distortion)
+                    y_offset = strength * 3.0
+
+                    displacement_map[y, x] = [x_offset, y_offset]
+
+            # Blur the displacement map for smoother refraction
+            displacement_map[:, :, 0] = cv2.GaussianBlur(displacement_map[:, :, 0], (15, 15), 0)
+            displacement_map[:, :, 1] = cv2.GaussianBlur(displacement_map[:, :, 1], (15, 15), 0)
+
+            self.heat_waves.append({
+                'x': random.randint(0, width - wave_width),
+                'y': random.randint(height, height + 200),  # Start below screen
+                'speed': random.uniform(0.8, 2.0),  # Upward speed
+                'width': wave_width,
+                'height': wave_height,
+                'displacement_map': displacement_map,
+                'opacity': random.uniform(0.6, 0.9)
+            })
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
+        """Update heat waves"""
+        for wave in self.heat_waves:
+            # Move upward
+            wave['y'] -= wave['speed']
 
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
-
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+            # Reset if off screen (disappeared near middle or above)
+            if wave['y'] < -wave['height']:
+                # Restart from bottom
+                wave['y'] = random.randint(self.height, self.height + 200)
+                wave['x'] = random.randint(0, self.width - wave['width'])
+                wave['speed'] = random.uniform(0.8, 2.0)
 
     def draw(self, frame, face_mask=None):
-        """Golden sunset effect - replace hue with golden sunlight while preserving S and V"""
+        """Golden sunset effect with thermal heat waves - replace hue with golden sunlight while preserving S and V"""
+        # Apply heat wave refraction first
+        result = frame.copy()
+
+        for wave in self.heat_waves:
+            wave_x = int(wave['x'])
+            wave_y = int(wave['y'])
+            wave_w = wave['width']
+            wave_h = wave['height']
+
+            # Only process if wave is visible on screen
+            if wave_y < self.height and wave_y + wave_h > 0:
+                # Calculate visible portion of wave
+                src_y_start = max(0, -wave_y)
+                src_y_end = min(wave_h, self.height - wave_y)
+                dst_y_start = max(0, wave_y)
+                dst_y_end = min(self.height, wave_y + wave_h)
+
+                src_x_start = max(0, -wave_x)
+                src_x_end = min(wave_w, self.width - wave_x)
+                dst_x_start = max(0, wave_x)
+                dst_x_end = min(self.width, wave_x + wave_w)
+
+                if src_y_end > src_y_start and src_x_end > src_x_start:
+                    # Get the region to refract
+                    region = result[dst_y_start:dst_y_end, dst_x_start:dst_x_end].copy()
+                    region_h, region_w = region.shape[:2]
+
+                    # Get corresponding displacement map section
+                    disp_map = wave['displacement_map'][src_y_start:src_y_end, src_x_start:src_x_end]
+
+                    # Apply refraction using displacement map
+                    for y in range(region_h):
+                        for x in range(region_w):
+                            if y < disp_map.shape[0] and x < disp_map.shape[1]:
+                                dx, dy = disp_map[y, x]
+
+                                # Calculate source pixel with displacement
+                                src_x = int(x + dx)
+                                src_y = int(y + dy)
+
+                                # Clamp to region bounds
+                                src_x = max(0, min(region_w - 1, src_x))
+                                src_y = max(0, min(region_h - 1, src_y))
+
+                                # Copy refracted pixel (blend with opacity)
+                                if 0 <= src_y < region_h and 0 <= src_x < region_w:
+                                    result[dst_y_start + y, dst_x_start + x] = region[src_y, src_x]
+
         # Convert to HSV to manipulate hue
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv = cv2.cvtColor(result, cv2.COLOR_BGR2HSV).astype(np.float32)
 
         # Golden sunset hue in OpenCV (0-179 range)
         # Golden/orange sunset is around 15-25 in HSV
