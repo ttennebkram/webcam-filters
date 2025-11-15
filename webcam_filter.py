@@ -82,9 +82,44 @@ class MatrixRain:
                     }
 
     def draw(self, frame, face_mask=None):
-        """White edges with original color background"""
-        # Start with original frame
-        result = frame.copy()
+        """Golden sunset effect - replace hue with golden sunlight while preserving S and V"""
+        # Convert to HSV to manipulate hue
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+
+        # Golden sunset hue in OpenCV (0-179 range)
+        # Golden/orange sunset is around 15-25 in HSV
+        # Using 20 for warm golden sunlight
+        golden_hue = 20
+
+        # Replace all hues with golden sunset hue, keep original S and V
+        hsv[:, :, 0] = golden_hue
+
+        # Convert back to BGR
+        result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+        # Apply gradient of golden sunlight - gentle gradient down to halfway
+        height, width = result.shape[:2]
+
+        # Create gradient mask - gentler, extends to halfway down
+        gradient = np.zeros((height, width), dtype=np.float32)
+        for y in range(height):
+            # Smooth gradient from 0.5 at top to 0.0 at halfway down
+            if y < height // 2:
+                # Linear fade from 0.5 to 0.0
+                gradient[y, :] = 0.5 * (1.0 - (y / (height // 2)))
+            else:
+                gradient[y, :] = 0.0
+
+        # Convert gradient to 3-channel
+        gradient_3channel = cv2.merge([gradient, gradient, gradient])
+
+        # Create bright golden sunlight color
+        bright_golden = np.ones_like(result, dtype=np.uint8)
+        bright_golden[:, :] = [100, 200, 255]  # Very bright golden/yellow
+
+        # Blend sunlight gradient on top of result
+        result = (result.astype(np.float32) * (1.0 - gradient_3channel) +
+                  bright_golden.astype(np.float32) * gradient_3channel).astype(np.uint8)
 
         # Detect edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -101,12 +136,14 @@ class MatrixRain:
         # Convert edges to 3-channel for blending
         edges_3channel = cv2.merge([edges, edges, edges])
 
-        # Create white color
-        white = np.ones_like(result, dtype=np.uint8) * 255
+        # Create golden color (BGR format)
+        # Golden/orange sunset color
+        golden = np.ones_like(result, dtype=np.uint8)
+        golden[:, :] = [0, 165, 255]  # BGR: bright golden orange
 
-        # Blend white edges on top of original frame
+        # Blend golden edges on top of golden frame
         alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
+        result = (result.astype(np.float32) * (1.0 - alpha) + golden.astype(np.float32) * alpha).astype(np.uint8)
 
         return result
 
