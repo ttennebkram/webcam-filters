@@ -67,45 +67,72 @@ class MatrixRain:
                 flake['points'] = points
 
     def draw(self, frame, face_mask=None):
-        """Winter effect - arctic blue with white edges"""
-        # Apply pure arctic blue tint - no original hue
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
-
-        # Replace ALL hue with bright arctic blue
-        hsv[:, :, 0] = 105  # Bright arctic blue/cyan
-
-        # Set strong saturation for vibrant blue
-        hsv[:, :, 1] = 120  # Strong saturation
-
-        # Keep original value (brightness) to preserve image details
-        # hsv[:, :, 2] stays unchanged
-
-        # Convert back
-        result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
+        """Winter effect - arctic blue near edges, white in center"""
         # Detect edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
 
-        # Dilate edges to make them more prominent
-        kernel = np.ones((2, 2), np.uint8)
-        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
+        # Use only Gaussian blurs for completely smooth, non-blocky edges
+        # Start with the raw edges
+        edges_processed = edges.copy().astype(np.float32)
 
-        # Blur edges HEAVILY for soft, glowing effect that extends into surrounding area
-        edges_blurred = cv2.GaussianBlur(edges_dilated, (21, 21), 0)
+        # Progressive blur cycles - no dilation to avoid blockiness
+        # Each cycle extends reach smoothly with increasingly large blurs for fuzzier edges
+        blur_sizes = [
+            (15, 15), (21, 21), (27, 27), (33, 33), (39, 39), (45, 45),
+            (51, 51), (57, 57), (63, 63), (71, 71), (81, 81), (91, 91)
+        ]
 
-        # Convert edges to 3-channel for blending
-        edges_3channel = cv2.merge([edges_blurred, edges_blurred, edges_blurred])
+        for blur_size in blur_sizes:
+            edges_processed = cv2.GaussianBlur(edges_processed, blur_size, 0)
+            # Boost opacity slightly after each blur to maintain strength
+            edges_processed = np.clip(edges_processed * 1.15, 0, 255)
 
-        # Create BRIGHT arctic blue for edges and surrounding areas
-        bright_arctic_blue = np.ones_like(result, dtype=np.uint8)
-        bright_arctic_blue[:, :] = [255, 255, 180]  # Very bright arctic blue (BGR)
+        # Add additional blur to feather edges more, then boost center back to 100%
+        edges_blurred = cv2.GaussianBlur(edges_processed, (151, 151), 0)
+        # Boost to restore center brightness while keeping feathered edges
+        edges_blurred = np.clip(edges_blurred * 1.3, 0, 255).astype(np.uint8)
 
-        # Blend bright arctic blue on edges - this adds MORE blue to edge areas
-        alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) +
-                 bright_arctic_blue.astype(np.float32) * alpha).astype(np.uint8)
+        # Convert frame to HSV to preserve brightness while changing color
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+
+        # Invert the mask - high values where there are NO edges, low values near edges
+        inverted_mask = 255 - edges_blurred
+        inverted_mask_normalized = inverted_mask.astype(np.float32) / 255.0
+
+        # Apply power curve to extend arctic blue further - higher power = more arctic blue
+        inverted_mask_normalized = np.power(inverted_mask_normalized, 5.0)  # 5th power for much more arctic blue
+
+        # Near edges (inverted_mask low): arctic blue (hue 105)
+        # Away from edges (inverted_mask high): white (saturation 0)
+
+        # Blend hue: arctic blue everywhere
+        hsv[:, :, 0] = 105  # Arctic blue hue
+
+        # Blend saturation: high near edges (arctic blue), low away from edges (white)
+        hsv[:, :, 1] = 255 * (1.0 - inverted_mask_normalized)  # Low saturation = white, max saturation near edges
+
+        # Keep original brightness (value channel)
+        # hsv[:, :, 2] stays unchanged
+
+        # Convert back to BGR
+        result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+        # Now add white glow right at the edges on top
+        # Use the original edge mask with less blur for tighter white edges
+        white_edges = cv2.GaussianBlur(edges_processed, (31, 31), 0)
+        white_edges = np.clip(white_edges * 1.2, 0, 255).astype(np.uint8)
+
+        # Convert to 3-channel for blending
+        white_edges_3channel = cv2.merge([white_edges, white_edges, white_edges])
+
+        # Create white color
+        white = np.ones_like(result, dtype=np.uint8) * 255
+
+        # Blend white on top of arctic blue at edges
+        alpha = white_edges_3channel.astype(np.float32) / 255.0
+        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
 
         # Draw snowflakes - irregular white blobs
         for flake in self.snowflakes:
