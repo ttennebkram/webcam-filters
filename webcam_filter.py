@@ -10,168 +10,89 @@ import signal
 
 
 class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+    """Winter effect"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
-
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
-
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
-
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
-
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
-
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
-
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        """Update method"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
+        """Winter effect - arctic blue with white edges"""
+        # Apply pure arctic blue tint - no original hue
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+
+        # Replace ALL hue with bright arctic blue
+        hsv[:, :, 0] = 105  # Bright arctic blue/cyan
+
+        # Set strong saturation for vibrant blue
+        hsv[:, :, 1] = 120  # Strong saturation
+
+        # Keep original value (brightness) to preserve image details
+        # hsv[:, :, 2] stays unchanged
+
+        # Convert back
+        result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+        # Detect edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
 
-        # Soften edges with blur
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Dilate edges to make them more prominent
+        kernel = np.ones((2, 2), np.uint8)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+        # Blur edges HEAVILY for soft, glowing effect
+        edges_blurred = cv2.GaussianBlur(edges_dilated, (21, 21), 0)
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
+        # Convert edges to 3-channel for blending
+        edges_3channel = cv2.merge([edges_blurred, edges_blurred, edges_blurred])
 
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
+        # Blend white edges with result (edges act as alpha)
+        white = np.ones_like(result) * 255
+        alpha = edges_3channel.astype(np.float32) / 255.0
+        result = (result.astype(np.float32) * (1.0 - alpha) + white * alpha).astype(np.uint8)
 
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
+        # Create inverted mask - areas where edges are NOT nearby
+        # Use Gaussian blur for dilation instead of morphological dilation
+        # This creates smooth, circular expansion without blocky corners
+        mask_edges = edges.astype(np.float32)
 
-        # Start with this background
-        result = background.copy()
+        # Fewer Gaussian blurs for less expansion (50% reduction)
+        mask_edges = cv2.GaussianBlur(mask_edges, (35, 35), 0)
+        mask_edges = cv2.GaussianBlur(mask_edges, (35, 35), 0)
 
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        # Boost intensity to compensate for blur spreading
+        mask_edges = np.clip(mask_edges * 3.0, 0, 255).astype(np.uint8)
 
-        # Create character layer
-        char_layer = np.zeros_like(frame)
+        # INVERT the mask - white where edges are NOT nearby
+        inverted_mask = 255 - mask_edges
 
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
+        # Convert to 3-channel and normalize
+        inverted_mask_3channel = cv2.merge([inverted_mask, inverted_mask, inverted_mask])
+        mask_alpha = inverted_mask_3channel.astype(np.float32) / 255.0 * 0.6  # 60% white bleed
 
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
+        # Create arctic blue-tinted white (slightly blue)
+        arctic_white = np.ones_like(result, dtype=np.uint8)
+        arctic_white[:, :] = [255, 245, 230]  # Very light arctic blue-white (BGR)
 
-                # Sample brightness from background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
+        # Create pure white for center of non-edge areas
+        pure_white = np.ones_like(result) * 255
 
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
+        # Use mask intensity to blend between arctic white and pure white
+        # Higher mask values (center of non-edge areas) = more pure white
+        # Lower mask values (near edges) = more arctic blue tint
+        white_blend_factor = (inverted_mask_3channel.astype(np.float32) / 255.0) ** 2  # Squared for stronger center
+        blended_white = (arctic_white.astype(np.float32) * (1.0 - white_blend_factor) +
+                        pure_white * white_blend_factor).astype(np.uint8)
 
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
-
-                # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
-                if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
-                else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
-
-                if final_intensity < 20:
-                    continue  # Don't draw very dark characters
-
-                # Get character
-                char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
-
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
-
-        # Composite characters on top of background
-        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
+        # Blend the gradient white into non-edge areas - washes out detail
+        result = (result.astype(np.float32) * (1.0 - mask_alpha) +
+                 blended_white.astype(np.float32) * mask_alpha).astype(np.uint8)
 
         return result
 
@@ -323,7 +244,7 @@ def main():
 
     print(f"Webcam initialized: {width}x{height}")
     print("Controls:")
-    print("  SPACEBAR - Toggle Matrix mode on/off")
+    print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
 
     # Start window thread for better event handling and native controls
@@ -339,8 +260,8 @@ def main():
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
 
-    # Mode toggle
-    matrix_mode = False  # Start in preview mode
+    # Mode toggle - start with effect ON
+    effect_enabled = True
 
     # FPS calculation
     fps_start_time = time.time()
@@ -358,15 +279,13 @@ def main():
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
-        if matrix_mode:
-            # Matrix mode: update grid and draw based on brightness
+        if effect_enabled:
+            # Effect mode: apply the effect
             matrix.update()
             result = matrix.draw(frame)
-            mode_text = "MATRIX MODE"
         else:
             # Preview mode: show raw webcam
             result = frame.copy()
-            mode_text = "PREVIEW MODE - Press SPACEBAR for Matrix"
 
         # Calculate FPS
         fps_counter += 1
@@ -375,10 +294,8 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display mode and FPS
-        cv2.putText(result, mode_text, (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(result, f"FPS: {fps:.1f}", (10, 60),
+        # Display FPS only (no mode text)
+        cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
@@ -395,11 +312,11 @@ def main():
                 print("\nExiting...")
                 break
             elif key == ord(' '):  # Spacebar
-                matrix_mode = not matrix_mode
-                if matrix_mode:
-                    print("Matrix mode activated!")
+                effect_enabled = not effect_enabled
+                if effect_enabled:
+                    print("Effect enabled!")
                 else:
-                    print("Preview mode - showing raw webcam")
+                    print("Effect disabled - showing raw webcam")
         except KeyboardInterrupt:
             print("\nCtrl+C in loop - force exiting...")
             cv2.destroyAllWindows()
