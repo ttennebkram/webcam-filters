@@ -49,6 +49,13 @@ class MatrixRain:
             else:
                 self.streamers.append(None)
 
+        # Temporal smoothing buffer to reduce flicker
+        self.prev_frame = None
+        self.prev_gray = None
+        self.alpha = 0.3  # Blend factor: 0.3 new frame + 0.7 previous frame (heavy smoothing)
+        self.target_mean = 128  # Target mean brightness
+        self.current_mean = 128  # Smoothed mean brightness
+
     def update(self):
         """Update character grid and streamers"""
         # Randomly change characters in the grid
@@ -82,65 +89,105 @@ class MatrixRain:
                     }
 
     def draw(self, frame, face_mask=None):
-        """Draw pen and ink style - dark lines on white background"""
-        # Convert to grayscale for B&W processing
+        """Traditional Canny edge detection - dark lines on white background with texture"""
+        # Temporal smoothing to reduce flicker from camera auto-adjustments
+        if self.prev_frame is not None:
+            frame = cv2.addWeighted(frame, self.alpha, self.prev_frame, 1 - self.alpha, 0)
+        self.prev_frame = frame.copy()
+
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Start with white background
-        result = np.ones_like(frame) * 255
+        # Normalize brightness gradually to combat auto-exposure flickering
+        # Smooth the mean brightness over time
+        frame_mean = gray.mean()
+        self.current_mean = self.current_mean * 0.9 + frame_mean * 0.1  # Slowly adapt
 
-        # Create Canny edge layer for each bit plane
-        # Start with a floating-point accumulator for B&W blending
-        edge_accumulator = np.zeros(gray.shape, dtype=np.float32)
+        # Adjust to target brightness without dramatic jumps
+        if self.current_mean > 0:
+            adjustment = self.target_mean / self.current_mean
+            # Clamp adjustment to prevent dramatic changes
+            adjustment = np.clip(adjustment, 0.8, 1.2)
+            gray = cv2.convertScaleAbs(gray, alpha=adjustment, beta=0)
 
-        # Process grayscale channel for all bit planes
-        for bit in range(7, -1, -1):  # 7 is MSB, 0 is LSB
-            # Extract bit plane from grayscale
-            bit_plane = ((gray >> bit) & 1) * 255
-            bit_plane = bit_plane.astype(np.uint8)
+        # Also smooth the grayscale temporally for even more stability
+        if self.prev_gray is not None:
+            gray = cv2.addWeighted(gray, self.alpha, self.prev_gray, 1 - self.alpha, 0)
+        self.prev_gray = gray.copy()
 
-            # Apply Canny edge detection to this bit plane
-            blurred = cv2.GaussianBlur(bit_plane, (3, 3), 0)
-            edges = cv2.Canny(blurred, 50, 150)
+        # Create high-pass filter for texture (use VERY small blur to detect fine detail)
+        low_pass = cv2.GaussianBlur(gray, (3, 3), 0)  # Even smaller blur = even finer detail
+        high_pass = cv2.subtract(gray.astype(np.int16), low_pass.astype(np.int16))
 
-            # MSB = thicker, LSB = thinner
-            # Thickness: Only MSB planes get slight dilation
-            if bit >= 6:  # Only bits 6 and 7 (top 2 MSB)
-                kernel = np.ones((3, 3), np.uint8)
-                edges = cv2.dilate(edges, kernel, iterations=1)  # Just 1 iteration
+        # Expand contrast MASSIVELY - multiply the range
+        high_pass = high_pass.astype(np.float32) * 25.0  # Amplify detail 25x!!! (was 15x)
 
-            # Soften edges
-            edges = cv2.GaussianBlur(edges, (3, 3), 0)
+        # Normalize to use full range (expand contrast to maximum)
+        high_pass_min = high_pass.min()
+        high_pass_max = high_pass.max()
+        if high_pass_max - high_pass_min > 0:
+            # Stretch to full 0-255 range
+            high_pass = ((high_pass - high_pass_min) / (high_pass_max - high_pass_min) * 510) - 255  # Double range, centered at 0
+        else:
+            high_pass = np.zeros_like(high_pass)
 
-            # Darkness: Keep intensity more consistent across bit planes
-            # The thickness variation does most of the work
-            intensity = (bit + 1) / 8.0  # Linear falloff
+        # Desaturate the original frame
+        gray_3channel = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        desaturated_bg = cv2.convertScaleAbs(gray_3channel, alpha=0.15, beta=230)  # Very light background
 
-            # Overall darkness factor
-            intensity *= 0.8  # 80% darkness for edges
+        # Start with desaturated background
+        result = desaturated_bg.copy()
 
-            # Convert edges to float and normalize
-            edges_float = edges.astype(np.float32) / 255.0
+        # Apply multiple Canny detections at different sensitivities
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-            # Apply intensity scaling
-            edges_float *= intensity * 255.0
+        # Strong edges (lower thresholds to catch more detail)
+        edges_strong = cv2.Canny(blurred, 30, 90)
 
-            # Add to accumulator (darker = higher values, will be inverted)
-            edge_accumulator += edges_float
+        # Medium edges (lower thresholds for better retention)
+        edges_medium = cv2.Canny(blurred, 15, 50)  # Lower thresholds
 
-        # Normalize and convert accumulator to uint8
-        # Clip values to prevent overflow
-        edge_accumulator = np.clip(edge_accumulator, 0, 255)
-        edges_grayscale = edge_accumulator.astype(np.uint8)
+        # Faint edges (very low thresholds for subtle detail)
+        edges_faint = cv2.Canny(blurred, 8, 25)  # Lower thresholds
 
-        # Invert: dark lines on white background
-        edges_inverted = 255 - edges_grayscale
+        # Extra faint edges (even more sensitive to hold onto subtle lines)
+        edges_extra_faint = cv2.Canny(blurred, 4, 15)  # Lower thresholds
 
-        # Convert to 3-channel for compositing
+        # Very extra faint edges (maximum sensitivity)
+        edges_very_extra_faint = cv2.Canny(blurred, 2, 10)  # Extremely low
+
+        # Blur each layer differently for varied softness
+        edges_strong = cv2.GaussianBlur(edges_strong, (9, 9), 0)  # Much more blur for smooth main lines
+        edges_medium = cv2.GaussianBlur(edges_medium, (5, 5), 0)  # More blur
+        edges_faint = cv2.GaussianBlur(edges_faint, (3, 3), 0)    # Light blur
+        edges_extra_faint = cv2.GaussianBlur(edges_extra_faint, (3, 3), 0)  # Light blur
+        edges_very_extra_faint = cv2.GaussianBlur(edges_very_extra_faint, (3, 3), 0)  # Light blur
+
+        # Combine with different intensities - boost faint lines significantly
+        combined = np.zeros_like(gray, dtype=np.float32)
+        combined += edges_strong.astype(np.float32) * 0.7   # Strong lines at 70%
+        combined += edges_medium.astype(np.float32) * 0.7   # Medium lines at 70% (boosted)
+        combined += edges_faint.astype(np.float32) * 0.65   # Faint lines at 65% (boosted!)
+        combined += edges_extra_faint.astype(np.float32) * 0.6  # Extra faint lines at 60% (boosted!)
+        combined += edges_very_extra_faint.astype(np.float32) * 0.5  # Very extra faint at 50%
+
+        # Add high-pass texture with MASSIVE impact
+        high_pass_contribution = high_pass * 8.0  # EXTREME contribution of texture!!! (was 5.0)
+        combined += high_pass_contribution
+
+        # Normalize and clip
+        combined = np.clip(combined, 0, 255).astype(np.uint8)
+
+        # Invert: we want dark lines on white background
+        edges_inverted = 255 - combined
+
+        # Convert to 3-channel
         edges_3channel = cv2.merge([edges_inverted, edges_inverted, edges_inverted])
 
-        # Composite: subtract dark lines from white background
-        result = cv2.subtract(result, 255 - edges_3channel)
+        # Composite onto background (darken where edges exist)
+        result = cv2.multiply(result.astype(np.float32) / 255.0,
+                             edges_3channel.astype(np.float32) / 255.0)
+        result = (result * 255).astype(np.uint8)
 
         return result
 
