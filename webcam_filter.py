@@ -27,7 +27,7 @@ class MatrixRain:
         self.drops = []
 
         # Spawn initial drops
-        for _ in range(500):
+        for _ in range(1000):
             self.spawn_drop()
 
     def create_refraction_map(self, drop_width):
@@ -87,8 +87,8 @@ class MatrixRain:
                         # Center - moderate refraction
                         refract_strength = 15.0
 
-                    # Smooth falloff at edges for anti-aliasing
-                    edge_falloff = min(1.0, edge_dist / 2.0)
+                    # Smooth falloff at edges for anti-aliasing - wider feathering
+                    edge_falloff = min(1.0, edge_dist / 4.0)  # Wider feather (was /2.0)
 
                     offset_x[y, x] = np.sign(dx) * refract_strength
                     offset_y[y, x] = refract_strength * 0.3
@@ -122,12 +122,18 @@ class MatrixRain:
         self.drops = [d for d in self.drops if d['y'] < self.height + 50]
 
         # Maintain drop count
-        while len(self.drops) < 500:
+        while len(self.drops) < 1000:
             self.spawn_drop()
 
     def draw(self, frame, face_mask=None):
         """Draw water drops refracting the background image"""
-        # Start with original frame
+        # Boost saturation and contrast of source frame for more visible drops
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv[:, :, 1] = cv2.convertScaleAbs(hsv[:, :, 1], alpha=1.3, beta=0)  # 1.3x saturation
+        hsv[:, :, 2] = cv2.convertScaleAbs(hsv[:, :, 2], alpha=1.15, beta=-10)  # Subtle contrast boost
+        enhanced_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+        # Start with original frame (not enhanced)
         result = frame.copy()
 
         # Sort drops by y position (top to bottom) so overlapping drops blend correctly
@@ -184,8 +190,8 @@ class MatrixRain:
             source_x = (x_coords + region_offset_x.astype(np.int32)).clip(0, self.width - 1)
             source_y = (y_coords + region_offset_y.astype(np.int32)).clip(0, self.height - 1)
 
-            # Get refracted pixels
-            refracted = frame[source_y, source_x]
+            # Get refracted pixels from ENHANCED frame (saturated/contrasted)
+            refracted = enhanced_frame[source_y, source_x]
 
             # Get original pixels
             original = result[screen_top:screen_bottom, screen_left:screen_right]
