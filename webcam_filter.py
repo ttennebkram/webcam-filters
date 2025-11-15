@@ -10,15 +10,61 @@ import signal
 
 
 class MatrixRain:
-    """Winter effect"""
+    """Winter effect with snow"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
+        # Snowflakes - irregular shapes
+        self.snowflakes = []
+        for _ in range(300):  # Heavy snow
+            # Create small irregular shape for each snowflake
+            num_points = random.randint(3, 5)
+            base_size = random.uniform(1.5, 4.0)
+            points = []
+            for i in range(num_points):
+                angle = (i / num_points) * 2 * np.pi
+                radius = base_size * random.uniform(0.6, 1.0)
+                px = radius * np.cos(angle)
+                py = radius * np.sin(angle)
+                points.append((px, py))
+
+            self.snowflakes.append({
+                'x': random.uniform(0, width),
+                'y': random.uniform(-height, 0),  # Start above screen
+                'speed': random.uniform(2.0, 6.0),
+                'points': points,  # Irregular shape
+                'drift': random.uniform(-0.5, 0.5),  # Horizontal drift
+                'rotation': random.uniform(0, 360)
+            })
+
     def update(self):
-        """Update method"""
-        pass
+        """Update snowflakes"""
+        for flake in self.snowflakes:
+            # Move down
+            flake['y'] += flake['speed']
+            flake['x'] += flake['drift']
+            flake['rotation'] += random.uniform(-2, 2)  # Slight rotation
+
+            # Reset if off screen
+            if flake['y'] > self.height:
+                flake['y'] = random.uniform(-20, 0)
+                flake['x'] = random.uniform(0, self.width)
+                flake['speed'] = random.uniform(2.0, 6.0)
+                flake['drift'] = random.uniform(-0.5, 0.5)
+
+                # Regenerate irregular shape
+                num_points = random.randint(3, 5)
+                base_size = random.uniform(1.5, 4.0)
+                points = []
+                for i in range(num_points):
+                    angle = (i / num_points) * 2 * np.pi
+                    radius = base_size * random.uniform(0.6, 1.0)
+                    px = radius * np.cos(angle)
+                    py = radius * np.sin(angle)
+                    points.append((px, py))
+                flake['points'] = points
 
     def draw(self, frame, face_mask=None):
         """Winter effect - arctic blue with white edges"""
@@ -46,53 +92,43 @@ class MatrixRain:
         kernel = np.ones((2, 2), np.uint8)
         edges_dilated = cv2.dilate(edges, kernel, iterations=1)
 
-        # Blur edges HEAVILY for soft, glowing effect
+        # Blur edges HEAVILY for soft, glowing effect that extends into surrounding area
         edges_blurred = cv2.GaussianBlur(edges_dilated, (21, 21), 0)
 
         # Convert edges to 3-channel for blending
         edges_3channel = cv2.merge([edges_blurred, edges_blurred, edges_blurred])
 
-        # Blend white edges with result (edges act as alpha)
-        white = np.ones_like(result) * 255
+        # Create BRIGHT arctic blue for edges and surrounding areas
+        bright_arctic_blue = np.ones_like(result, dtype=np.uint8)
+        bright_arctic_blue[:, :] = [255, 255, 180]  # Very bright arctic blue (BGR)
+
+        # Blend bright arctic blue on edges - this adds MORE blue to edge areas
         alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + white * alpha).astype(np.uint8)
+        result = (result.astype(np.float32) * (1.0 - alpha) +
+                 bright_arctic_blue.astype(np.float32) * alpha).astype(np.uint8)
 
-        # Create inverted mask - areas where edges are NOT nearby
-        # Use Gaussian blur for dilation instead of morphological dilation
-        # This creates smooth, circular expansion without blocky corners
-        mask_edges = edges.astype(np.float32)
+        # Draw snowflakes - irregular white blobs
+        for flake in self.snowflakes:
+            x = int(flake['x'])
+            y = int(flake['y'])
 
-        # Fewer Gaussian blurs for less expansion (50% reduction)
-        mask_edges = cv2.GaussianBlur(mask_edges, (35, 35), 0)
-        mask_edges = cv2.GaussianBlur(mask_edges, (35, 35), 0)
+            if -10 <= x < self.width + 10 and -10 <= y < self.height + 10:
+                # Rotate and position the irregular shape points
+                rot_rad = np.radians(flake['rotation'])
+                cos_r = np.cos(rot_rad)
+                sin_r = np.sin(rot_rad)
 
-        # Boost intensity to compensate for blur spreading
-        mask_edges = np.clip(mask_edges * 3.0, 0, 255).astype(np.uint8)
+                rotated_points = []
+                for px, py in flake['points']:
+                    # Rotate
+                    rx = px * cos_r - py * sin_r
+                    ry = px * sin_r + py * cos_r
+                    # Translate to position
+                    rotated_points.append((int(x + rx), int(y + ry)))
 
-        # INVERT the mask - white where edges are NOT nearby
-        inverted_mask = 255 - mask_edges
-
-        # Convert to 3-channel and normalize
-        inverted_mask_3channel = cv2.merge([inverted_mask, inverted_mask, inverted_mask])
-        mask_alpha = inverted_mask_3channel.astype(np.float32) / 255.0 * 0.6  # 60% white bleed
-
-        # Create arctic blue-tinted white (slightly blue)
-        arctic_white = np.ones_like(result, dtype=np.uint8)
-        arctic_white[:, :] = [255, 245, 230]  # Very light arctic blue-white (BGR)
-
-        # Create pure white for center of non-edge areas
-        pure_white = np.ones_like(result) * 255
-
-        # Use mask intensity to blend between arctic white and pure white
-        # Higher mask values (center of non-edge areas) = more pure white
-        # Lower mask values (near edges) = more arctic blue tint
-        white_blend_factor = (inverted_mask_3channel.astype(np.float32) / 255.0) ** 2  # Squared for stronger center
-        blended_white = (arctic_white.astype(np.float32) * (1.0 - white_blend_factor) +
-                        pure_white * white_blend_factor).astype(np.uint8)
-
-        # Blend the gradient white into non-edge areas - washes out detail
-        result = (result.astype(np.float32) * (1.0 - mask_alpha) +
-                 blended_white.astype(np.float32) * mask_alpha).astype(np.uint8)
+                # Draw filled polygon for irregular snowflake
+                pts = np.array(rotated_points, dtype=np.int32)
+                cv2.fillPoly(result, [pts], (255, 255, 255), cv2.LINE_AA)
 
         return result
 
