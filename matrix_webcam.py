@@ -83,14 +83,35 @@ class MatrixRain:
 
     def draw(self, frame, face_mask=None):
         """Draw the Matrix effect - characters brightness based on background"""
-        # Start with black background
-        result = np.zeros_like(frame)
-
-        # Convert frame to grayscale for brightness sampling
+        # Create edge-detected background
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blurred, 50, 150)
+
+        # Soften edges with blur
+        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+
+        # Dim the edges
+        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+
+        # Convert edges to pure green on black
+        edge_background = np.zeros_like(frame)
+        edge_background[:, :, 1] = edges  # Green channel only
+
+        # Dim original frame
+        dimmed_frame = cv2.convertScaleAbs(frame, alpha=0.15, beta=0)  # Very dim
+
+        # Combine dimmed frame with green edges
+        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
+
+        # Start with this background
+        result = background.copy()
 
         # Use OpenCV font
         font = cv2.FONT_HERSHEY_SIMPLEX
+
+        # Create character layer
+        char_layer = np.zeros_like(frame)
 
         # Draw all characters in the grid
         for row in range(self.num_rows):
@@ -144,7 +165,10 @@ class MatrixRain:
                     color = (0, final_intensity, 0)
                     thickness = 1
 
-                cv2.putText(result, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
+                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
+
+        # Composite characters on top of background
+        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
 
         return result
 
