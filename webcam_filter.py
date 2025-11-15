@@ -82,96 +82,31 @@ class MatrixRain:
                     }
 
     def draw(self, frame, face_mask=None):
-        """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
+        """White edges with original color background"""
+        # Start with original frame
+        result = frame.copy()
+
+        # Detect edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
 
-        # Soften edges with blur
+        # Dilate edges to make them more prominent
+        kernel = np.ones((2, 2), np.uint8)
+        edges = cv2.dilate(edges, kernel, iterations=1)
+
+        # Blur edges for soft effect
         edges = cv2.GaussianBlur(edges, (5, 5), 0)
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+        # Convert edges to 3-channel for blending
+        edges_3channel = cv2.merge([edges, edges, edges])
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
+        # Create white color
+        white = np.ones_like(result, dtype=np.uint8) * 255
 
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
-
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
-
-        # Start with this background
-        result = background.copy()
-
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
-
-        # Create character layer
-        char_layer = np.zeros_like(frame)
-
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
-
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
-
-                # Sample brightness from background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
-
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
-
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
-
-                # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
-                if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
-                else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
-
-                if final_intensity < 20:
-                    continue  # Don't draw very dark characters
-
-                # Get character
-                char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
-
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
-
-        # Composite characters on top of background
-        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
+        # Blend white edges on top of original frame
+        alpha = edges_3channel.astype(np.float32) / 255.0
+        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
 
         return result
 
