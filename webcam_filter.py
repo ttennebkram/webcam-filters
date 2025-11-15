@@ -83,8 +83,12 @@ class MatrixRain:
 
     def draw(self, frame, face_mask=None):
         """Stained glass effect - color quantization and segmentation"""
+        # Downsample to 33% for 9x speed improvement
+        original_height, original_width = frame.shape[:2]
+        small_frame = cv2.resize(frame, (original_width // 3, original_height // 3), interpolation=cv2.INTER_LINEAR)
+
         # Boost saturation first
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
         hsv[:, :, 1] = cv2.convertScaleAbs(hsv[:, :, 1], alpha=2.5, beta=0)
         saturated_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
@@ -104,7 +108,7 @@ class MatrixRain:
         # Convert back to 8-bit values
         center = np.uint8(center)
         result = center[label.flatten()]
-        result = result.reshape((frame.shape))
+        result = result.reshape((small_frame.shape))
 
         # Apply median filter to create smoother, more uniform "glass pieces"
         result = cv2.medianBlur(result, 5)
@@ -116,6 +120,9 @@ class MatrixRain:
 
         # Create black lines for leading
         result[edges > 0] = [0, 0, 0]
+
+        # Upscale back to original size using NEAREST to maintain blocky stained glass look
+        result = cv2.resize(result, (original_width, original_height), interpolation=cv2.INTER_NEAREST)
 
         return result
 
