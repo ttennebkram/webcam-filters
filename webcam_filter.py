@@ -10,168 +10,193 @@ import signal
 
 
 class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+    """Melting effect - water drops refract the image as they drip down"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
+        # Pre-calculate refraction maps for different drop sizes
+        self.drop_sizes = [8, 10, 12, 15, 18]  # Smaller drop widths
+        self.refraction_maps = {}
 
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
+        for size in self.drop_sizes:
+            self.refraction_maps[size] = self.create_refraction_map(size)
 
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
+        # Active drops - each drop has position, size, and speed
+        self.drops = []
 
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+        # Spawn initial drops
+        for _ in range(500):
+            self.spawn_drop()
+
+    def create_refraction_map(self, drop_width):
+        """Pre-calculate refraction displacement map for a water drop shape"""
+        drop_height = int(drop_width * 2.0)  # Drops are elongated
+        half_w = drop_width // 2
+
+        # Create displacement maps and alpha mask
+        offset_x = np.zeros((drop_height, drop_width), dtype=np.float32)
+        offset_y = np.zeros((drop_height, drop_width), dtype=np.float32)
+        alpha = np.zeros((drop_height, drop_width), dtype=np.float32)
+
+        # Create water drop shape with refraction effect
+        for y in range(drop_height):
+            for x in range(drop_width):
+                # Distance from center x-axis
+                dx = x - half_w
+                fx = x - half_w + 0.5  # Sub-pixel center
+
+                # Normalize y position (0 at top, 1 at bottom)
+                ny = y / drop_height
+
+                # Drop shape: stretched tail at top, rounded bulb at bottom
+                if ny < 0.5:
+                    # Top half - narrow stretched tail
+                    max_radius = half_w * (0.2 + 0.5 * (ny / 0.5))
+                    # Tail has lower alpha - lets things through
+                    alpha_strength = 0.3 + 0.5 * (ny / 0.5)
+                elif ny < 0.85:
+                    # Middle - widening to rounded bottom
+                    progress = (ny - 0.5) / 0.35
+                    # Use sine curve for smooth rounding
+                    max_radius = half_w * (0.7 + 0.3 * np.sin(progress * np.pi / 2))
+                    alpha_strength = 0.8 + 0.2 * progress
+                else:
+                    # Bottom tip - smooth rounded point using cosine
+                    progress = (ny - 0.85) / 0.15
+                    # Smooth curve to a point
+                    max_radius = half_w * np.cos(progress * np.pi / 2)
+                    alpha_strength = 1.0
+
+                # Use floating point distance for smoother edges
+                dist_from_center = np.sqrt(fx * fx)
+
+                if dist_from_center < max_radius:
+                    # Inside the drop - apply refraction
+                    # Refraction strength based on distance from edge
+                    edge_dist = max_radius - dist_from_center
+                    strength = edge_dist / max_radius
+
+                    # Strong refraction at edges (like real water drops)
+                    # Center has minimal distortion, edges have maximum
+                    if strength < 0.3:
+                        # Near edge - very strong refraction with smooth gradient
+                        refract_strength = 60.0 * (1.0 - strength / 0.3)
+                    else:
+                        # Center - moderate refraction
+                        refract_strength = 15.0
+
+                    # Smooth falloff at edges for anti-aliasing
+                    edge_falloff = min(1.0, edge_dist / 2.0)
+
+                    offset_x[y, x] = np.sign(dx) * refract_strength
+                    offset_y[y, x] = refract_strength * 0.3
+                    alpha[y, x] = edge_falloff * alpha_strength
+
+        return {
+            'width': drop_width,
+            'height': drop_height,
+            'offset_x': offset_x,
+            'offset_y': offset_y,
+            'alpha': alpha
+        }
+
+    def spawn_drop(self):
+        """Create a new drop at random position"""
+        drop = {
+            'x': random.randint(0, self.width - 1),
+            'y': random.randint(-100, 0),  # Start above screen
+            'size': random.choice(self.drop_sizes),
+            'speed': random.uniform(8.0, 24.0)  # Double average speed
+        }
+        self.drops.append(drop)
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
+        """Update drop positions"""
+        # Move drops down
+        for drop in self.drops:
+            drop['y'] += drop['speed']
 
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
+        # Remove drops that are off screen and spawn new ones
+        self.drops = [d for d in self.drops if d['y'] < self.height + 50]
 
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        # Maintain drop count
+        while len(self.drops) < 500:
+            self.spawn_drop()
 
     def draw(self, frame, face_mask=None):
-        """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        """Draw water drops refracting the background image"""
+        # Start with original frame
+        result = frame.copy()
 
-        # Soften edges with blur
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Sort drops by y position (top to bottom) so overlapping drops blend correctly
+        sorted_drops = sorted(self.drops, key=lambda d: d['y'])
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+        # Apply each drop's refraction with alpha blending
+        for drop in sorted_drops:
+            drop_x = int(drop['x'])
+            drop_y = int(drop['y'])
+            size = drop['size']
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
+            # Get pre-calculated refraction map
+            refraction = self.refraction_maps[size]
+            drop_width = refraction['width']
+            drop_height = refraction['height']
+            offset_x = refraction['offset_x']
+            offset_y = refraction['offset_y']
+            alpha = refraction['alpha']
 
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
+            # Calculate drop bounds on screen
+            left = drop_x - drop_width // 2
+            right = left + drop_width
+            top = drop_y
+            bottom = drop_y + drop_height
 
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
+            # Skip if completely off screen
+            if right < 0 or left >= self.width or bottom < 0 or top >= self.height:
+                continue
 
-        # Start with this background
-        result = background.copy()
+            # Clip to screen bounds
+            screen_left = max(0, left)
+            screen_right = min(self.width, right)
+            screen_top = max(0, top)
+            screen_bottom = min(self.height, bottom)
 
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
+            # Map to drop coordinates
+            drop_left_offset = screen_left - left
+            drop_right_offset = drop_left_offset + (screen_right - screen_left)
+            drop_top_offset = screen_top - top
+            drop_bottom_offset = drop_top_offset + (screen_bottom - screen_top)
 
-        # Create character layer
-        char_layer = np.zeros_like(frame)
+            # Extract the region from refraction maps
+            region_offset_x = offset_x[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
+            region_offset_y = offset_y[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
+            region_alpha = alpha[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
 
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
+            # Create coordinate grids for this region
+            region_h = screen_bottom - screen_top
+            region_w = screen_right - screen_left
 
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
+            y_coords, x_coords = np.mgrid[screen_top:screen_bottom, screen_left:screen_right]
 
-                # Sample brightness from background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
+            # Calculate source coordinates with refraction
+            source_x = (x_coords + region_offset_x.astype(np.int32)).clip(0, self.width - 1)
+            source_y = (y_coords + region_offset_y.astype(np.int32)).clip(0, self.height - 1)
 
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
+            # Get refracted pixels
+            refracted = frame[source_y, source_x]
 
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
+            # Get original pixels
+            original = result[screen_top:screen_bottom, screen_left:screen_right]
 
-                # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
-                if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
-                else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
+            # Alpha blend (vectorized)
+            alpha_3d = region_alpha[:, :, np.newaxis]  # Add channel dimension
+            blended = (refracted * alpha_3d + original * (1.0 - alpha_3d)).astype(np.uint8)
 
-                if final_intensity < 20:
-                    continue  # Don't draw very dark characters
-
-                # Get character
-                char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
-
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
-
-        # Composite characters on top of background
-        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
+            # Only update pixels with significant alpha
+            mask = region_alpha > 0.01
+            result[screen_top:screen_bottom, screen_left:screen_right][mask] = blended[mask]
 
         return result
 
