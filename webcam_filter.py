@@ -267,7 +267,7 @@ def main():
 
     print(f"Webcam initialized: {width}x{height}")
     print("Controls:")
-    print("  SPACEBAR - Toggle Matrix mode on/off")
+    print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
 
     # Start window thread for better event handling and native controls
@@ -284,7 +284,7 @@ def main():
     cv2.resizeWindow(window_name, width, height)
 
     # Mode toggle
-    matrix_mode = False  # Start in preview mode
+    effect_enabled = True  # Start with effect ON
 
     # FPS calculation
     fps_start_time = time.time()
@@ -302,15 +302,15 @@ def main():
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
-        if matrix_mode:
+        if effect_enabled:
             # Matrix mode: update grid and draw based on brightness
             matrix.update()
             result = matrix.draw(frame)
-            mode_text = "MATRIX MODE"
+            # Effect enabled
         else:
             # Preview mode: show raw webcam
             result = frame.copy()
-            mode_text = "PREVIEW MODE - Press SPACEBAR for Matrix"
+            # Effect disabled
 
         # Calculate FPS
         fps_counter += 1
@@ -320,9 +320,7 @@ def main():
             fps_counter = 0
 
         # Display mode and FPS
-        cv2.putText(result, mode_text, (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(result, f"FPS: {fps:.1f}", (10, 60),
+        cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
@@ -339,11 +337,11 @@ def main():
                 print("\nExiting...")
                 break
             elif key == ord(' '):  # Spacebar
-                matrix_mode = not matrix_mode
-                if matrix_mode:
-                    print("Matrix mode activated!")
+                effect_enabled = not effect_enabled
+                if effect_enabled:
+                    print("Effect enabled!")
                 else:
-                    print("Preview mode - showing raw webcam")
+                    print("Effect disabled - showing raw webcam")
         except KeyboardInterrupt:
             print("\nCtrl+C in loop - force exiting...")
             cv2.destroyAllWindows()
