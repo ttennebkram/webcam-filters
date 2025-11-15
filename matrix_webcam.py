@@ -83,7 +83,19 @@ class MatrixRain:
 
     def draw(self, frame, face_mask=None):
         """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
+        # Convert to HSV to manipulate saturation
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Boost saturation significantly
+        hsv[:, :, 1] = cv2.convertScaleAbs(hsv[:, :, 1], alpha=2.5, beta=0)  # 2.5x saturation
+
+        # Convert back to BGR
+        saturated_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+        # Dim the saturated frame for background
+        background = cv2.convertScaleAbs(saturated_frame, alpha=0.3, beta=0)
+
+        # Create edge-detected overlay with color
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
@@ -91,21 +103,13 @@ class MatrixRain:
         # Soften edges with blur
         edges = cv2.GaussianBlur(edges, (5, 5), 0)
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+        # Create colored edge overlay by masking saturated frame with edges
+        edge_mask = cv2.merge([edges, edges, edges])  # 3-channel mask
+        edge_overlay = cv2.bitwise_and(saturated_frame, edge_mask)
+        edge_overlay = cv2.convertScaleAbs(edge_overlay, alpha=0.45, beta=0)
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
-
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
-
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
+        # Combine background with colored edge overlay
+        background = cv2.addWeighted(background, 1.0, edge_overlay, 1.0, 0)
 
         # Start with this background
         result = background.copy()
@@ -125,8 +129,9 @@ class MatrixRain:
                 if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
                     continue
 
-                # Sample brightness from background at this position
+                # Sample color and brightness from saturated background at this position
                 brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
+                bg_color = saturated_frame[min(y_pos, self.height-1), min(x_pos, self.width-1)]
 
                 # Check if this position is part of a streamer
                 streamer_intensity = 0
@@ -145,28 +150,29 @@ class MatrixRain:
                                 streamer_intensity = int(200 * fade)
 
                 # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
                 if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
+                    # Streamer - use white for head, colored for tail
+                    if streamer_intensity > 240:
+                        # Head - white
+                        color = (255, 255, 255)
+                        thickness = 2
+                    else:
+                        # Tail - take hue from background, boost saturation
+                        intensity_scale = streamer_intensity / 200.0
+                        color = tuple(int(c * intensity_scale * 1.5) for c in bg_color)
+                        thickness = 1
                 else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
+                    # No streamer - characters use background color, saturated
+                    intensity_scale = brightness / 255.0 * 1.2  # Boost brightness
+                    color = tuple(int(c * intensity_scale) for c in bg_color)
+                    thickness = 1
 
-                if final_intensity < 20:
+                # Check if color is too dark
+                if max(color) < 20:
                     continue  # Don't draw very dark characters
 
                 # Get character
                 char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
 
                 cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
 
