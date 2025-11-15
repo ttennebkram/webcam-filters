@@ -82,96 +82,40 @@ class MatrixRain:
                     }
 
     def draw(self, frame, face_mask=None):
-        """Draw the Matrix effect - characters brightness based on background"""
-        # Create edge-detected background
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        """Stained glass effect - color quantization and segmentation"""
+        # Boost saturation first
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv[:, :, 1] = cv2.convertScaleAbs(hsv[:, :, 1], alpha=2.5, beta=0)
+        saturated_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-        # Soften edges with blur
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Apply bilateral filter to smooth colors while preserving edges
+        smooth = cv2.bilateralFilter(saturated_frame, 9, 75, 75)
 
-        # Dim the edges
-        edges = cv2.convertScaleAbs(edges, alpha=0.45, beta=0)
+        # Color quantization - reduce to limited palette (stained glass colors)
+        # Reshape for k-means
+        Z = smooth.reshape((-1, 3))
+        Z = np.float32(Z)
 
-        # Convert edges to pure green on black
-        edge_background = np.zeros_like(frame)
-        edge_background[:, :, 1] = edges  # Green channel only
+        # K-means clustering to group similar colors
+        K = 24  # Number of color segments (like stained glass pieces)
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+        ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
-        # Convert original frame to grayscale, then to green-only
-        # This removes all color, keeping only brightness
-        dimmed_gray = cv2.convertScaleAbs(gray, alpha=0.15, beta=0)  # Very dim
-        dimmed_frame = np.zeros_like(frame)
-        dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel - pure green on black
+        # Convert back to 8-bit values
+        center = np.uint8(center)
+        result = center[label.flatten()]
+        result = result.reshape((frame.shape))
 
-        # Combine dimmed frame with green edges
-        background = cv2.addWeighted(dimmed_frame, 1.0, edge_background, 1.0, 0)
+        # Apply median filter to create smoother, more uniform "glass pieces"
+        result = cv2.medianBlur(result, 5)
 
-        # Start with this background
-        result = background.copy()
+        # Optional: Add dark edges between segments for leading effect
+        gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        edges = cv2.dilate(edges, np.ones((2, 2), np.uint8), iterations=1)
 
-        # Use OpenCV font
-        font = cv2.FONT_HERSHEY_SIMPLEX
-
-        # Create character layer
-        char_layer = np.zeros_like(frame)
-
-        # Draw all characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                x_pos = col * self.char_width
-                y_pos = row * self.char_height + self.char_height  # Baseline
-
-                if y_pos < 0 or y_pos >= self.height or x_pos >= self.width:
-                    continue
-
-                # Sample brightness from background at this position
-                brightness = gray[min(y_pos, self.height-1), min(x_pos, self.width-1)]
-
-                # Check if this position is part of a streamer
-                streamer_intensity = 0
-                for streamer in self.streamers:
-                    if streamer is not None and streamer['col'] == col:
-                        # Distance from streamer head (negative = behind, positive = ahead)
-                        distance = streamer['row'] - row
-
-                        if distance >= 0 and distance < streamer['length']:
-                            if distance == 0:
-                                # Head of streamer - white/bright
-                                streamer_intensity = 255
-                            else:
-                                # Tail - fades from bright to dark BEHIND the head
-                                fade = 1.0 - (distance / streamer['length'])
-                                streamer_intensity = int(200 * fade)
-
-                # Combine background brightness with streamer intensity
-                # Streamer overrides background brightness
-                if streamer_intensity > 0:
-                    final_intensity = streamer_intensity
-                else:
-                    # No streamer - characters reflect background brightness
-                    final_intensity = int(brightness * 0.7)  # Much brighter to see background
-
-                if final_intensity < 20:
-                    continue  # Don't draw very dark characters
-
-                # Get character
-                char = self.grid[row][col]['char']
-
-                # Color based on intensity and streamer
-                if streamer_intensity > 240:
-                    # Head - white
-                    color = (final_intensity, final_intensity, final_intensity)
-                    thickness = 2
-                else:
-                    # Green
-                    color = (0, final_intensity, 0)
-                    thickness = 1
-
-                cv2.putText(char_layer, char, (x_pos, y_pos), font, 0.5, color, thickness, cv2.LINE_AA)
-
-        # Composite characters on top of background
-        result = cv2.addWeighted(result, 1.0, char_layer, 1.0, 0)
+        # Create black lines for leading
+        result[edges > 0] = [0, 0, 0]
 
         return result
 
