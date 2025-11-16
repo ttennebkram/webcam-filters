@@ -7,6 +7,10 @@ import time
 import sys
 import os
 import signal
+import tkinter as tk
+from tkinter import ttk
+import threading
+import argparse
 
 
 # Configuration constants - Canny Edge Detection
@@ -18,6 +22,7 @@ DEFAULT_L2_GRADIENT = True  # Default gradient calculation method (True = L2, Fa
 
 # Configuration constants - High-Pass Filter
 DEFAULT_FREQUENCY_BLUR_KERNEL = 95  # Default blur kernel size for high-pass filter (must be odd)
+DEFAULT_FREQUENCY_BOOST = 2.5  # Default frequency boost multiplier (-5 to +5, 0 = no boost)
 
 # Configuration constants - Combined
 DEFAULT_APPLY_CANNY = True  # Default: apply Canny edge detection
@@ -70,6 +75,7 @@ class HighPassFilter:
 
         # Filter parameter - kernel size for low-pass filter (must be odd)
         self.blur_kernel = DEFAULT_FREQUENCY_BLUR_KERNEL  # Larger kernel = more high-frequency details
+        self.boost = DEFAULT_FREQUENCY_BOOST  # Boost multiplier for frequency filter
 
     def update(self):
         """Update - not needed for static effect"""
@@ -90,7 +96,172 @@ class HighPassFilter:
         # Use absolute difference so no signal = 0 (black background)
         high_pass = cv2.absdiff(gray, low_pass)
 
+        # Apply boost if set
+        if self.boost != 0:
+            # Convert to float for proper multiplication
+            high_pass_float = high_pass.astype(np.float32)
+            # Apply boost multiplier (1 + boost means 0 = no change, positive = amplify, negative = reduce)
+            high_pass_float = high_pass_float * (1.0 + self.boost)
+            # Clip to valid range and convert back
+            high_pass = np.clip(high_pass_float, 0, 255).astype(np.uint8)
+
         return high_pass
+
+
+class ControlPanel:
+    """Tkinter GUI control panel for filter parameters"""
+
+    def __init__(self, width, height, available_cameras, selected_camera_id):
+        self.width = width
+        self.height = height
+        self.max_dimension = max(width, height)
+        self.available_cameras = available_cameras
+        self.camera_changed = False
+        self.new_camera_id = None
+
+        # Create the main window
+        self.root = tk.Tk()
+        self.root.title("Sketch Filter Controls")
+        self.root.geometry("400x780")
+        self.root.attributes('-topmost', True)  # Keep window on top
+
+        # Camera selection variable
+        self.selected_camera = tk.IntVar(value=selected_camera_id)
+
+        # Variables for controls
+        self.apply_frequency = tk.BooleanVar(value=DEFAULT_APPLY_FREQUENCY)
+        self.frequency_blur = tk.IntVar(value=DEFAULT_FREQUENCY_BLUR_KERNEL)
+        self.frequency_boost = tk.DoubleVar(value=DEFAULT_FREQUENCY_BOOST)
+
+        self.apply_canny = tk.BooleanVar(value=DEFAULT_APPLY_CANNY)
+        self.canny_blur = tk.IntVar(value=DEFAULT_CANNY_BLUR_KERNEL)
+        self.threshold1 = tk.IntVar(value=DEFAULT_THRESHOLD1)
+        self.threshold2 = tk.IntVar(value=DEFAULT_THRESHOLD2)
+        self.aperture = tk.IntVar(value=DEFAULT_APERTURE_SIZE)
+        self.l2_gradient = tk.BooleanVar(value=DEFAULT_L2_GRADIENT)
+
+        self.invert = tk.BooleanVar(value=DEFAULT_INVERT)
+
+        self._build_ui()
+
+        # Flag to check if window is still open
+        self.running = True
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _build_ui(self):
+        """Build the tkinter UI"""
+        padding = {'padx': 10, 'pady': 5}
+
+        # Camera Selection Section
+        camera_frame = ttk.LabelFrame(self.root, text="Camera Selection", padding=10)
+        camera_frame.pack(fill='x', **padding)
+
+        ttk.Label(camera_frame, text="Select Camera:").pack(anchor='w')
+
+        # Create radio buttons for each camera
+        for cam in self.available_cameras:
+            cam_text = f"Camera {cam['id']}: {cam['width']}x{cam['height']}"
+            ttk.Radiobutton(camera_frame, text=cam_text, value=cam['id'],
+                           variable=self.selected_camera,
+                           command=self._on_camera_change).pack(anchor='w', pady=2)
+
+        # Frequency Filter Section
+        freq_frame = ttk.LabelFrame(self.root, text="Frequency Filter", padding=10)
+        freq_frame.pack(fill='x', **padding)
+
+        ttk.Checkbutton(freq_frame, text="Apply Frequency Filter",
+                       variable=self.apply_frequency).pack(anchor='w')
+
+        ttk.Label(freq_frame, text=f"Blur Kernel (1-{self.max_dimension}, odd)").pack(anchor='w')
+        freq_slider = ttk.Scale(freq_frame, from_=1, to=self.max_dimension,
+                               variable=self.frequency_blur, orient='horizontal',
+                               command=lambda v: self.frequency_blur.set(int(float(v))))
+        freq_slider.pack(fill='x')
+        ttk.Label(freq_frame, textvariable=self.frequency_blur).pack(anchor='e')
+
+        ttk.Label(freq_frame, text="Boost (-5x to +5x)").pack(anchor='w', pady=(10, 0))
+        boost_slider = ttk.Scale(freq_frame, from_=-5, to=5,
+                                variable=self.frequency_boost, orient='horizontal')
+        boost_slider.pack(fill='x')
+        ttk.Label(freq_frame, textvariable=self.frequency_boost).pack(anchor='e')
+
+        # Canny Edge Detection Section
+        canny_frame = ttk.LabelFrame(self.root, text="Canny Edge Detection", padding=10)
+        canny_frame.pack(fill='x', **padding)
+
+        ttk.Checkbutton(canny_frame, text="Apply Canny Edge Detection",
+                       variable=self.apply_canny).pack(anchor='w')
+
+        ttk.Label(canny_frame, text="Blur Kernel (1-31, odd)").pack(anchor='w')
+        canny_blur_slider = ttk.Scale(canny_frame, from_=1, to=31,
+                                      variable=self.canny_blur, orient='horizontal',
+                                      command=lambda v: self.canny_blur.set(int(float(v))))
+        canny_blur_slider.pack(fill='x')
+        ttk.Label(canny_frame, textvariable=self.canny_blur).pack(anchor='e')
+
+        ttk.Label(canny_frame, text="Threshold 1 (0-255)").pack(anchor='w')
+        thresh1_slider = ttk.Scale(canny_frame, from_=0, to=255,
+                                   variable=self.threshold1, orient='horizontal',
+                                   command=lambda v: self.threshold1.set(int(float(v))))
+        thresh1_slider.pack(fill='x')
+        ttk.Label(canny_frame, textvariable=self.threshold1).pack(anchor='e')
+
+        ttk.Label(canny_frame, text="Threshold 2 (0-255)").pack(anchor='w')
+        thresh2_slider = ttk.Scale(canny_frame, from_=0, to=255,
+                                   variable=self.threshold2, orient='horizontal',
+                                   command=lambda v: self.threshold2.set(int(float(v))))
+        thresh2_slider.pack(fill='x')
+        ttk.Label(canny_frame, textvariable=self.threshold2).pack(anchor='e')
+
+        ttk.Label(canny_frame, text="Aperture Size").pack(anchor='w')
+        aperture_frame = ttk.Frame(canny_frame)
+        aperture_frame.pack(fill='x')
+        for val in [3, 5, 7]:
+            ttk.Radiobutton(aperture_frame, text=str(val), value=val,
+                           variable=self.aperture).pack(side='left', padx=5)
+
+        ttk.Checkbutton(canny_frame, text="L2 Gradient",
+                       variable=self.l2_gradient).pack(anchor='w', pady=5)
+
+        # Output Section
+        output_frame = ttk.LabelFrame(self.root, text="Output", padding=10)
+        output_frame.pack(fill='x', **padding)
+
+        ttk.Checkbutton(output_frame, text="Invert (Black lines on White)",
+                       variable=self.invert).pack(anchor='w', pady=2)
+
+    def _on_camera_change(self):
+        """Handle camera selection change"""
+        self.camera_changed = True
+        self.new_camera_id = self.selected_camera.get()
+
+    def _on_close(self):
+        """Handle window close"""
+        self.running = False
+        self.root.quit()
+
+    def update(self):
+        """Update the tkinter event loop - call this periodically"""
+        if self.running:
+            try:
+                self.root.update()
+            except tk.TclError:
+                self.running = False
+
+    def ensure_odd(self, value):
+        """Ensure value is odd"""
+        val = int(value)
+        if val % 2 == 0:
+            val += 1
+        return val
+
+    def get_frequency_blur(self):
+        """Get frequency blur kernel (guaranteed odd)"""
+        return self.ensure_odd(self.frequency_blur.get())
+
+    def get_canny_blur(self):
+        """Get canny blur kernel (guaranteed odd)"""
+        return self.ensure_odd(self.canny_blur.get())
 
 
 class CombinedSketchFilter:
@@ -222,6 +393,12 @@ def find_available_cameras():
 
 def main():
     """Main application loop"""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Sketch Filter with Canny and Frequency filters')
+    parser.add_argument('--camera', type=int, default=None,
+                       help='Camera ID to use (default: highest numbered camera)')
+    args = parser.parse_args()
+
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -236,31 +413,28 @@ def main():
         print("  3. You have granted camera permissions")
         return
 
-    # Let user select camera
-    print(f"\nFound {len(available_cameras)} camera(s)")
+    # Select camera based on command line argument or use highest numbered camera
+    if args.camera is not None:
+        # Find camera with specified ID
+        selected_camera = None
+        for cam in available_cameras:
+            if cam['id'] == args.camera:
+                selected_camera = cam
+                break
 
-    if len(available_cameras) == 1:
-        selected_camera = available_cameras[0]
-        print(f"Using camera {selected_camera['id']}")
+        if selected_camera is None:
+            print(f"\nError: Camera {args.camera} not found!")
+            print("Available cameras:")
+            for cam in available_cameras:
+                print(f"  Camera {cam['id']}: {cam['width']}x{cam['height']}")
+            return
+
+        print(f"Using camera {selected_camera['id']} (from command line)")
     else:
-        print("\nAvailable cameras:")
-        for i, cam in enumerate(available_cameras):
-            print(f"  {i}. Camera {cam['id']} - {cam['width']}x{cam['height']}")
-
-        while True:
-            try:
-                choice = input(f"\nSelect camera (0-{len(available_cameras)-1}): ")
-                choice_idx = int(choice)
-                if 0 <= choice_idx < len(available_cameras):
-                    selected_camera = available_cameras[choice_idx]
-                    break
-                else:
-                    print(f"Please enter a number between 0 and {len(available_cameras)-1}")
-            except ValueError:
-                print("Please enter a valid number")
-            except KeyboardInterrupt:
-                print("\nExiting...")
-                return
+        # Use highest numbered camera
+        selected_camera = max(available_cameras, key=lambda c: c['id'])
+        print(f"Using camera {selected_camera['id']} (highest numbered camera)")
+        print(f"To use a different camera, run with: --camera <id>")
 
     # Initialize selected webcam
     print(f"\nInitializing camera {selected_camera['id']}...")
@@ -284,7 +458,7 @@ def main():
     print("Controls:")
     print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
-    print("  Use trackbars to adjust parameters")
+    print("  Use control panel to adjust parameters")
 
     # Start window thread for better event handling and native controls
     cv2.startWindowThread()
@@ -292,41 +466,16 @@ def main():
     # Initialize combined sketch filter
     sketch = CombinedSketchFilter(width, height)
 
+    # Create tkinter control panel
+    controls = ControlPanel(width, height, available_cameras, selected_camera['id'])
+
     # Create main window for video display
     window_name = 'Sketch Filter'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
-
-    # Create separate controls window
-    controls_window = 'Controls'
-    cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(controls_window, 500, 300)
-
-    # Create trackbars for parameters in controls window
-    # Trackbar callback (does nothing, we read values in the loop)
-    def nothing(x):
-        pass
-
-    # Frequency filter controls
-    cv2.createTrackbar('Apply Frequency (0=Off 1=On)', controls_window, int(DEFAULT_APPLY_FREQUENCY), 1, nothing)
-    max_dimension = max(width, height)
-    max_slider = max_dimension // 2
-    freq_slider_default = (DEFAULT_FREQUENCY_BLUR_KERNEL - 1) // 2
-    cv2.createTrackbar(f'Frequency Blur (1-{max_dimension})', controls_window, freq_slider_default, max_slider, nothing)
-
-    # Canny controls
-    cv2.createTrackbar('Apply Canny (0=Off 1=On)', controls_window, int(DEFAULT_APPLY_CANNY), 1, nothing)
-    canny_blur_slider_default = (DEFAULT_CANNY_BLUR_KERNEL - 1) // 2
-    cv2.createTrackbar('Canny Blur (1-31)', controls_window, canny_blur_slider_default, 15, nothing)
-    cv2.createTrackbar('Canny Thresh1 (0-255)', controls_window, DEFAULT_THRESHOLD1, 255, nothing)
-    cv2.createTrackbar('Canny Thresh2 (0-255)', controls_window, DEFAULT_THRESHOLD2, 255, nothing)
-    aperture_slider_default = {3: 0, 5: 1, 7: 2}[DEFAULT_APERTURE_SIZE]
-    cv2.createTrackbar('Canny Aperture (3/5/7)', controls_window, aperture_slider_default, 2, nothing)
-    cv2.createTrackbar('Canny L2Grad (0=Off 1=On)', controls_window, int(DEFAULT_L2_GRADIENT), 1, nothing)
-
-    # Invert toggle
-    cv2.createTrackbar('Invert (0=Off 1=On)', controls_window, int(DEFAULT_INVERT), 1, nothing)
+    # Move window to avoid overlapping with control panel (offset by 420 pixels to the right)
+    cv2.moveWindow(window_name, 420, 0)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -344,29 +493,72 @@ def main():
             time.sleep(0.1)
             continue
 
+        # Update tkinter control panel
+        controls.update()
+
+        # Check if control panel was closed
+        if not controls.running:
+            break
+
+        # Check if camera was changed
+        if controls.camera_changed:
+            controls.camera_changed = False
+            new_camera_id = controls.new_camera_id
+            print(f"\nSwitching to camera {new_camera_id}...")
+
+            # Release current camera
+            cap.release()
+
+            # Open new camera
+            cap = cv2.VideoCapture(new_camera_id, cv2.CAP_AVFOUNDATION)
+            if not cap.isOpened():
+                print(f"Error: Could not open camera {new_camera_id}")
+                # Try to reopen previous camera
+                cap = cv2.VideoCapture(selected_camera['id'], cv2.CAP_AVFOUNDATION)
+                if cap.isOpened():
+                    print(f"Reverted to camera {selected_camera['id']}")
+                    controls.selected_camera.set(selected_camera['id'])
+                else:
+                    print("Fatal error: Could not reopen any camera")
+                    break
+            else:
+                # Update selected camera
+                for cam in available_cameras:
+                    if cam['id'] == new_camera_id:
+                        selected_camera = cam
+                        break
+
+                # Get new camera dimensions
+                new_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                new_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+                # Reinitialize sketch filter with new dimensions
+                sketch = CombinedSketchFilter(new_width, new_height)
+
+                # Update control panel max dimension for frequency filter
+                controls.max_dimension = max(new_width, new_height)
+
+                print(f"Now using camera {selected_camera['id']} at {new_width}x{new_height}")
+
+                # Skip this frame and get a fresh one from the new camera
+                continue
+
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
-        # Read trackbar values and update parameters
-        sketch.apply_canny = bool(cv2.getTrackbarPos('Apply Canny (0=Off 1=On)', controls_window))
-        sketch.apply_frequency = bool(cv2.getTrackbarPos('Apply Frequency (0=Off 1=On)', controls_window))
-        sketch.invert = bool(cv2.getTrackbarPos('Invert (0=Off 1=On)', controls_window))
+        # Read values from tkinter controls and update parameters
+        sketch.apply_frequency = controls.apply_frequency.get()
+        sketch.frequency.blur_kernel = controls.get_frequency_blur()
+        sketch.frequency.boost = controls.frequency_boost.get()
 
-        # Canny parameters
-        canny_blur_slider = cv2.getTrackbarPos('Canny Blur (1-31)', controls_window)
-        sketch.canny.blur_kernel = canny_blur_slider * 2 + 1
-        sketch.canny.threshold1 = cv2.getTrackbarPos('Canny Thresh1 (0-255)', controls_window)
-        sketch.canny.threshold2 = cv2.getTrackbarPos('Canny Thresh2 (0-255)', controls_window)
+        sketch.apply_canny = controls.apply_canny.get()
+        sketch.canny.blur_kernel = controls.get_canny_blur()
+        sketch.canny.threshold1 = controls.threshold1.get()
+        sketch.canny.threshold2 = controls.threshold2.get()
+        sketch.canny.aperture_size = controls.aperture.get()
+        sketch.canny.l2_gradient = controls.l2_gradient.get()
 
-        aperture_slider = cv2.getTrackbarPos('Canny Aperture (3/5/7)', controls_window)
-        aperture_map = [3, 5, 7]
-        sketch.canny.aperture_size = aperture_map[aperture_slider]
-
-        sketch.canny.l2_gradient = bool(cv2.getTrackbarPos('Canny L2Grad (0=Off 1=On)', controls_window))
-
-        # Frequency filter parameter
-        freq_blur_slider = cv2.getTrackbarPos(f'Frequency Blur (1-{max_dimension})', controls_window)
-        sketch.frequency.blur_kernel = freq_blur_slider * 2 + 1
+        sketch.invert = controls.invert.get()
 
         if effect_enabled:
             # Sketch filter mode
@@ -398,6 +590,9 @@ def main():
         cv2.putText(result, f"Frequency Blur: {sketch.frequency.blur_kernel}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         y_offset += line_height
+        cv2.putText(result, f"Frequency Boost: {sketch.frequency.boost:.1f}x", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
 
         cv2.putText(result, f"Apply Canny: {sketch.apply_canny}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -421,15 +616,29 @@ def main():
         cv2.putText(result, f"Invert: {sketch.invert}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+        # Check if frame is almost black (might be wrong camera)
+        mean_brightness = np.mean(frame)
+        if mean_brightness < 10:  # Very dark frame
+            # Display warning in red at center
+            h, w = result.shape[:2]
+            warning_text = "ALMOST BLACK SCREEN!"
+            camera_text = f"Try: --camera <id> (currently using camera {selected_camera['id']})"
+
+            # Calculate text size for centering
+            (w1, h1), _ = cv2.getTextSize(warning_text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)
+            (w2, h2), _ = cv2.getTextSize(camera_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+
+            # Draw warnings in red
+            cv2.putText(result, warning_text, (w//2 - w1//2, h//2 - 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+            cv2.putText(result, camera_text, (w//2 - w2//2, h//2 + 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
         # Show the result
         cv2.imshow(window_name, result)
 
-        # Show empty image in controls window (just for trackbars)
-        cv2.imshow(controls_window, np.zeros((1, 500, 3), dtype=np.uint8))
-
-        # Check if either window was closed via close button
-        if (cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1 or
-            cv2.getWindowProperty(controls_window, cv2.WND_PROP_VISIBLE) < 1):
+        # Check if video window was closed via close button
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
             break
 
         # Handle keyboard input (wrapped in try for Ctrl+C handling)
