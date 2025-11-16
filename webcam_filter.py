@@ -9,6 +9,14 @@ import os
 import signal
 
 
+# Configuration constants
+DEFAULT_BLUR_KERNEL = 3  # Default blur kernel size for Canny (must be odd)
+DEFAULT_THRESHOLD1 = 25  # Default Canny lower threshold
+DEFAULT_THRESHOLD2 = 7   # Default Canny upper threshold
+DEFAULT_APERTURE_SIZE = 3  # Default Sobel kernel size (3, 5, or 7)
+DEFAULT_L2_GRADIENT = True  # Default gradient calculation method (True = L2, False = L1)
+
+
 class CannyEdgeDetector:
     """Simple Canny edge detector with adjustable parameters"""
 
@@ -17,11 +25,11 @@ class CannyEdgeDetector:
         self.height = height
 
         # Canny parameters with custom defaults
-        self.blur_kernel = 3  # Default: 3 (3x3 blur)
-        self.threshold1 = 25  # Default: 25
-        self.threshold2 = 7  # Default: 7
-        self.aperture_size = 3  # Default: 3 (Sobel kernel size)
-        self.l2_gradient = True  # Default: True (use L2 norm)
+        self.blur_kernel = DEFAULT_BLUR_KERNEL
+        self.threshold1 = DEFAULT_THRESHOLD1
+        self.threshold2 = DEFAULT_THRESHOLD2
+        self.aperture_size = DEFAULT_APERTURE_SIZE
+        self.l2_gradient = DEFAULT_L2_GRADIENT
 
     def update(self):
         """Update - not needed for static effect"""
@@ -222,15 +230,17 @@ def main():
         pass
 
     # Blur kernel - any odd integer from 1 to 31 (slider 0-15 maps to 1,3,5,...,31)
-    cv2.createTrackbar('Blur (1,3,5...31)', controls_window, 1, 15, nothing)  # Default: 1 -> 3
+    blur_slider_default = (DEFAULT_BLUR_KERNEL - 1) // 2
+    cv2.createTrackbar('Blur (1,3,5...31)', controls_window, blur_slider_default, 15, nothing)
     # Threshold 1 (lower threshold)
-    cv2.createTrackbar('Threshold1 (0-255)', controls_window, 25, 255, nothing)  # Default: 25
+    cv2.createTrackbar('Threshold1 (0-255)', controls_window, DEFAULT_THRESHOLD1, 255, nothing)
     # Threshold 2 (upper threshold)
-    cv2.createTrackbar('Threshold2 (0-255)', controls_window, 7, 255, nothing)  # Default: 7
+    cv2.createTrackbar('Threshold2 (0-255)', controls_window, DEFAULT_THRESHOLD2, 255, nothing)
     # Aperture size - must be 3, 5, or 7 (slider 0-2 maps to exactly 3, 5, 7)
-    cv2.createTrackbar('Aperture (3/5/7)', controls_window, 0, 2, nothing)  # Default: 0 -> 3
+    aperture_slider_default = {3: 0, 5: 1, 7: 2}[DEFAULT_APERTURE_SIZE]
+    cv2.createTrackbar('Aperture (3/5/7)', controls_window, aperture_slider_default, 2, nothing)
     # L2 gradient - checkbox simulation (0=Off, 1=On)
-    cv2.createTrackbar('L2Grad (0=Off 1=On)', controls_window, 1, 1, nothing)  # Default: 1 (True)
+    cv2.createTrackbar('L2Grad (0=Off 1=On)', controls_window, int(DEFAULT_L2_GRADIENT), 1, nothing)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
