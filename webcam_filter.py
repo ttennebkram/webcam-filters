@@ -14,121 +14,13 @@ import argparse
 import json
 
 
-# Configuration constants - Canny Edge Detection
-DEFAULT_CANNY_BLUR_KERNEL = 3  # Default blur kernel size for Canny (must be odd)
-DEFAULT_THRESHOLD1 = 25  # Default Canny lower threshold
-DEFAULT_THRESHOLD2 = 7   # Default Canny upper threshold
-DEFAULT_APERTURE_SIZE = 3  # Default Sobel kernel size (3, 5, or 7)
-DEFAULT_L2_GRADIENT = True  # Default gradient calculation method (True = L2, False = L1)
-DEFAULT_CANNY_FINAL_BLUR = 0  # Default final blur operation (0 = no blur, odd values for blur)
-DEFAULT_CANNY_BOOST = 0  # Default Canny boost multiplier (-5 to +5)
-
-# Configuration constants - High-Pass Filter
-DEFAULT_FREQUENCY_BLUR_KERNEL = 95  # Default blur kernel size for high-pass filter (must be odd)
-DEFAULT_FREQUENCY_BOOST = 2.5  # Default frequency boost multiplier (-5 to +5, 0 = no boost)
-
 # Configuration constants - FFT Filter
 DEFAULT_FFT_RADIUS = 30  # Default radius for FFT low-frequency reject circle
 DEFAULT_FFT_SMOOTHNESS = 0  # Default smoothness (0 = hard circle, 100 = very smooth transition)
-DEFAULT_FFT_BOOST = 2.5  # Default FFT boost multiplier (-5 to +5)
 DEFAULT_SHOW_FFT = False  # Default: don't show FFT visualization
-
-# Configuration constants - Combined
-DEFAULT_APPLY_CANNY = True  # Default: apply Canny edge detection
-DEFAULT_APPLY_FREQUENCY = False  # Default: don't apply old frequency filter
-DEFAULT_APPLY_FFT = True  # Default: apply FFT filter
-DEFAULT_INVERT = True  # Default: invert the final image
-
-
-class CannyEdgeDetector:
-    """Simple Canny edge detector with adjustable parameters"""
-
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-
-        # Canny parameters with custom defaults
-        self.blur_kernel = DEFAULT_CANNY_BLUR_KERNEL
-        self.threshold1 = DEFAULT_THRESHOLD1
-        self.threshold2 = DEFAULT_THRESHOLD2
-        self.aperture_size = DEFAULT_APERTURE_SIZE
-        self.l2_gradient = DEFAULT_L2_GRADIENT
-        self.final_blur = DEFAULT_CANNY_FINAL_BLUR
-        self.boost = DEFAULT_CANNY_BOOST
-
-    def update(self):
-        """Update - not needed for static effect"""
-        pass
-
-    def draw(self, frame, face_mask=None):
-        """Apply Canny edge detection and return edges as grayscale image"""
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Apply Gaussian blur (only if blur_kernel > 1)
-        if self.blur_kernel > 1:
-            blurred = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
-        else:
-            blurred = gray
-
-        # Apply Canny edge detection with all parameters
-        edges = cv2.Canny(blurred, self.threshold1, self.threshold2,
-                         apertureSize=self.aperture_size, L2gradient=self.l2_gradient)
-
-        # Apply final blur if set
-        if self.final_blur > 0:
-            final_blur_kernel = self.final_blur if self.final_blur % 2 == 1 else self.final_blur + 1
-            edges = cv2.GaussianBlur(edges, (final_blur_kernel, final_blur_kernel), 0)
-
-        # Apply boost if set
-        if self.boost != 0:
-            edges_float = edges.astype(np.float32)
-            edges_float = edges_float * (1.0 + self.boost)
-            edges = np.clip(edges_float, 0, 255).astype(np.uint8)
-
-        return edges
-
-
-class HighPassFilter:
-    """High-pass filter to extract fine details from image"""
-
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-
-        # Filter parameter - kernel size for low-pass filter (must be odd)
-        self.blur_kernel = DEFAULT_FREQUENCY_BLUR_KERNEL  # Larger kernel = more high-frequency details
-        self.boost = DEFAULT_FREQUENCY_BOOST  # Boost multiplier for frequency filter
-
-    def update(self):
-        """Update - not needed for static effect"""
-        pass
-
-    def draw(self, frame, face_mask=None):
-        """Apply high-pass filter to extract fine details"""
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Create low-pass version by blurring
-        if self.blur_kernel > 1:
-            low_pass = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
-        else:
-            low_pass = gray
-
-        # High-pass = abs(original - low-pass)
-        # Use absolute difference so no signal = 0 (black background)
-        high_pass = cv2.absdiff(gray, low_pass)
-
-        # Apply boost if set
-        if self.boost != 0:
-            # Convert to float for proper multiplication
-            high_pass_float = high_pass.astype(np.float32)
-            # Apply boost multiplier (1 + boost means 0 = no change, positive = amplify, negative = reduce)
-            high_pass_float = high_pass_float * (1.0 + self.boost)
-            # Clip to valid range and convert back
-            high_pass = np.clip(high_pass_float, 0, 255).astype(np.uint8)
-
-        return high_pass
+DEFAULT_GAIN = 0  # Default gain (-5 to +5)
+DEFAULT_INVERT = False  # Default: don't invert
+DEFAULT_OUTPUT_MODE = "grayscale_composite"  # Default output mode
 
 
 class FFTFilter:
@@ -139,7 +31,6 @@ class FFTFilter:
         self.height = height
         self.radius = DEFAULT_FFT_RADIUS  # Radius of low-frequency reject circle
         self.smoothness = DEFAULT_FFT_SMOOTHNESS  # Smoothness of transition (0-100)
-        self.boost = DEFAULT_FFT_BOOST  # Boost multiplier
         self.show_fft = DEFAULT_SHOW_FFT  # Whether to show FFT visualization
 
     def update(self):
@@ -170,12 +61,17 @@ class FFTFilter:
             mask_area = distance <= self.radius
             mask[mask_area] = 0
         else:
-            # Smooth transition using Gaussian-like falloff
+            # Smooth transition using sigmoid, but clamped to preserve hard cutoff inside radius
             # Smoothness controls the width of the transition zone
             sigma = self.smoothness / 10.0  # Scale smoothness to reasonable sigma range
             mask = np.ones((rows, cols, 2), np.float32)
             # Create smooth transition from 0 at center to 1 at radius
+            # Sigmoid centered at radius
             transition = 1.0 / (1.0 + np.exp(-(distance - self.radius) / sigma))
+            # Clamp to ensure full blocking inside radius - no sigmoid creep!
+            # When distance < radius, force to 0 to preserve maximum ringing
+            transition = np.clip(transition, 0, 1)
+            transition[distance < self.radius] = 0
             mask[:, :, 0] = transition
             mask[:, :, 1] = transition
 
@@ -212,12 +108,6 @@ class FFTFilter:
         # Normalize to 0-255
         high_pass = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-        # Apply boost if set
-        if self.boost != 0:
-            high_pass_float = high_pass.astype(np.float32)
-            high_pass_float = high_pass_float * (1.0 + self.boost)
-            high_pass = np.clip(high_pass_float, 0, 255).astype(np.uint8)
-
         return high_pass
 
 
@@ -227,16 +117,14 @@ class ControlPanel:
     def __init__(self, width, height, available_cameras, selected_camera_id):
         self.width = width
         self.height = height
-        self.max_dimension = max(width, height)
         self.available_cameras = available_cameras
         self.camera_changed = False
         self.new_camera_id = None
 
         # Create the main window
         self.root = tk.Tk()
-        self.root.title("Sketch Filter Controls")
+        self.root.title("FFT Ring Settings")
         # Don't set geometry yet - will auto-size after building UI
-        self.root.attributes('-topmost', True)  # Keep window on top
 
         # Camera selection variable
         self.selected_camera = tk.IntVar(value=selected_camera_id)
@@ -245,26 +133,26 @@ class ControlPanel:
         self.show_original = tk.BooleanVar(value=False)
 
         # Variables for controls
-        self.apply_frequency = tk.BooleanVar(value=DEFAULT_APPLY_FREQUENCY)
-        self.frequency_blur = tk.IntVar(value=DEFAULT_FREQUENCY_BLUR_KERNEL)
-        self.frequency_boost = tk.DoubleVar(value=DEFAULT_FREQUENCY_BOOST)
-
-        self.apply_fft = tk.BooleanVar(value=DEFAULT_APPLY_FFT)
         self.fft_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
         self.fft_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
-        self.fft_boost = tk.DoubleVar(value=DEFAULT_FFT_BOOST)
         self.show_fft = tk.BooleanVar(value=DEFAULT_SHOW_FFT)
-
-        self.apply_canny = tk.BooleanVar(value=DEFAULT_APPLY_CANNY)
-        self.canny_blur = tk.IntVar(value=DEFAULT_CANNY_BLUR_KERNEL)
-        self.threshold1 = tk.IntVar(value=DEFAULT_THRESHOLD1)
-        self.threshold2 = tk.IntVar(value=DEFAULT_THRESHOLD2)
-        self.aperture = tk.IntVar(value=DEFAULT_APERTURE_SIZE)
-        self.l2_gradient = tk.BooleanVar(value=DEFAULT_L2_GRADIENT)
-        self.canny_final_blur = tk.IntVar(value=DEFAULT_CANNY_FINAL_BLUR)
-        self.canny_boost = tk.DoubleVar(value=DEFAULT_CANNY_BOOST)
-
+        self.gain = tk.DoubleVar(value=DEFAULT_GAIN)
+        self.gain_display = tk.StringVar(value=f"{DEFAULT_GAIN:.1f}")
         self.invert = tk.BooleanVar(value=DEFAULT_INVERT)
+        self.output_mode = tk.StringVar(value=DEFAULT_OUTPUT_MODE)
+
+        # RGB channel controls
+        self.red_enable = tk.BooleanVar(value=True)
+        self.red_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.red_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
+
+        self.green_enable = tk.BooleanVar(value=True)
+        self.green_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.green_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
+
+        self.blue_enable = tk.BooleanVar(value=True)
+        self.blue_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.blue_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
 
         self._build_ui()
 
@@ -273,7 +161,7 @@ class ControlPanel:
 
         # Auto-size window to fit all content
         self.root.update_idletasks()  # Ensure all widgets are laid out
-        width = 400  # Fixed width
+        width = 650  # Fixed width (wider for table layout)
         # Get the required height from the container
         height = self.root.winfo_reqheight()
         # Add a small buffer
@@ -283,6 +171,10 @@ class ControlPanel:
         # Flag to check if window is still open
         self.running = True
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Make sure window is visible and brought to front
+        self.root.deiconify()
+        self.root.lift()
 
     def _build_ui(self):
         """Build the tkinter UI"""
@@ -302,85 +194,54 @@ class ControlPanel:
                            variable=self.selected_camera,
                            command=self._on_camera_change).pack(anchor='w', pady=2)
 
-        # Output Section - Show Original Image toggle
-        output_frame = ttk.LabelFrame(container, text="Output", padding=10)
-        output_frame.pack(fill='x', **padding)
-        ttk.Checkbutton(output_frame, text="Show Original Image (disable all effects)",
+        # Source Section
+        source_frame = ttk.LabelFrame(container, text="Source", padding=10)
+        source_frame.pack(fill='x', **padding)
+
+        ttk.Checkbutton(source_frame, text="Show Original Image (disable all effects)",
                        variable=self.show_original).pack(anchor='w')
 
-        # Separator
-        ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
-
-        # Frequency Filter Section
-        freq_frame = ttk.Frame(container, padding=5)
-        freq_frame.pack(fill='x', **padding)
-
-        # Section title spanning both columns
-        ttk.Label(freq_frame, text="Frequency Filter", font=('TkDefaultFont', 14, 'bold')).pack(anchor='w', pady=(0, 5))
-
-        # Container for left and right columns
-        cols_container = ttk.Frame(freq_frame)
-        cols_container.pack(fill='x')
-
-        # Left column: Enable label and checkbox
-        left_col = ttk.Frame(cols_container)
-        left_col.pack(side='left', fill='y', padx=(0, 10))
-        ttk.Label(left_col, text="Enable", font=('TkDefaultFont', 8)).pack(anchor='n')
-        ttk.Checkbutton(left_col, variable=self.apply_frequency).pack(anchor='n')
-
-        # Right column: Controls
-        right_col = ttk.Frame(cols_container)
-        right_col.pack(side='left', fill='both', expand=True)
-
-        # Blur Kernel slider with value on right
-        ttk.Label(right_col, text=f"Blur Kernel (1-{self.max_dimension}, odd)").pack(anchor='w')
-        blur_row = ttk.Frame(right_col)
-        blur_row.pack(fill='x')
-        freq_slider = ttk.Scale(blur_row, from_=1, to=self.max_dimension,
-                               variable=self.frequency_blur, orient='horizontal',
-                               command=lambda v: self.frequency_blur.set(int(float(v))))
-        freq_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(blur_row, textvariable=self.frequency_blur, width=5).pack(side='left', padx=(5, 0))
-
-        # Boost slider with value on right
-        ttk.Label(right_col, text="Boost (-5x to +5x)").pack(anchor='w', pady=(5, 0))
-        boost_row = ttk.Frame(right_col)
-        boost_row.pack(fill='x')
-        boost_slider = ttk.Scale(boost_row, from_=-5, to=5,
-                                variable=self.frequency_boost, orient='horizontal')
-        boost_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(boost_row, textvariable=self.frequency_boost, width=5).pack(side='left', padx=(5, 0))
-
-        # Separator line
-        ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
-
         # FFT Filter Section
-        fft_frame = ttk.Frame(container, padding=5)
+        fft_frame = ttk.LabelFrame(container, text="FFT Filter", padding=10)
         fft_frame.pack(fill='x', **padding)
 
-        # Section title spanning both columns
-        ttk.Label(fft_frame, text="FFT Filter", font=('TkDefaultFont', 14, 'bold')).pack(anchor='w', pady=(0, 5))
+        # Create two-column layout
+        columns_frame = ttk.Frame(fft_frame)
+        columns_frame.pack(fill='x')
 
-        # Container for left and right columns
-        fft_cols = ttk.Frame(fft_frame)
-        fft_cols.pack(fill='x')
+        # Left column - Output Mode Radio Buttons
+        left_column = ttk.Frame(columns_frame)
+        left_column.pack(side='left', anchor='n', padx=(0, 10))
 
-        # Left column: Enable label and checkbox
-        fft_left = ttk.Frame(fft_cols)
-        fft_left.pack(side='left', fill='y', padx=(0, 10))
-        ttk.Label(fft_left, text="Enable", font=('TkDefaultFont', 8)).pack(anchor='n')
-        ttk.Checkbutton(fft_left, variable=self.apply_fft).pack(anchor='n')
+        # Right column - Controls for each mode
+        right_column = ttk.Frame(columns_frame)
+        right_column.pack(side='left', fill='x', expand=True, anchor='n')
 
-        # Right column: Controls
-        fft_right = ttk.Frame(fft_cols)
-        fft_right.pack(side='left', fill='both', expand=True)
+        # Header
+        ttk.Label(left_column, text="Output Mode:").pack(anchor='w', pady=(0, 5))
 
-        # Show FFT checkbox
-        ttk.Checkbutton(fft_right, text="Show FFT (instead of image)", variable=self.show_fft).pack(anchor='w')
+        # Row 1: Grayscale Composite with its controls - grouped in a frame
+        gs_composite_group = ttk.LabelFrame(fft_frame, text="", padding=5)
+        gs_composite_group.pack(fill='x', pady=(5, 10))
 
-        # Radius slider with value on right
-        ttk.Label(fft_right, text="Filter Radius (pixels)").pack(anchor='w', pady=(5, 0))
-        radius_row = ttk.Frame(fft_right)
+        # Create inner two-column layout for this group
+        gs_columns = ttk.Frame(gs_composite_group)
+        gs_columns.pack(fill='x')
+
+        gs_left = ttk.Frame(gs_columns)
+        gs_left.pack(side='left', anchor='n', padx=(0, 10))
+
+        gs_right = ttk.Frame(gs_columns)
+        gs_right.pack(side='left', fill='x', expand=True, anchor='n')
+
+        # Radio button
+        ttk.Radiobutton(gs_left, text="Grayscale Composite", value="grayscale_composite",
+                       variable=self.output_mode).pack(anchor='nw', pady=(20, 0))
+
+        # Controls for Grayscale Composite
+        # Radius slider
+        ttk.Label(gs_right, text="Filter Radius in pixels", wraplength=250).pack(anchor='w')
+        radius_row = ttk.Frame(gs_right)
         radius_row.pack(fill='x')
         fft_radius_slider = ttk.Scale(radius_row, from_=5, to=200,
                                      variable=self.fft_radius, orient='horizontal',
@@ -388,9 +249,9 @@ class ControlPanel:
         fft_radius_slider.pack(side='left', fill='x', expand=True)
         ttk.Label(radius_row, textvariable=self.fft_radius, width=5).pack(side='left', padx=(5, 0))
 
-        # Smoothness slider with value on right
-        ttk.Label(fft_right, text="Filter Cutoff Smoothness (0-100)").pack(anchor='w', pady=(5, 0))
-        smooth_row = ttk.Frame(fft_right)
+        # Smoothness slider
+        ttk.Label(gs_right, text="Filter Cutoff Smoothness (0-100 pixels)", wraplength=250).pack(anchor='w', pady=(5, 0))
+        smooth_row = ttk.Frame(gs_right)
         smooth_row.pack(fill='x')
         fft_smoothness_slider = ttk.Scale(smooth_row, from_=0, to=100,
                                          variable=self.fft_smoothness, orient='horizontal',
@@ -398,106 +259,104 @@ class ControlPanel:
         fft_smoothness_slider.pack(side='left', fill='x', expand=True)
         ttk.Label(smooth_row, textvariable=self.fft_smoothness, width=5).pack(side='left', padx=(5, 0))
 
-        # Boost slider with value on right
-        ttk.Label(fft_right, text="Boost (-5x to +5x)").pack(anchor='w', pady=(5, 0))
-        fft_boost_row = ttk.Frame(fft_right)
-        fft_boost_row.pack(fill='x')
-        fft_boost_slider = ttk.Scale(fft_boost_row, from_=-5, to=5,
-                                    variable=self.fft_boost, orient='horizontal')
-        fft_boost_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(fft_boost_row, textvariable=self.fft_boost, width=5).pack(side='left', padx=(5, 0))
+        # Row 2: Grayscale Bit Planes - grouped section
+        gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
+        gs_bitplanes_group.pack(fill='x', pady=(0, 10))
 
-        # Separator line
+        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes", value="grayscale_bitplanes",
+                       variable=self.output_mode).pack(anchor='w')
+
+        # Row 3: Individual Color Channels - grouped section with table layout
+        color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=5)
+        color_channels_group.pack(fill='x', pady=(0, 10))
+
+        ttk.Radiobutton(color_channels_group, text="Individual Color Channels", value="color_channels",
+                       variable=self.output_mode).pack(anchor='w', pady=(0, 5))
+
+        # Create table using grid layout
+        table_frame = ttk.Frame(color_channels_group)
+        table_frame.pack(fill='x', pady=(5, 0))
+
+        # Header row (row 0)
+        ttk.Label(table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='w')  # Empty cell for color labels
+        ttk.Label(table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
+        ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)  # Value label column
+        ttk.Label(table_frame, text="Smoothness (Sigmoid/10)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)  # Value label column
+
+        # Red channel (row 1)
+        red_label = tk.Label(table_frame, text="Red", foreground="red", font=('TkDefaultFont', 9, 'bold'))
+        red_label.grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        ttk.Checkbutton(table_frame, variable=self.red_enable).grid(row=1, column=1, padx=5, pady=5)
+        red_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.red_radius, orient='horizontal',
+                                     command=lambda v: self.red_radius.set(int(float(v))))
+        red_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.red_radius, width=4, foreground="red").grid(row=1, column=3, padx=(2, 10), pady=5)
+        red_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.red_smoothness, orient='horizontal',
+                                      command=lambda v: self.red_smoothness.set(int(float(v))))
+        red_smooth_slider.grid(row=1, column=4, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.red_smoothness, width=4, foreground="red").grid(row=1, column=5, padx=2, pady=5)
+
+        # Green channel (row 2)
+        green_label = tk.Label(table_frame, text="Green", foreground="green", font=('TkDefaultFont', 9, 'bold'))
+        green_label.grid(row=2, column=0, padx=5, pady=5, sticky='w')
+        ttk.Checkbutton(table_frame, variable=self.green_enable).grid(row=2, column=1, padx=5, pady=5)
+        green_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.green_radius, orient='horizontal',
+                                       command=lambda v: self.green_radius.set(int(float(v))))
+        green_radius_slider.grid(row=2, column=2, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.green_radius, width=4, foreground="green").grid(row=2, column=3, padx=(2, 10), pady=5)
+        green_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.green_smoothness, orient='horizontal',
+                                        command=lambda v: self.green_smoothness.set(int(float(v))))
+        green_smooth_slider.grid(row=2, column=4, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.green_smoothness, width=4, foreground="green").grid(row=2, column=5, padx=2, pady=5)
+
+        # Blue channel (row 3)
+        blue_label = tk.Label(table_frame, text="Blue", foreground="blue", font=('TkDefaultFont', 9, 'bold'))
+        blue_label.grid(row=3, column=0, padx=5, pady=5, sticky='w')
+        ttk.Checkbutton(table_frame, variable=self.blue_enable).grid(row=3, column=1, padx=5, pady=5)
+        blue_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.blue_radius, orient='horizontal',
+                                      command=lambda v: self.blue_radius.set(int(float(v))))
+        blue_radius_slider.grid(row=3, column=2, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.blue_radius, width=4, foreground="blue").grid(row=3, column=3, padx=(2, 10), pady=5)
+        blue_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.blue_smoothness, orient='horizontal',
+                                       command=lambda v: self.blue_smoothness.set(int(float(v))))
+        blue_smooth_slider.grid(row=3, column=4, padx=5, pady=5, sticky='ew')
+        tk.Label(table_frame, textvariable=self.blue_smoothness, width=4, foreground="blue").grid(row=3, column=5, padx=2, pady=5)
+
+        # Configure column weights for proper expansion
+        table_frame.columnconfigure(2, weight=1)  # Filter Radius column expands
+        table_frame.columnconfigure(4, weight=1)  # Smoothness column expands
+
+        # Row 4: Color Bitplanes - grouped section
+        color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
+        color_bitplanes_group.pack(fill='x', pady=(0, 10))
+
+        ttk.Radiobutton(color_bitplanes_group, text="Color Bitplanes", value="color_bitplanes",
+                       variable=self.output_mode).pack(anchor='w')
+
+        # Common controls at bottom
+        common_frame = ttk.Frame(fft_frame)
+        common_frame.pack(fill='x', pady=(10, 0))
+
+        # Show FFT checkbox
+        ttk.Checkbutton(common_frame, text="Show FFT (instead of image)", variable=self.show_fft).pack(anchor='w')
+
+        # Gain slider with value on right
+        ttk.Label(common_frame, text="Gain (-5 to +5)").pack(anchor='w', pady=(5, 0))
+        gain_row = ttk.Frame(common_frame)
+        gain_row.pack(fill='x')
+        gain_slider = ttk.Scale(gain_row, from_=-5, to=5,
+                               variable=self.gain, orient='horizontal',
+                               command=lambda v: self.gain_display.set(f"{float(v):.1f}"))
+        gain_slider.pack(side='left', fill='x', expand=True)
+        ttk.Label(gain_row, textvariable=self.gain_display, width=5).pack(side='left', padx=(5, 0))
+
+        # Invert checkbox
+        ttk.Checkbutton(common_frame, text="Invert", variable=self.invert).pack(anchor='w', pady=(5, 0))
+
+        # Separator
         ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
-
-        # Canny Edge Detection Section
-        canny_frame = ttk.Frame(container, padding=5)
-        canny_frame.pack(fill='x', **padding)
-
-        # Section title spanning both columns
-        ttk.Label(canny_frame, text="Canny Edge Detection", font=('TkDefaultFont', 14, 'bold')).pack(anchor='w', pady=(0, 5))
-
-        # Container for left and right columns
-        canny_cols = ttk.Frame(canny_frame)
-        canny_cols.pack(fill='x')
-
-        # Left column: Enable label and checkbox
-        canny_left = ttk.Frame(canny_cols)
-        canny_left.pack(side='left', fill='y', padx=(0, 10))
-        ttk.Label(canny_left, text="Enable", font=('TkDefaultFont', 8)).pack(anchor='n')
-        ttk.Checkbutton(canny_left, variable=self.apply_canny).pack(anchor='n')
-
-        # Right column: Controls
-        canny_right = ttk.Frame(canny_cols)
-        canny_right.pack(side='left', fill='both', expand=True)
-
-        # Blur Kernel slider with value on right
-        ttk.Label(canny_right, text="Blur Kernel (1-31, odd)").pack(anchor='w')
-        cblur_row = ttk.Frame(canny_right)
-        cblur_row.pack(fill='x')
-        canny_blur_slider = ttk.Scale(cblur_row, from_=1, to=31,
-                                      variable=self.canny_blur, orient='horizontal',
-                                      command=lambda v: self.canny_blur.set(int(float(v))))
-        canny_blur_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(cblur_row, textvariable=self.canny_blur, width=5).pack(side='left', padx=(5, 0))
-
-        # Threshold 1 slider with value on right
-        ttk.Label(canny_right, text="Threshold 1").pack(anchor='w', pady=(5, 0))
-        t1_row = ttk.Frame(canny_right)
-        t1_row.pack(fill='x')
-        thresh1_slider = ttk.Scale(t1_row, from_=0, to=255,
-                                   variable=self.threshold1, orient='horizontal',
-                                   command=lambda v: self.threshold1.set(int(float(v))))
-        thresh1_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(t1_row, textvariable=self.threshold1, width=5).pack(side='left', padx=(5, 0))
-
-        # Threshold 2 slider with value on right
-        ttk.Label(canny_right, text="Threshold 2").pack(anchor='w', pady=(5, 0))
-        t2_row = ttk.Frame(canny_right)
-        t2_row.pack(fill='x')
-        thresh2_slider = ttk.Scale(t2_row, from_=0, to=255,
-                                   variable=self.threshold2, orient='horizontal',
-                                   command=lambda v: self.threshold2.set(int(float(v))))
-        thresh2_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(t2_row, textvariable=self.threshold2, width=5).pack(side='left', padx=(5, 0))
-
-        # Aperture and L2 Gradient in one row
-        options_row = ttk.Frame(canny_right)
-        options_row.pack(fill='x', pady=(5, 0))
-        ttk.Label(options_row, text="Aperture:").pack(side='left')
-        for val in [3, 5, 7]:
-            ttk.Radiobutton(options_row, text=str(val), value=val,
-                           variable=self.aperture).pack(side='left', padx=2)
-        ttk.Checkbutton(options_row, text="L2 Grad", variable=self.l2_gradient).pack(side='left', padx=(10, 0))
-
-        # Final Blur slider with value on right
-        ttk.Label(canny_right, text="Final Blur (0=none, odd)").pack(anchor='w', pady=(5, 0))
-        final_blur_row = ttk.Frame(canny_right)
-        final_blur_row.pack(fill='x')
-        final_blur_slider = ttk.Scale(final_blur_row, from_=0, to=31,
-                                      variable=self.canny_final_blur, orient='horizontal',
-                                      command=lambda v: self.canny_final_blur.set(int(float(v))))
-        final_blur_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(final_blur_row, textvariable=self.canny_final_blur, width=5).pack(side='left', padx=(5, 0))
-
-        # Boost slider with value on right
-        ttk.Label(canny_right, text="Boost (-5x to +5x)").pack(anchor='w', pady=(5, 0))
-        canny_boost_row = ttk.Frame(canny_right)
-        canny_boost_row.pack(fill='x')
-        canny_boost_slider = ttk.Scale(canny_boost_row, from_=-5, to=5,
-                                       variable=self.canny_boost, orient='horizontal')
-        canny_boost_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(canny_boost_row, textvariable=self.canny_boost, width=5).pack(side='left', padx=(5, 0))
-
-        # Separator line
-        ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
-
-        # Output Section
-        output_frame = ttk.LabelFrame(container, text="Output", padding=5)
-        output_frame.pack(fill='x', **padding)
-
-        ttk.Checkbutton(output_frame, text="Invert (Black on White)",
-                       variable=self.invert).pack(anchor='w')
 
         # Save Settings Button
         save_frame = ttk.Frame(container, padding=10)
@@ -507,24 +366,13 @@ class ControlPanel:
     def _save_settings(self):
         """Save all settings to a JSON file"""
         settings = {
-            'apply_frequency': self.apply_frequency.get(),
-            'frequency_blur': self.frequency_blur.get(),
-            'frequency_boost': self.frequency_boost.get(),
-            'apply_fft': self.apply_fft.get(),
             'fft_radius': self.fft_radius.get(),
             'fft_smoothness': self.fft_smoothness.get(),
-            'fft_boost': self.fft_boost.get(),
             'show_fft': self.show_fft.get(),
-            'apply_canny': self.apply_canny.get(),
-            'canny_blur': self.canny_blur.get(),
-            'threshold1': self.threshold1.get(),
-            'threshold2': self.threshold2.get(),
-            'aperture': self.aperture.get(),
-            'l2_gradient': self.l2_gradient.get(),
-            'canny_final_blur': self.canny_final_blur.get(),
-            'canny_boost': self.canny_boost.get(),
+            'show_original': self.show_original.get(),
+            'gain': self.gain.get(),
             'invert': self.invert.get(),
-            'show_original': self.show_original.get()
+            'output_mode': self.output_mode.get()
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -546,24 +394,13 @@ class ControlPanel:
                 settings = json.load(f)
 
             # Apply loaded settings
-            self.apply_frequency.set(settings.get('apply_frequency', DEFAULT_APPLY_FREQUENCY))
-            self.frequency_blur.set(settings.get('frequency_blur', DEFAULT_FREQUENCY_BLUR_KERNEL))
-            self.frequency_boost.set(settings.get('frequency_boost', DEFAULT_FREQUENCY_BOOST))
-            self.apply_fft.set(settings.get('apply_fft', DEFAULT_APPLY_FFT))
             self.fft_radius.set(settings.get('fft_radius', DEFAULT_FFT_RADIUS))
             self.fft_smoothness.set(settings.get('fft_smoothness', DEFAULT_FFT_SMOOTHNESS))
-            self.fft_boost.set(settings.get('fft_boost', DEFAULT_FFT_BOOST))
             self.show_fft.set(settings.get('show_fft', DEFAULT_SHOW_FFT))
-            self.apply_canny.set(settings.get('apply_canny', DEFAULT_APPLY_CANNY))
-            self.canny_blur.set(settings.get('canny_blur', DEFAULT_CANNY_BLUR_KERNEL))
-            self.threshold1.set(settings.get('threshold1', DEFAULT_THRESHOLD1))
-            self.threshold2.set(settings.get('threshold2', DEFAULT_THRESHOLD2))
-            self.aperture.set(settings.get('aperture', DEFAULT_APERTURE_SIZE))
-            self.l2_gradient.set(settings.get('l2_gradient', DEFAULT_L2_GRADIENT))
-            self.canny_final_blur.set(settings.get('canny_final_blur', DEFAULT_CANNY_FINAL_BLUR))
-            self.canny_boost.set(settings.get('canny_boost', DEFAULT_CANNY_BOOST))
-            self.invert.set(settings.get('invert', DEFAULT_INVERT))
             self.show_original.set(settings.get('show_original', False))
+            self.gain.set(settings.get('gain', DEFAULT_GAIN))
+            self.invert.set(settings.get('invert', DEFAULT_INVERT))
+            self.output_mode.set(settings.get('output_mode', DEFAULT_OUTPUT_MODE))
 
             print(f"Settings loaded from {settings_file}")
         except Exception as e:
@@ -587,71 +424,30 @@ class ControlPanel:
             except tk.TclError:
                 self.running = False
 
-    def ensure_odd(self, value):
-        """Ensure value is odd"""
-        val = int(value)
-        if val % 2 == 0:
-            val += 1
-        return val
-
-    def get_frequency_blur(self):
-        """Get frequency blur kernel (guaranteed odd)"""
-        return self.ensure_odd(self.frequency_blur.get())
-
-    def get_canny_blur(self):
-        """Get canny blur kernel (guaranteed odd)"""
-        return self.ensure_odd(self.canny_blur.get())
-
 
 class CombinedSketchFilter:
-    """Combines Canny edge detection, frequency filter, and FFT filter"""
+    """FFT-based filter for webcam"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
-
-        self.canny = CannyEdgeDetector(width, height)
-        self.frequency = HighPassFilter(width, height)
         self.fft = FFTFilter(width, height)
-
-        self.apply_canny = DEFAULT_APPLY_CANNY
-        self.apply_frequency = DEFAULT_APPLY_FREQUENCY
-        self.apply_fft = DEFAULT_APPLY_FFT
-        self.invert = DEFAULT_INVERT
 
     def update(self):
         """Update - not needed for static effect"""
         pass
 
     def draw(self, frame, face_mask=None):
-        """Apply combined filters and return result"""
+        """Apply FFT filter and return result"""
         # If showing FFT visualization, return that directly
-        if self.apply_fft and self.fft.show_fft:
+        if self.fft.show_fft:
             return self.fft.draw(frame)
 
-        result = np.zeros((self.height, self.width), dtype=np.uint8)
-
-        # Apply Canny if enabled
-        if self.apply_canny:
-            canny_result = self.canny.draw(frame)
-            result = cv2.add(result, canny_result)
-
-        # Apply frequency filter if enabled
-        if self.apply_frequency:
-            frequency_result = self.frequency.draw(frame)
-            result = cv2.add(result, frequency_result)
-
-        # Apply FFT filter if enabled
-        if self.apply_fft:
-            fft_result = self.fft.draw(frame)
-            result = cv2.add(result, fft_result)
-
-        # Invert if enabled
-        if self.invert:
-            result = cv2.bitwise_not(result)
+        # Apply FFT filter
+        fft_result = self.fft.draw(frame)
 
         # Convert to 3-channel for display
-        result_3channel = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        result_3channel = cv2.cvtColor(fft_result, cv2.COLOR_GRAY2BGR)
 
         return result_3channel
 
@@ -744,7 +540,7 @@ def find_available_cameras():
 def main():
     """Main application loop"""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Sketch Filter with Canny and Frequency filters')
+    parser = argparse.ArgumentParser(description='FFT Filter for Webcam')
     parser.add_argument('--camera', type=int, default=None,
                        help='Camera ID to use (default: highest numbered camera)')
     args = parser.parse_args()
@@ -882,9 +678,6 @@ def main():
                 # Reinitialize sketch filter with new dimensions
                 sketch = CombinedSketchFilter(new_width, new_height)
 
-                # Update control panel max dimension for frequency filter
-                controls.max_dimension = max(new_width, new_height)
-
                 print(f"Now using camera {selected_camera['id']} at {new_width}x{new_height}")
 
                 # Skip this frame and get a fresh one from the new camera
@@ -894,26 +687,9 @@ def main():
         frame = cv2.flip(frame, 1)
 
         # Read values from tkinter controls and update parameters
-        sketch.apply_frequency = controls.apply_frequency.get()
-        sketch.frequency.blur_kernel = controls.get_frequency_blur()
-        sketch.frequency.boost = controls.frequency_boost.get()
-
-        sketch.apply_fft = controls.apply_fft.get()
         sketch.fft.radius = controls.fft_radius.get()
         sketch.fft.smoothness = controls.fft_smoothness.get()
-        sketch.fft.boost = controls.fft_boost.get()
         sketch.fft.show_fft = controls.show_fft.get()
-
-        sketch.apply_canny = controls.apply_canny.get()
-        sketch.canny.blur_kernel = controls.get_canny_blur()
-        sketch.canny.threshold1 = controls.threshold1.get()
-        sketch.canny.threshold2 = controls.threshold2.get()
-        sketch.canny.aperture_size = controls.aperture.get()
-        sketch.canny.l2_gradient = controls.l2_gradient.get()
-        sketch.canny.final_blur = controls.canny_final_blur.get()
-        sketch.canny.boost = controls.canny_boost.get()
-
-        sketch.invert = controls.invert.get()
 
         # Get effect enabled state from control panel (inverted from show_original)
         effect_enabled = not controls.show_original.get()
@@ -922,6 +698,16 @@ def main():
             # Sketch filter mode
             sketch.update()
             result = sketch.draw(frame)
+
+            # Apply gain (multiply by 2^gain)
+            gain = controls.gain.get()
+            if gain != 0:
+                result = np.clip(result * (2 ** gain), 0, 255).astype(np.uint8)
+
+            # Apply invert
+            if controls.invert.get():
+                result = 255 - result
+
             # Effect enabled
         else:
             # Preview mode: show raw webcam
@@ -942,58 +728,13 @@ def main():
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         y_offset += line_height
 
-        cv2.putText(result, f"Apply Frequency: {sketch.apply_frequency}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Frequency Blur: {sketch.frequency.blur_kernel}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Frequency Boost: {sketch.frequency.boost:.1f}x", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-
-        cv2.putText(result, f"Apply FFT: {sketch.apply_fft}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
         cv2.putText(result, f"FFT Radius: {sketch.fft.radius}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         y_offset += line_height
         cv2.putText(result, f"FFT Smoothness: {sketch.fft.smoothness}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         y_offset += line_height
-        cv2.putText(result, f"FFT Boost: {sketch.fft.boost:.1f}x", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
         cv2.putText(result, f"Show FFT: {sketch.fft.show_fft}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-
-        cv2.putText(result, f"Apply Canny: {sketch.apply_canny}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny Blur: {sketch.canny.blur_kernel}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny Thresh1: {sketch.canny.threshold1}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny Thresh2: {sketch.canny.threshold2}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny Aperture: {sketch.canny.aperture_size}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny L2Grad: {sketch.canny.l2_gradient}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny FinalBlur: {sketch.canny.final_blur}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Canny Boost: {sketch.canny.boost:.1f}x", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-
-        cv2.putText(result, f"Invert: {sketch.invert}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         y_offset += line_height
 
