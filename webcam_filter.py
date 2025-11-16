@@ -9,104 +9,35 @@ import os
 import signal
 
 
-class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+class CannyEdgeDetector:
+    """Simple Canny edge detector with adjustable parameters"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
-
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
-
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
-
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+        # Canny parameters
+        self.blur_kernel = 5
+        self.threshold1 = 50
+        self.threshold2 = 150
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
-
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
-
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        """Update - not needed for static effect"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """White edges with original color background"""
-        # Start with original frame
-        result = frame.copy()
-
-        # Detect edges
+        """Apply Canny edge detection and return edges as grayscale image"""
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
 
-        # Dilate edges to make them more prominent
-        kernel = np.ones((2, 2), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
+        # Apply Gaussian blur
+        blurred = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
 
-        # Blur edges for soft effect
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Apply Canny edge detection
+        edges = cv2.Canny(blurred, self.threshold1, self.threshold2)
 
-        # Convert edges to 3-channel for blending
-        edges_3channel = cv2.merge([edges, edges, edges])
-
-        # Create white color
-        white = np.ones_like(result, dtype=np.uint8) * 255
-
-        # Blend white edges on top of original frame
-        alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
+        # Convert to 3-channel for display
+        result = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
 
         return result
 
@@ -264,12 +195,11 @@ def main():
     # Start window thread for better event handling and native controls
     cv2.startWindowThread()
 
-    # Initialize Matrix rain and edge detector
-    matrix = MatrixRain(width, height)
-    edge_detector = EdgeDetector()
+    # Initialize Canny edge detector
+    canny = CannyEdgeDetector(width, height)
 
     # Create window with native macOS controls (red/yellow/green buttons)
-    window_name = 'Matrix Vision'
+    window_name = 'Canny Edge Detection'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
@@ -294,9 +224,9 @@ def main():
         frame = cv2.flip(frame, 1)
 
         if effect_enabled:
-            # Matrix mode: update grid and draw based on brightness
-            matrix.update()
-            result = matrix.draw(frame)
+            # Canny edge detection mode
+            canny.update()
+            result = canny.draw(frame)
             # Effect enabled
         else:
             # Preview mode: show raw webcam
@@ -310,8 +240,14 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display mode and FPS
+        # Display FPS and parameters
         cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"Blur: {canny.blur_kernel}x{canny.blur_kernel}", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, 90),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, 120),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
@@ -341,7 +277,6 @@ def main():
     # Cleanup
     cap.release()
     cv2.destroyAllWindows()
-    edge_detector.face_detection.close()
 
 
 if __name__ == '__main__':
