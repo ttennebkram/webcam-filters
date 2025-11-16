@@ -276,18 +276,33 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display FPS and parameters
-        cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
+        # Display FPS and parameters at bottom
+        # Get result height for positioning
+        h = result.shape[0]
+
+        cv2.putText(result, f"FPS: {fps:.1f}", (10, h - 180),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Blur: {canny.blur_kernel}x{canny.blur_kernel}", (10, 60),
+        cv2.putText(result, f"Blur: {canny.blur_kernel}x{canny.blur_kernel}", (10, h - 150),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, 90),
+        cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, h - 120),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, 120),
+        cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, h - 90),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Aperture: {canny.aperture_size}", (10, 150),
+        cv2.putText(result, f"Aperture: {canny.aperture_size}", (10, h - 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"L2Grad: {canny.l2_gradient}", (10, 180),
+
+        # Draw checkbox for L2 Gradient
+        checkbox_x = 10
+        checkbox_y = h - 40
+        checkbox_size = 15
+        # Draw checkbox box
+        cv2.rectangle(result, (checkbox_x, checkbox_y - checkbox_size),
+                     (checkbox_x + checkbox_size, checkbox_y), (0, 255, 0), 2)
+        # Fill if checked
+        if canny.l2_gradient:
+            cv2.rectangle(result, (checkbox_x + 3, checkbox_y - checkbox_size + 3),
+                         (checkbox_x + checkbox_size - 3, checkbox_y - 3), (0, 255, 0), -1)
+        cv2.putText(result, "L2 Gradient", (checkbox_x + checkbox_size + 10, checkbox_y - 3),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
