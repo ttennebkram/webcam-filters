@@ -141,10 +141,10 @@ class MatrixRain:
         # Convert to LAB color space for better color temperature control
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB).astype(np.float32)
 
-        # Shift colors toward warm tungsten (yellow-orange)
+        # Shift colors toward warm tungsten (yellow-orange) - toned down
         # A channel: green-red, B channel: blue-yellow
-        lab[:, :, 1] = lab[:, :, 1] + 10  # Shift slightly toward red
-        lab[:, :, 2] = lab[:, :, 2] + 35  # Shift strongly toward yellow/orange
+        lab[:, :, 1] = lab[:, :, 1] + 5   # Shift slightly toward red
+        lab[:, :, 2] = lab[:, :, 2] + 15  # Shift moderately toward yellow/orange
 
         # Clamp values
         lab = np.clip(lab, 0, 255)
