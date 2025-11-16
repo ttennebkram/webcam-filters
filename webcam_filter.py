@@ -16,12 +16,12 @@ class CannyEdgeDetector:
         self.width = width
         self.height = height
 
-        # Canny parameters with reasonable defaults
-        self.blur_kernel = 3  # Default: 3x3 blur
-        self.threshold1 = 50  # Default: 50
-        self.threshold2 = 150  # Default: 150 (typically 3x threshold1)
+        # Canny parameters with custom defaults
+        self.blur_kernel = 1  # Default: 1 (no blur)
+        self.threshold1 = 37  # Default: 37
+        self.threshold2 = 13  # Default: 13 (intentionally lower than threshold1)
         self.aperture_size = 3  # Default: 3 (Sobel kernel size)
-        self.l2_gradient = False  # Default: False (use L1 norm)
+        self.l2_gradient = True  # Default: True (use L2 norm)
 
     def update(self):
         """Update - not needed for static effect"""
@@ -222,15 +222,15 @@ def main():
         pass
 
     # Blur kernel - any odd integer from 1 to 31 (slider 0-15 maps to 1,3,5,...,31)
-    cv2.createTrackbar('Blur (1,3,5...31)', controls_window, 1, 15, nothing)  # Default: 1 -> 3
-    # Threshold 1 (lower threshold) - OpenCV default would be ~50, but 0 allows max sensitivity
-    cv2.createTrackbar('Threshold1 (0-255)', controls_window, 50, 255, nothing)  # Default: 50
-    # Threshold 2 (upper threshold) - OpenCV default is typically 3x threshold1, ~150
-    cv2.createTrackbar('Threshold2 (0-255)', controls_window, 150, 255, nothing)  # Default: 150
+    cv2.createTrackbar('Blur (1,3,5...31)', controls_window, 0, 15, nothing)  # Default: 0 -> 1
+    # Threshold 1 (lower threshold)
+    cv2.createTrackbar('Threshold1 (0-255)', controls_window, 37, 255, nothing)  # Default: 37
+    # Threshold 2 (upper threshold) - note: can be lower than threshold1
+    cv2.createTrackbar('Threshold2 (0-255)', controls_window, 13, 255, nothing)  # Default: 13
     # Aperture size - must be 3, 5, or 7 (slider 0-2 maps to exactly 3, 5, 7)
     cv2.createTrackbar('Aperture (3/5/7)', controls_window, 0, 2, nothing)  # Default: 0 -> 3
     # L2 gradient - checkbox simulation (0=Off, 1=On)
-    cv2.createTrackbar('L2Grad (0=Off 1=On)', controls_window, 0, 1, nothing)  # Default: 0 (False)
+    cv2.createTrackbar('L2Grad (0=Off 1=On)', controls_window, 1, 1, nothing)  # Default: 1 (True)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
