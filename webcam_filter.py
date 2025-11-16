@@ -10,199 +10,158 @@ import signal
 
 
 class MatrixRain:
-    """Melting effect - water drops refract the image as they drip down"""
+    """Cut glass effect - static geometric facets that refract the image"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Pre-calculate refraction maps for different drop sizes
-        self.drop_sizes = [8, 10, 12, 15, 18]  # Smaller drop widths
-        self.refraction_maps = {}
+        # Create static cut-glass facet pattern
+        # Facets are diamond/triangular shapes that create prismatic refraction
+        self.facet_size = 120  # Size of each facet
 
-        for size in self.drop_sizes:
-            self.refraction_maps[size] = self.create_refraction_map(size)
+        # Pre-calculate the entire cut-glass mask for the screen
+        self.refraction_map = self.create_cut_glass_pattern()
 
-        # Active drops - each drop has position, size, and speed
-        self.drops = []
+    def create_cut_glass_pattern(self):
+        """Pre-calculate refraction displacement map for entire screen with square-framed facets"""
+        # Create displacement maps for entire screen
+        offset_x = np.zeros((self.height, self.width), dtype=np.float32)
+        offset_y = np.zeros((self.height, self.width), dtype=np.float32)
+        alpha = np.zeros((self.height, self.width), dtype=np.float32)
 
-        # Spawn initial drops
-        for _ in range(1000):
-            self.spawn_drop()
+        facet_size = self.facet_size
 
-    def create_refraction_map(self, drop_width):
-        """Pre-calculate refraction displacement map for a water drop shape"""
-        drop_height = int(drop_width * 2.0)  # Drops are elongated
-        half_w = drop_width // 2
+        # Create a regular grid of square facets
+        for row in range(0, self.height, facet_size):
+            for col in range(0, self.width, facet_size):
+                # Create square facet at this position
+                self.add_square_facet(offset_x, offset_y, alpha, col, row, facet_size)
 
-        # Create displacement maps and alpha mask
-        offset_x = np.zeros((drop_height, drop_width), dtype=np.float32)
-        offset_y = np.zeros((drop_height, drop_width), dtype=np.float32)
-        alpha = np.zeros((drop_height, drop_width), dtype=np.float32)
-
-        # Create water drop shape with refraction effect
-        for y in range(drop_height):
-            for x in range(drop_width):
-                # Distance from center x-axis
-                dx = x - half_w
-                fx = x - half_w + 0.5  # Sub-pixel center
-
-                # Normalize y position (0 at top, 1 at bottom)
-                ny = y / drop_height
-
-                # Drop shape: stretched tail at top, rounded bulb at bottom
-                if ny < 0.5:
-                    # Top half - narrow stretched tail
-                    max_radius = half_w * (0.2 + 0.5 * (ny / 0.5))
-                    # Tail has lower alpha - lets things through
-                    alpha_strength = 0.3 + 0.5 * (ny / 0.5)
-                elif ny < 0.85:
-                    # Middle - widening to rounded bottom
-                    progress = (ny - 0.5) / 0.35
-                    # Use sine curve for smooth rounding
-                    max_radius = half_w * (0.7 + 0.3 * np.sin(progress * np.pi / 2))
-                    alpha_strength = 0.8 + 0.2 * progress
-                else:
-                    # Bottom tip - smooth rounded point using cosine
-                    progress = (ny - 0.85) / 0.15
-                    # Smooth curve to a point
-                    max_radius = half_w * np.cos(progress * np.pi / 2)
-                    alpha_strength = 1.0
-
-                # Use floating point distance for smoother edges
-                dist_from_center = np.sqrt(fx * fx)
-
-                if dist_from_center < max_radius:
-                    # Inside the drop - apply refraction
-                    # Refraction strength based on distance from edge
-                    edge_dist = max_radius - dist_from_center
-                    strength = edge_dist / max_radius
-
-                    # Strong refraction at edges (like real water drops)
-                    # Center has minimal distortion, edges have maximum
-                    if strength < 0.3:
-                        # Near edge - very strong refraction with smooth gradient
-                        refract_strength = 60.0 * (1.0 - strength / 0.3)
-                    else:
-                        # Center - moderate refraction
-                        refract_strength = 15.0
-
-                    # Smooth falloff at edges for anti-aliasing - wider feathering
-                    edge_falloff = min(1.0, edge_dist / 4.0)  # Wider feather (was /2.0)
-
-                    offset_x[y, x] = np.sign(dx) * refract_strength
-                    offset_y[y, x] = refract_strength * 0.3
-                    alpha[y, x] = edge_falloff * alpha_strength
+        # Blur the displacement maps for smoother transitions between facets
+        offset_x = cv2.GaussianBlur(offset_x, (5, 5), 0)
+        offset_y = cv2.GaussianBlur(offset_y, (5, 5), 0)
 
         return {
-            'width': drop_width,
-            'height': drop_height,
             'offset_x': offset_x,
             'offset_y': offset_y,
             'alpha': alpha
         }
 
-    def spawn_drop(self):
-        """Create a new drop at random position"""
-        drop = {
-            'x': random.randint(0, self.width - 1),
-            'y': random.randint(-100, 0),  # Start above screen
-            'size': random.choice(self.drop_sizes),
-            'speed': random.uniform(8.0, 24.0)  # Double average speed
-        }
-        self.drops.append(drop)
+    def add_square_facet(self, offset_x, offset_y, alpha, corner_x, corner_y, size):
+        """Add a single square-framed facet with beveled edges and indented center"""
+        # Calculate center of the square
+        center_x = corner_x + size // 2
+        center_y = corner_y + size // 2
+
+        # Frame thickness
+        frame_thickness = 0  # No dark frame between squares
+        # Flat raised border width (no refraction) - 12 pixels
+        flat_border = 12
+        # Transition zone from flat to full refraction
+        transition_zone = size // 16  # Smaller bevel slope (~7.5 pixels)
+
+        for y in range(max(0, corner_y), min(self.height, corner_y + size)):
+            for x in range(max(0, corner_x), min(self.width, corner_x + size)):
+                # Distance from square boundaries
+                dist_left = x - corner_x
+                dist_right = (corner_x + size) - x
+                dist_top = y - corner_y
+                dist_bottom = (corner_y + size) - y
+
+                # Distance from center
+                dx = x - center_x
+                dy = y - center_y
+
+                # Minimum distance to any edge
+                min_edge_dist = min(dist_left, dist_right, dist_top, dist_bottom)
+
+                if min_edge_dist < frame_thickness:
+                    # In the dark frame - no refraction
+                    alpha[y, x] = 0.0
+                elif min_edge_dist < flat_border:
+                    # In the flat raised border area - minimal or no refraction
+                    offset_x[y, x] = 0.0
+                    offset_y[y, x] = 0.0
+                    alpha[y, x] = 0.0  # Flat, no distortion
+                elif min_edge_dist < flat_border + transition_zone:
+                    # In bevel zone - refraction goes from center toward the raised edge
+                    # This is the slope from valley (center) up to raised flat border
+                    transition_progress = (min_edge_dist - flat_border) / transition_zone
+
+                    # Inverse progress: 1.0 at inner edge (near valley), 0.0 at outer edge (near flat)
+                    bevel_strength = 1.0 - transition_progress
+
+                    # Refraction pushes TOWARD the nearest edge (upward slope effect)
+                    # Determine which edge is closest
+                    if dist_left == min_edge_dist:
+                        # Left edge is closest - push toward left
+                        refract_x = -35.0 * bevel_strength
+                        refract_y = 0.0
+                    elif dist_right == min_edge_dist:
+                        # Right edge is closest - push toward right
+                        refract_x = 35.0 * bevel_strength
+                        refract_y = 0.0
+                    elif dist_top == min_edge_dist:
+                        # Top edge is closest - push toward top
+                        refract_x = 0.0
+                        refract_y = -35.0 * bevel_strength
+                    else:
+                        # Bottom edge is closest - push toward bottom
+                        refract_x = 0.0
+                        refract_y = 35.0 * bevel_strength
+
+                    offset_x[y, x] = refract_x
+                    offset_y[y, x] = refract_y
+                    alpha[y, x] = 1.0 * bevel_strength
+                else:
+                    # In the indented center - full refraction
+                    if abs(dx) > abs(dy):
+                        if dx > 0:
+                            refract_x = 35.0
+                            refract_y = (dy / abs(dx) * 20.0) if abs(dx) > 0 else 0.0
+                        else:
+                            refract_x = -35.0
+                            refract_y = (dy / abs(dx) * 20.0) if abs(dx) > 0 else 0.0
+                    else:
+                        if dy > 0:
+                            refract_y = 35.0
+                            refract_x = (dx / abs(dy) * 20.0) if abs(dy) > 0 else 0.0
+                        else:
+                            refract_y = -35.0
+                            refract_x = (dx / abs(dy) * 20.0) if abs(dy) > 0 else 0.0
+
+                    offset_x[y, x] = refract_x
+                    offset_y[y, x] = refract_y
+                    alpha[y, x] = 1.0  # Full opacity in center
 
     def update(self):
-        """Update drop positions"""
-        # Move drops down
-        for drop in self.drops:
-            drop['y'] += drop['speed']
-
-        # Remove drops that are off screen and spawn new ones
-        self.drops = [d for d in self.drops if d['y'] < self.height + 50]
-
-        # Maintain drop count
-        while len(self.drops) < 1000:
-            self.spawn_drop()
+        """Update animation - static effect, no updates needed"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """Draw water drops refracting the background image"""
-        # Boost saturation and contrast of source frame for more visible drops
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hsv[:, :, 1] = cv2.convertScaleAbs(hsv[:, :, 1], alpha=1.3, beta=0)  # 1.3x saturation
-        hsv[:, :, 2] = cv2.convertScaleAbs(hsv[:, :, 2], alpha=1.15, beta=-10)  # Subtle contrast boost
-        enhanced_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        """Apply cut-glass facet refraction to the entire frame"""
+        # Use original frame without enhancement
+        enhanced_frame = frame.copy()
 
-        # Start with original frame (not enhanced)
-        result = frame.copy()
+        # Get pre-calculated refraction maps
+        offset_x = self.refraction_map['offset_x']
+        offset_y = self.refraction_map['offset_y']
+        alpha_map = self.refraction_map['alpha']
 
-        # Sort drops by y position (top to bottom) so overlapping drops blend correctly
-        sorted_drops = sorted(self.drops, key=lambda d: d['y'])
+        # Create coordinate grids for entire frame
+        y_coords, x_coords = np.mgrid[0:self.height, 0:self.width]
 
-        # Apply each drop's refraction with alpha blending
-        for drop in sorted_drops:
-            drop_x = int(drop['x'])
-            drop_y = int(drop['y'])
-            size = drop['size']
+        # Calculate source coordinates with refraction
+        source_x = (x_coords + offset_x.astype(np.int32)).clip(0, self.width - 1)
+        source_y = (y_coords + offset_y.astype(np.int32)).clip(0, self.height - 1)
 
-            # Get pre-calculated refraction map
-            refraction = self.refraction_maps[size]
-            drop_width = refraction['width']
-            drop_height = refraction['height']
-            offset_x = refraction['offset_x']
-            offset_y = refraction['offset_y']
-            alpha = refraction['alpha']
+        # Get refracted pixels from enhanced frame
+        refracted = enhanced_frame[source_y, source_x]
 
-            # Calculate drop bounds on screen
-            left = drop_x - drop_width // 2
-            right = left + drop_width
-            top = drop_y
-            bottom = drop_y + drop_height
-
-            # Skip if completely off screen
-            if right < 0 or left >= self.width or bottom < 0 or top >= self.height:
-                continue
-
-            # Clip to screen bounds
-            screen_left = max(0, left)
-            screen_right = min(self.width, right)
-            screen_top = max(0, top)
-            screen_bottom = min(self.height, bottom)
-
-            # Map to drop coordinates
-            drop_left_offset = screen_left - left
-            drop_right_offset = drop_left_offset + (screen_right - screen_left)
-            drop_top_offset = screen_top - top
-            drop_bottom_offset = drop_top_offset + (screen_bottom - screen_top)
-
-            # Extract the region from refraction maps
-            region_offset_x = offset_x[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
-            region_offset_y = offset_y[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
-            region_alpha = alpha[drop_top_offset:drop_bottom_offset, drop_left_offset:drop_right_offset]
-
-            # Create coordinate grids for this region
-            region_h = screen_bottom - screen_top
-            region_w = screen_right - screen_left
-
-            y_coords, x_coords = np.mgrid[screen_top:screen_bottom, screen_left:screen_right]
-
-            # Calculate source coordinates with refraction
-            source_x = (x_coords + region_offset_x.astype(np.int32)).clip(0, self.width - 1)
-            source_y = (y_coords + region_offset_y.astype(np.int32)).clip(0, self.height - 1)
-
-            # Get refracted pixels from ENHANCED frame (saturated/contrasted)
-            refracted = enhanced_frame[source_y, source_x]
-
-            # Get original pixels
-            original = result[screen_top:screen_bottom, screen_left:screen_right]
-
-            # Alpha blend (vectorized)
-            alpha_3d = region_alpha[:, :, np.newaxis]  # Add channel dimension
-            blended = (refracted * alpha_3d + original * (1.0 - alpha_3d)).astype(np.uint8)
-
-            # Only update pixels with significant alpha
-            mask = region_alpha > 0.01
-            result[screen_top:screen_bottom, screen_left:screen_right][mask] = blended[mask]
+        # Alpha blend with original frame
+        alpha_3d = alpha_map[:, :, np.newaxis]  # Add channel dimension
+        result = (refracted * alpha_3d + frame * (1.0 - alpha_3d)).astype(np.uint8)
 
         return result
 
