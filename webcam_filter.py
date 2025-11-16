@@ -16,12 +16,12 @@ class CannyEdgeDetector:
         self.width = width
         self.height = height
 
-        # Canny parameters
-        self.blur_kernel = 5
-        self.threshold1 = 0
-        self.threshold2 = 150
-        self.aperture_size = 3
-        self.l2_gradient = False
+        # Canny parameters with reasonable defaults
+        self.blur_kernel = 3  # Default: 3x3 blur
+        self.threshold1 = 50  # Default: 50
+        self.threshold2 = 150  # Default: 150 (typically 3x threshold1)
+        self.aperture_size = 3  # Default: 3 (Sobel kernel size)
+        self.l2_gradient = False  # Default: False (use L1 norm)
 
     def update(self):
         """Update - not needed for static effect"""
@@ -214,23 +214,23 @@ def main():
     # Create separate controls window
     controls_window = 'Controls'
     cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(controls_window, 400, 200)
+    cv2.resizeWindow(controls_window, 500, 200)
 
     # Create trackbars for Canny parameters in controls window
     # Trackbar callback (does nothing, we read values in the loop)
     def nothing(x):
         pass
 
-    # Blur kernel (must be odd, so we use slider 0-10 and convert to 1,3,5,7,...,21)
-    cv2.createTrackbar('Blur Kernel', controls_window, 2, 10, nothing)  # Default: 2 -> 5
-    # Threshold 1 (lower threshold)
-    cv2.createTrackbar('Threshold 1', controls_window, 0, 255, nothing)  # Default: 0
-    # Threshold 2 (upper threshold)
-    cv2.createTrackbar('Threshold 2', controls_window, 150, 255, nothing)  # Default: 150
-    # Aperture size (must be 3, 5, or 7)
-    cv2.createTrackbar('Aperture Size', controls_window, 1, 3, nothing)  # 0->3, 1->5, 2->7, 3->7
-    # L2 gradient (0 or 1)
-    cv2.createTrackbar('L2 Gradient', controls_window, 0, 1, nothing)  # Default: 0 (False)
+    # Blur kernel - any odd integer from 1 to 31 (slider 0-15 maps to 1,3,5,...,31)
+    cv2.createTrackbar('Blur (1,3,5...31)', controls_window, 1, 15, nothing)  # Default: 1 -> 3
+    # Threshold 1 (lower threshold) - OpenCV default would be ~50, but 0 allows max sensitivity
+    cv2.createTrackbar('Threshold1 (0-255)', controls_window, 50, 255, nothing)  # Default: 50
+    # Threshold 2 (upper threshold) - OpenCV default is typically 3x threshold1, ~150
+    cv2.createTrackbar('Threshold2 (0-255)', controls_window, 150, 255, nothing)  # Default: 150
+    # Aperture size - must be 3, 5, or 7 (slider 0-2 maps to exactly 3, 5, 7)
+    cv2.createTrackbar('Aperture (3/5/7)', controls_window, 0, 2, nothing)  # Default: 0 -> 3
+    # L2 gradient - checkbox simulation (0=Off, 1=On)
+    cv2.createTrackbar('L2Grad (0=Off 1=On)', controls_window, 0, 1, nothing)  # Default: 0 (False)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -252,17 +252,17 @@ def main():
         frame = cv2.flip(frame, 1)
 
         # Read trackbar values from controls window and update canny parameters
-        blur_slider = cv2.getTrackbarPos('Blur Kernel', controls_window)
-        canny.blur_kernel = blur_slider * 2 + 1  # Convert 0-10 to 1,3,5,7,...,21
-        canny.threshold1 = cv2.getTrackbarPos('Threshold 1', controls_window)
-        canny.threshold2 = cv2.getTrackbarPos('Threshold 2', controls_window)
+        blur_slider = cv2.getTrackbarPos('Blur (1,3,5...31)', controls_window)
+        canny.blur_kernel = blur_slider * 2 + 1  # Convert 0-15 to 1,3,5,7,...,31
+        canny.threshold1 = cv2.getTrackbarPos('Threshold1 (0-255)', controls_window)
+        canny.threshold2 = cv2.getTrackbarPos('Threshold2 (0-255)', controls_window)
 
-        aperture_slider = cv2.getTrackbarPos('Aperture Size', controls_window)
-        # Map 0->3, 1->5, 2->7, 3->7
-        aperture_map = [3, 5, 7, 7]
+        aperture_slider = cv2.getTrackbarPos('Aperture (3/5/7)', controls_window)
+        # Map 0->3, 1->5, 2->7 (exactly 3 options)
+        aperture_map = [3, 5, 7]
         canny.aperture_size = aperture_map[aperture_slider]
 
-        canny.l2_gradient = bool(cv2.getTrackbarPos('L2 Gradient', controls_window))
+        canny.l2_gradient = bool(cv2.getTrackbarPos('L2Grad (0=Off 1=On)', controls_window))
 
         if effect_enabled:
             # Canny edge detection mode
