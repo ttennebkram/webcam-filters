@@ -9,81 +9,40 @@ import os
 import signal
 
 
-class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+class HighPassFilter:
+    """High-pass filter to extract fine details from image"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
-
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
-
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
-
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+        # Filter parameter - kernel size for low-pass filter (must be odd)
+        self.blur_kernel = 21  # Default: larger kernel = more high-frequency details
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
-
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
-
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        """Update - not needed for static effect"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """Pass through original frame unmodified"""
-        return frame
+        """Apply high-pass filter to extract fine details"""
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Create low-pass version by blurring
+        if self.blur_kernel > 1:
+            low_pass = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
+        else:
+            low_pass = gray
+
+        # High-pass = original - low-pass (subtract blurred version)
+        # Add 127 offset to center the result (so it's visible)
+        high_pass = cv2.subtract(gray, low_pass)
+        high_pass = cv2.add(high_pass, 127)
+
+        # Convert back to 3-channel for display
+        result = cv2.cvtColor(high_pass, cv2.COLOR_GRAY2BGR)
+
+        return result
 
 
 class EdgeDetector:
@@ -235,19 +194,31 @@ def main():
     print("Controls:")
     print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
+    print("  Use trackbar to adjust high-pass filter")
 
     # Start window thread for better event handling and native controls
     cv2.startWindowThread()
 
-    # Initialize Matrix rain and edge detector
-    matrix = MatrixRain(width, height)
-    edge_detector = EdgeDetector()
+    # Initialize high-pass filter
+    hp_filter = HighPassFilter(width, height)
 
-    # Create window with native macOS controls (red/yellow/green buttons)
-    window_name = 'Matrix Vision'
+    # Create main window for video display
+    window_name = 'High-Pass Filter'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
+
+    # Create separate controls window
+    controls_window = 'Controls'
+    cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(controls_window, 500, 100)
+
+    # Create trackbar for filter parameter
+    def nothing(x):
+        pass
+
+    # Blur kernel size (slider 0-30 maps to 1,3,5,...,61)
+    cv2.createTrackbar('Blur Kernel (1-61)', controls_window, 10, 30, nothing)  # Default: 10 -> 21
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -268,10 +239,14 @@ def main():
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
+        # Read trackbar value and update filter parameter
+        blur_slider = cv2.getTrackbarPos('Blur Kernel (1-61)', controls_window)
+        hp_filter.blur_kernel = blur_slider * 2 + 1  # Convert 0-30 to 1,3,5,...,61
+
         if effect_enabled:
-            # Matrix mode: update grid and draw based on brightness
-            matrix.update()
-            result = matrix.draw(frame)
+            # High-pass filter mode
+            hp_filter.update()
+            result = hp_filter.draw(frame)
             # Effect enabled
         else:
             # Preview mode: show raw webcam
@@ -285,15 +260,21 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display mode and FPS
+        # Display FPS and filter parameter at top left
         cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"Blur Kernel: {hp_filter.blur_kernel}", (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
         cv2.imshow(window_name, result)
 
-        # Check if window was closed via close button
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+        # Show empty image in controls window (just for trackbar)
+        cv2.imshow(controls_window, np.zeros((1, 500, 3), dtype=np.uint8))
+
+        # Check if either window was closed via close button
+        if (cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1 or
+            cv2.getWindowProperty(controls_window, cv2.WND_PROP_VISIBLE) < 1):
             break
 
         # Handle keyboard input (wrapped in try for Ctrl+C handling)
@@ -316,7 +297,6 @@ def main():
     # Cleanup
     cap.release()
     cv2.destroyAllWindows()
-    edge_detector.face_detection.close()
 
 
 if __name__ == '__main__':
