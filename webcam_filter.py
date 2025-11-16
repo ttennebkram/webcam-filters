@@ -82,33 +82,8 @@ class MatrixRain:
                     }
 
     def draw(self, frame, face_mask=None):
-        """White edges with original color background"""
-        # Start with original frame
-        result = frame.copy()
-
-        # Detect edges
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-
-        # Dilate edges to make them more prominent
-        kernel = np.ones((2, 2), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
-
-        # Blur edges for soft effect
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
-
-        # Convert edges to 3-channel for blending
-        edges_3channel = cv2.merge([edges, edges, edges])
-
-        # Create white color
-        white = np.ones_like(result, dtype=np.uint8) * 255
-
-        # Blend white edges on top of original frame
-        alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
-
-        return result
+        """Pass through original frame unmodified"""
+        return frame
 
 
 class EdgeDetector:
