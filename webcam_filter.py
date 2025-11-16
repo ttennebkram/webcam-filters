@@ -9,6 +9,10 @@ import os
 import signal
 
 
+# Configuration constants
+DEFAULT_BLUR_KERNEL = 95  # Default blur kernel size for high-pass filter (must be odd)
+
+
 class HighPassFilter:
     """High-pass filter to extract fine details from image"""
 
@@ -17,7 +21,7 @@ class HighPassFilter:
         self.height = height
 
         # Filter parameter - kernel size for low-pass filter (must be odd)
-        self.blur_kernel = 21  # Default: larger kernel = more high-frequency details
+        self.blur_kernel = DEFAULT_BLUR_KERNEL  # Larger kernel = more high-frequency details
 
     def update(self):
         """Update - not needed for static effect"""
@@ -34,10 +38,9 @@ class HighPassFilter:
         else:
             low_pass = gray
 
-        # High-pass = original - low-pass (subtract blurred version)
-        # Add 127 offset to center the result (so it's visible)
-        high_pass = cv2.subtract(gray, low_pass)
-        high_pass = cv2.add(high_pass, 127)
+        # High-pass = abs(original - low-pass)
+        # Use absolute difference so no signal = 0 (black background)
+        high_pass = cv2.absdiff(gray, low_pass)
 
         # Convert back to 3-channel for display
         result = cv2.cvtColor(high_pass, cv2.COLOR_GRAY2BGR)
@@ -217,8 +220,13 @@ def main():
     def nothing(x):
         pass
 
-    # Blur kernel size (slider 0-30 maps to 1,3,5,...,61)
-    cv2.createTrackbar('Blur Kernel (1-61)', controls_window, 10, 30, nothing)  # Default: 10 -> 21
+    # Calculate max blur kernel based on longest dimension
+    max_dimension = max(width, height)
+    max_slider = max_dimension // 2  # Slider goes from 0 to max_dimension/2
+
+    # Blur kernel size (slider maps to odd values: 1,3,5,7,...)
+    default_slider_pos = (DEFAULT_BLUR_KERNEL - 1) // 2  # Convert kernel size to slider position
+    cv2.createTrackbar(f'Blur Kernel (1-{max_dimension})', controls_window, default_slider_pos, max_slider, nothing)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -240,8 +248,8 @@ def main():
         frame = cv2.flip(frame, 1)
 
         # Read trackbar value and update filter parameter
-        blur_slider = cv2.getTrackbarPos('Blur Kernel (1-61)', controls_window)
-        hp_filter.blur_kernel = blur_slider * 2 + 1  # Convert 0-30 to 1,3,5,...,61
+        blur_slider = cv2.getTrackbarPos(f'Blur Kernel (1-{max_dimension})', controls_window)
+        hp_filter.blur_kernel = blur_slider * 2 + 1  # Convert slider to odd values: 1,3,5,7,...
 
         if effect_enabled:
             # High-pass filter mode
