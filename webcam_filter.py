@@ -114,32 +114,28 @@ class MatrixRain:
         result = (result.astype(np.float32) * (1.0 - gradient_3channel) +
                   light_sky_blue.astype(np.float32) * gradient_3channel).astype(np.uint8)
 
-        # Detect edges
+        # Detect edges - lower thresholds to keep more edges stable
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        edges = cv2.Canny(blurred, 30, 90)  # Lower thresholds for more stable edges
 
-        # Dilate edges to make them bolder
+        # Dilate edges to make them more prominent
         kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=2)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=2)
 
-        # Blur edges for soft effect
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
-
-        # Boost edge intensity to make them more prominent
-        edges = cv2.convertScaleAbs(edges, alpha=1.5, beta=0)
-        edges = np.clip(edges, 0, 255).astype(np.uint8)
+        # Blur edges more at the edges for softer falloff
+        edges_blurred = cv2.GaussianBlur(edges_dilated, (15, 15), 0)
 
         # Convert edges to 3-channel for blending
-        edges_3channel = cv2.merge([edges, edges, edges])
+        edges_3channel = cv2.merge([edges_blurred, edges_blurred, edges_blurred])
 
         # Create hunter green color (BGR format)
         hunter_green = np.ones_like(result, dtype=np.uint8)
         hunter_green[:, :] = [35, 86, 35]  # BGR: hunter green
 
-        # Blend hunter green edges on top of frame with stronger alpha
-        alpha = (edges_3channel.astype(np.float32) / 255.0) * 1.3
-        alpha = np.clip(alpha, 0, 1)
+        # Blend hunter green edges on top of frame with stronger alpha for more visible green
+        alpha = edges_3channel.astype(np.float32) / 255.0 * 1.5  # Boost alpha for more green
+        alpha = np.clip(alpha, 0, 1.0)  # Clamp to valid range
         result = (result.astype(np.float32) * (1.0 - alpha) + hunter_green.astype(np.float32) * alpha).astype(np.uint8)
 
         # Draw Easter eggs first (so grass can overlap them)
