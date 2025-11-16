@@ -205,27 +205,32 @@ def main():
     # Initialize Canny edge detector
     canny = CannyEdgeDetector(width, height)
 
-    # Create window with native macOS controls (red/yellow/green buttons)
+    # Create main window for video display
     window_name = 'Canny Edge Detection'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
 
-    # Create trackbars for Canny parameters
+    # Create separate controls window
+    controls_window = 'Controls'
+    cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(controls_window, 400, 200)
+
+    # Create trackbars for Canny parameters in controls window
     # Trackbar callback (does nothing, we read values in the loop)
     def nothing(x):
         pass
 
     # Blur kernel (must be odd, so we use slider 0-10 and convert to 1,3,5,7,...,21)
-    cv2.createTrackbar('Blur Kernel', window_name, 2, 10, nothing)  # Default: 2 -> 5
+    cv2.createTrackbar('Blur Kernel', controls_window, 2, 10, nothing)  # Default: 2 -> 5
     # Threshold 1 (lower threshold)
-    cv2.createTrackbar('Threshold 1', window_name, 0, 255, nothing)  # Default: 0
+    cv2.createTrackbar('Threshold 1', controls_window, 0, 255, nothing)  # Default: 0
     # Threshold 2 (upper threshold)
-    cv2.createTrackbar('Threshold 2', window_name, 150, 255, nothing)  # Default: 150
+    cv2.createTrackbar('Threshold 2', controls_window, 150, 255, nothing)  # Default: 150
     # Aperture size (must be 3, 5, or 7)
-    cv2.createTrackbar('Aperture Size', window_name, 1, 3, nothing)  # 0->3, 1->5, 2->7, 3->7
+    cv2.createTrackbar('Aperture Size', controls_window, 1, 3, nothing)  # 0->3, 1->5, 2->7, 3->7
     # L2 gradient (0 or 1)
-    cv2.createTrackbar('L2 Gradient', window_name, 0, 1, nothing)  # Default: 0 (False)
+    cv2.createTrackbar('L2 Gradient', controls_window, 0, 1, nothing)  # Default: 0 (False)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -246,18 +251,18 @@ def main():
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
-        # Read trackbar values and update canny parameters
-        blur_slider = cv2.getTrackbarPos('Blur Kernel', window_name)
+        # Read trackbar values from controls window and update canny parameters
+        blur_slider = cv2.getTrackbarPos('Blur Kernel', controls_window)
         canny.blur_kernel = blur_slider * 2 + 1  # Convert 0-10 to 1,3,5,7,...,21
-        canny.threshold1 = cv2.getTrackbarPos('Threshold 1', window_name)
-        canny.threshold2 = cv2.getTrackbarPos('Threshold 2', window_name)
+        canny.threshold1 = cv2.getTrackbarPos('Threshold 1', controls_window)
+        canny.threshold2 = cv2.getTrackbarPos('Threshold 2', controls_window)
 
-        aperture_slider = cv2.getTrackbarPos('Aperture Size', window_name)
+        aperture_slider = cv2.getTrackbarPos('Aperture Size', controls_window)
         # Map 0->3, 1->5, 2->7, 3->7
         aperture_map = [3, 5, 7, 7]
         canny.aperture_size = aperture_map[aperture_slider]
 
-        canny.l2_gradient = bool(cv2.getTrackbarPos('L2 Gradient', window_name))
+        canny.l2_gradient = bool(cv2.getTrackbarPos('L2 Gradient', controls_window))
 
         if effect_enabled:
             # Canny edge detection mode
@@ -276,40 +281,29 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display FPS and parameters at bottom
-        # Get result height for positioning
-        h = result.shape[0]
-
-        cv2.putText(result, f"FPS: {fps:.1f}", (10, h - 180),
+        # Display FPS and parameters at top left
+        cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Blur: {canny.blur_kernel}x{canny.blur_kernel}", (10, h - 150),
+        cv2.putText(result, f"Blur: {canny.blur_kernel}x{canny.blur_kernel}", (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, h - 120),
+        cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, 90),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, h - 90),
+        cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, 120),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(result, f"Aperture: {canny.aperture_size}", (10, h - 60),
+        cv2.putText(result, f"Aperture: {canny.aperture_size}", (10, 150),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        # Draw checkbox for L2 Gradient
-        checkbox_x = 10
-        checkbox_y = h - 40
-        checkbox_size = 15
-        # Draw checkbox box
-        cv2.rectangle(result, (checkbox_x, checkbox_y - checkbox_size),
-                     (checkbox_x + checkbox_size, checkbox_y), (0, 255, 0), 2)
-        # Fill if checked
-        if canny.l2_gradient:
-            cv2.rectangle(result, (checkbox_x + 3, checkbox_y - checkbox_size + 3),
-                         (checkbox_x + checkbox_size - 3, checkbox_y - 3), (0, 255, 0), -1)
-        cv2.putText(result, "L2 Gradient", (checkbox_x + checkbox_size + 10, checkbox_y - 3),
+        cv2.putText(result, f"L2Grad: {canny.l2_gradient}", (10, 180),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
         cv2.imshow(window_name, result)
 
-        # Check if window was closed via close button
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+        # Show empty image in controls window (just for trackbars)
+        cv2.imshow(controls_window, np.zeros((1, 400, 3), dtype=np.uint8))
+
+        # Check if either window was closed via close button
+        if (cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1 or
+            cv2.getWindowProperty(controls_window, cv2.WND_PROP_VISIBLE) < 1):
             break
 
         # Handle keyboard input (wrapped in try for Ctrl+C handling)
