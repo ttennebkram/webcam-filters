@@ -10,133 +10,87 @@ import signal
 
 
 class MatrixRain:
-    """Heat wave effect with thermal refraction"""
+    """Spring effect"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Heat waves - horizontal cylinders with refraction
-        self.heat_waves = []
-        for _ in range(8):  # 8 heat waves at various positions
-            # Create slightly irregular horizontal cylinder
-            wave_width = random.randint(width // 3, width // 2)
-            wave_height = random.randint(40, 80)
+        # Generate grass blades along bottom
+        self.grass_blades = []
+        grass_height_max = 50  # Maximum grass height (shorter)
+        num_blades = 200  # Dense grass
 
-            # Precompute refraction displacement map for this heat wave
-            # Create a lens-like distortion pattern
-            displacement_map = np.zeros((wave_height, wave_width, 2), dtype=np.float32)
+        for _ in range(num_blades):
+            x = random.randint(0, width)
+            # Grass height varies
+            height_offset = random.randint(25, grass_height_max)
+            # More varied angles for natural look
+            angle = random.uniform(-45, 45)
+            # Width variation
+            blade_width = random.randint(2, 4)
+            # Color variation - darker hunter green base
+            color_variance = random.randint(-15, 15)
+            base_color = np.array([20, 60, 20])  # Darker hunter green
+            color = np.clip(base_color + color_variance, 0, 255)
 
-            for y in range(wave_height):
-                for x in range(wave_width):
-                    # Distance from center of wave (normalized)
-                    center_y = wave_height / 2.0
-                    dist_from_center = abs(y - center_y) / center_y
+            self.grass_blades.append({
+                'x': x,
+                'height': height_offset,
+                'angle': angle,
+                'width': blade_width,
+                'color': tuple(map(int, color))
+            })
 
-                    # Create refraction effect - strongest at center, weak at edges
-                    # Use sine wave for smooth falloff
-                    strength = (1.0 - dist_from_center) * np.sin(dist_from_center * np.pi)
+        # Generate Easter eggs
+        self.easter_eggs = []
+        num_eggs = 8
 
-                    # Horizontal displacement (wave-like pattern)
-                    x_offset = strength * np.sin(x * 0.1 + y * 0.05) * 8.0
+        for _ in range(num_eggs):
+            # Position near bottom, in grass area
+            x = random.randint(50, width - 50)
+            y = height - random.randint(20, 50)  # Nestled in grass
 
-                    # Vertical displacement (slight upward distortion)
-                    y_offset = strength * 3.0
+            # Size variation - 50% larger
+            egg_width = random.randint(30, 45)
+            egg_height = int(egg_width * 1.4)  # Eggs are taller than wide
 
-                    displacement_map[y, x] = [x_offset, y_offset]
+            # Random orientation angle
+            rotation_angle = random.randint(0, 360)
 
-            # Blur the displacement map for smoother refraction
-            displacement_map[:, :, 0] = cv2.GaussianBlur(displacement_map[:, :, 0], (15, 15), 0)
-            displacement_map[:, :, 1] = cv2.GaussianBlur(displacement_map[:, :, 1], (15, 15), 0)
+            # Egg colors - pastel spring colors
+            color_choices = [
+                [180, 150, 255],  # Pastel pink (BGR)
+                [255, 200, 150],  # Pastel blue
+                [150, 220, 255],  # Pastel yellow
+                [180, 255, 200],  # Pastel green
+                [220, 180, 220],  # Pastel purple
+                [200, 220, 255],  # Pale peach
+            ]
+            base_color = random.choice(color_choices)
 
-            self.heat_waves.append({
-                'x': random.randint(0, width - wave_width),
-                'y': random.randint(height, height + 200),  # Start below screen
-                'speed': random.uniform(0.8, 2.0),  # Upward speed
-                'width': wave_width,
-                'height': wave_height,
-                'displacement_map': displacement_map,
-                'opacity': random.uniform(0.6, 0.9)
+            # Pattern type
+            pattern = random.choice(['dots', 'stripes', 'solid'])
+
+            self.easter_eggs.append({
+                'x': x,
+                'y': y,
+                'width': egg_width,
+                'height': egg_height,
+                'color': base_color,
+                'pattern': pattern,
+                'rotation': rotation_angle
             })
 
     def update(self):
-        """Update heat waves"""
-        for wave in self.heat_waves:
-            # Move upward
-            wave['y'] -= wave['speed']
-
-            # Reset if off screen (disappeared near middle or above)
-            if wave['y'] < -wave['height']:
-                # Restart from bottom
-                wave['y'] = random.randint(self.height, self.height + 200)
-                wave['x'] = random.randint(0, self.width - wave['width'])
-                wave['speed'] = random.uniform(0.8, 2.0)
+        """Update animation"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """Golden sunset effect with thermal heat waves - replace hue with golden sunlight while preserving S and V"""
-        # Apply heat wave refraction first
+        """Spring effect with light sky blue gradient and hunter green edges"""
         result = frame.copy()
 
-        for wave in self.heat_waves:
-            wave_x = int(wave['x'])
-            wave_y = int(wave['y'])
-            wave_w = wave['width']
-            wave_h = wave['height']
-
-            # Only process if wave is visible on screen
-            if wave_y < self.height and wave_y + wave_h > 0:
-                # Calculate visible portion of wave
-                src_y_start = max(0, -wave_y)
-                src_y_end = min(wave_h, self.height - wave_y)
-                dst_y_start = max(0, wave_y)
-                dst_y_end = min(self.height, wave_y + wave_h)
-
-                src_x_start = max(0, -wave_x)
-                src_x_end = min(wave_w, self.width - wave_x)
-                dst_x_start = max(0, wave_x)
-                dst_x_end = min(self.width, wave_x + wave_w)
-
-                if src_y_end > src_y_start and src_x_end > src_x_start:
-                    # Get the region to refract
-                    region = result[dst_y_start:dst_y_end, dst_x_start:dst_x_end].copy()
-                    region_h, region_w = region.shape[:2]
-
-                    # Get corresponding displacement map section
-                    disp_map = wave['displacement_map'][src_y_start:src_y_end, src_x_start:src_x_end]
-
-                    # Apply refraction using displacement map
-                    for y in range(region_h):
-                        for x in range(region_w):
-                            if y < disp_map.shape[0] and x < disp_map.shape[1]:
-                                dx, dy = disp_map[y, x]
-
-                                # Calculate source pixel with displacement
-                                src_x = int(x + dx)
-                                src_y = int(y + dy)
-
-                                # Clamp to region bounds
-                                src_x = max(0, min(region_w - 1, src_x))
-                                src_y = max(0, min(region_h - 1, src_y))
-
-                                # Copy refracted pixel (blend with opacity)
-                                if 0 <= src_y < region_h and 0 <= src_x < region_w:
-                                    result[dst_y_start + y, dst_x_start + x] = region[src_y, src_x]
-
-        # Convert to HSV to manipulate hue
-        hsv = cv2.cvtColor(result, cv2.COLOR_BGR2HSV).astype(np.float32)
-
-        # Golden sunset hue in OpenCV (0-179 range)
-        # Golden/orange sunset is around 15-25 in HSV
-        # Using 20 for warm golden sunlight
-        golden_hue = 20
-
-        # Replace all hues with golden sunset hue, keep original S and V
-        hsv[:, :, 0] = golden_hue
-
-        # Convert back to BGR
-        result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-        # Apply gradient of golden sunlight - gentle gradient down to halfway
+        # Apply gradient of light sky blue - gentle gradient down to halfway
         height, width = result.shape[:2]
 
         # Create gradient mask - gentler, extends to halfway down
@@ -152,37 +106,114 @@ class MatrixRain:
         # Convert gradient to 3-channel
         gradient_3channel = cv2.merge([gradient, gradient, gradient])
 
-        # Create bright golden sunlight color
-        bright_golden = np.ones_like(result, dtype=np.uint8)
-        bright_golden[:, :] = [100, 200, 255]  # Very bright golden/yellow
+        # Create light sky blue color
+        light_sky_blue = np.ones_like(result, dtype=np.uint8)
+        light_sky_blue[:, :] = [235, 206, 135]  # BGR: light sky blue
 
-        # Blend sunlight gradient on top of result
+        # Blend sky blue gradient on top of result
         result = (result.astype(np.float32) * (1.0 - gradient_3channel) +
-                  bright_golden.astype(np.float32) * gradient_3channel).astype(np.uint8)
+                  light_sky_blue.astype(np.float32) * gradient_3channel).astype(np.uint8)
 
         # Detect edges
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
 
-        # Dilate edges to make them more prominent
-        kernel = np.ones((2, 2), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
+        # Dilate edges to make them bolder
+        kernel = np.ones((3, 3), np.uint8)
+        edges = cv2.dilate(edges, kernel, iterations=2)
 
         # Blur edges for soft effect
         edges = cv2.GaussianBlur(edges, (5, 5), 0)
 
+        # Boost edge intensity to make them more prominent
+        edges = cv2.convertScaleAbs(edges, alpha=1.5, beta=0)
+        edges = np.clip(edges, 0, 255).astype(np.uint8)
+
         # Convert edges to 3-channel for blending
         edges_3channel = cv2.merge([edges, edges, edges])
 
-        # Create golden color (BGR format)
-        # Golden/orange sunset color
-        golden = np.ones_like(result, dtype=np.uint8)
-        golden[:, :] = [0, 165, 255]  # BGR: bright golden orange
+        # Create hunter green color (BGR format)
+        hunter_green = np.ones_like(result, dtype=np.uint8)
+        hunter_green[:, :] = [35, 86, 35]  # BGR: hunter green
 
-        # Blend golden edges on top of golden frame
-        alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + golden.astype(np.float32) * alpha).astype(np.uint8)
+        # Blend hunter green edges on top of frame with stronger alpha
+        alpha = (edges_3channel.astype(np.float32) / 255.0) * 1.3
+        alpha = np.clip(alpha, 0, 1)
+        result = (result.astype(np.float32) * (1.0 - alpha) + hunter_green.astype(np.float32) * alpha).astype(np.uint8)
+
+        # Draw Easter eggs first (so grass can overlap them)
+        for egg in self.easter_eggs:
+            cx, cy = egg['x'], egg['y']
+            w, h = egg['width'], egg['height']
+            rotation = egg['rotation']
+
+            # Create egg shape (ellipse) with rotation
+            overlay = result.copy()
+
+            # Main egg color with subtle shading (rotated ellipse)
+            cv2.ellipse(overlay, (cx, cy), (w // 2, h // 2), rotation, 0, 360, egg['color'], -1)
+
+            # Add subtle highlight for dimension (rotated offset)
+            highlight_angle = np.radians(rotation - 45)
+            highlight_offset_x = int(w // 6 * np.cos(highlight_angle))
+            highlight_offset_y = int(h // 6 * np.sin(highlight_angle))
+            highlight_color = [min(255, c + 40) for c in egg['color']]
+            cv2.ellipse(overlay, (cx - highlight_offset_x, cy - highlight_offset_y),
+                       (w // 4, h // 4), rotation, 0, 360, highlight_color, -1)
+
+            # Add subtle shadow (bottom-right, accounting for rotation)
+            shadow_angle = np.radians(rotation + 135)
+            shadow_offset_x = int(w // 8 * np.cos(shadow_angle))
+            shadow_offset_y = int(h // 8 * np.sin(shadow_angle))
+            shadow_color = [max(0, c - 30) for c in egg['color']]
+            cv2.ellipse(overlay, (cx - shadow_offset_x, cy - shadow_offset_y),
+                       (w // 3, h // 3), rotation, 0, 360, shadow_color, -1)
+
+            # Add pattern
+            if egg['pattern'] == 'dots':
+                # Small dots
+                for _ in range(random.randint(6, 10)):
+                    dot_x = cx + random.randint(-w // 3, w // 3)
+                    dot_y = cy + random.randint(-h // 3, h // 3)
+                    dot_color = [max(0, c - 40) for c in egg['color']]
+                    cv2.circle(overlay, (dot_x, dot_y), 3, dot_color, -1)
+
+            elif egg['pattern'] == 'stripes':
+                # Stripes perpendicular to egg orientation
+                stripe_color = [max(0, c - 40) for c in egg['color']]
+                for i in range(3):
+                    stripe_offset = -h // 3 + i * h // 3
+                    # Calculate stripe position along egg's major axis
+                    stripe_x = int(cx + stripe_offset * np.sin(np.radians(rotation)))
+                    stripe_y = int(cy - stripe_offset * np.cos(np.radians(rotation)))
+                    cv2.ellipse(overlay, (stripe_x, stripe_y), (w // 2, 4),
+                               rotation + 90, 0, 360, stripe_color, -1)
+
+            # Blend egg with soft edges
+            alpha_egg = 0.85
+            result = cv2.addWeighted(overlay, alpha_egg, result, 1 - alpha_egg, 0)
+
+        # Draw grass blades
+        for blade in self.grass_blades:
+            x = blade['x']
+            base_y = self.height
+            tip_y = self.height - blade['height']
+
+            # Calculate slight curve and angle
+            angle_rad = np.radians(blade['angle'])
+            tip_x = int(x + blade['height'] * np.sin(angle_rad) * 0.3)
+
+            # Draw blade as a thin tapered line
+            # Create points for a tapered blade shape
+            thickness = blade['width']
+
+            # Draw main blade
+            cv2.line(result, (x, base_y), (tip_x, tip_y), blade['color'], thickness)
+
+            # Add slight highlight on one side for depth
+            highlight_color = tuple(min(255, c + 20) for c in blade['color'])
+            cv2.line(result, (x, base_y), (tip_x, tip_y), highlight_color, max(1, thickness - 1))
 
         return result
 
