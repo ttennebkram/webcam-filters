@@ -37,6 +37,179 @@ class FFTFilter:
         """Update - not needed for static effect"""
         pass
 
+    def draw_rgb_channels(self, frame, red_params, green_params, blue_params):
+        """Apply FFT-based high-pass filter to individual RGB channels
+
+        Args:
+            frame: Input BGR frame
+            red_params: dict with 'enable', 'radius', 'smoothness'
+            green_params: dict with 'enable', 'radius', 'smoothness'
+            blue_params: dict with 'enable', 'radius', 'smoothness'
+        """
+        # Split into BGR channels
+        b, g, r = cv2.split(frame)
+
+        # Process each channel - params come in as red, green, blue but we process in BGR order
+        # Red channel (index 2 in BGR) - uses red_params
+        if red_params['enable']:
+            r_filtered = self._apply_fft_to_channel(r, red_params['radius'], red_params['smoothness'])
+        else:
+            r_filtered = np.zeros_like(r)
+
+        # Green channel (index 1 in BGR) - uses green_params
+        if green_params['enable']:
+            g_filtered = self._apply_fft_to_channel(g, green_params['radius'], green_params['smoothness'])
+        else:
+            g_filtered = np.zeros_like(g)
+
+        # Blue channel (index 0 in BGR) - uses blue_params
+        if blue_params['enable']:
+            b_filtered = self._apply_fft_to_channel(b, blue_params['radius'], blue_params['smoothness'])
+        else:
+            b_filtered = np.zeros_like(b)
+
+        # Build channels in BGR order for cv2.merge
+        channels_processed = [b_filtered, g_filtered, r_filtered]
+
+        # If showing FFT visualization, show all three channels' masks
+        if self.show_fft:
+            return self._visualize_rgb_fft_masks(frame, red_params, green_params, blue_params)
+
+        # Merge channels back
+        result = cv2.merge(channels_processed)
+        return result
+
+    def _apply_fft_to_channel(self, channel, radius, smoothness):
+        """Apply FFT filter to a single channel"""
+        # Compute FFT
+        dft = cv2.dft(np.float32(channel), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+
+        # Get dimensions
+        rows, cols = channel.shape
+        crow, ccol = rows // 2, cols // 2
+
+        # Create mask
+        center_y, center_x = crow, ccol
+        y, x = np.ogrid[:rows, :cols]
+        distance = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
+
+        mask = self._create_mask(distance, radius, smoothness, rows, cols)
+
+        # Apply mask
+        fshift = dft_shift * mask
+
+        # Inverse FFT
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = cv2.idft(f_ishift)
+        img_back = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
+
+        # Normalize to 0-255
+        high_pass = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+        return high_pass
+
+    def _create_mask(self, distance, radius, smoothness, rows, cols):
+        """Create high-pass mask with given parameters"""
+        if smoothness == 0:
+            # Hard circle mask
+            mask = np.ones((rows, cols, 2), np.float32)
+            mask_area = distance <= radius
+            mask[mask_area] = 0
+        else:
+            # Smooth transition using sigmoid, but clamped to preserve hard cutoff inside radius
+            sigma = smoothness / 10.0
+            mask = np.ones((rows, cols, 2), np.float32)
+            transition = 1.0 / (1.0 + np.exp(-(distance - radius) / sigma))
+            transition = np.clip(transition, 0, 1)
+            transition[distance < radius] = 0
+            mask[:, :, 0] = transition
+            mask[:, :, 1] = transition
+        return mask
+
+    def _visualize_rgb_fft_masks(self, frame, red_params, green_params, blue_params):
+        """Visualize the FFT masks for all RGB channels with colored circles
+
+        Args:
+            frame: Input BGR frame (we'll compute FFT from grayscale like composite mode)
+            red_params: dict with 'enable', 'radius', 'smoothness'
+            green_params: dict with 'enable', 'radius', 'smoothness'
+            blue_params: dict with 'enable', 'radius', 'smoothness'
+        """
+        # Convert to grayscale to compute a single FFT (like composite mode)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Compute FFT from grayscale
+        rows, cols = gray.shape
+        crow, ccol = rows // 2, cols // 2
+
+        dft = cv2.dft(np.float32(gray), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+
+        # Compute magnitude spectrum
+        magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]) + 1)
+
+        # Normalize to 0-255 (matching grayscale mode behavior)
+        magnitude_normalized = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+        # Count enabled channels to normalize brightness
+        num_enabled = sum([blue_params['enable'], green_params['enable'], red_params['enable']])
+
+        # If no channels enabled, just show black
+        if num_enabled == 0:
+            fft_display = np.zeros((rows, cols, 3), dtype=np.uint8)
+        else:
+            # Divide brightness by number of enabled channels to prevent overbrightening
+            # When all 3 enabled, each gets 1/3 brightness so sum = same as single channel
+            magnitude_scaled = (magnitude_normalized.astype(np.float32) / num_enabled).astype(np.uint8)
+
+            # Create color FFT display by colorizing based on enabled channels
+            # Start with black
+            fft_channels = [np.zeros((rows, cols), dtype=np.uint8),
+                           np.zeros((rows, cols), dtype=np.uint8),
+                           np.zeros((rows, cols), dtype=np.uint8)]
+
+            # Add scaled grayscale FFT to enabled channels (BGR order)
+            if blue_params['enable']:
+                fft_channels[0] = magnitude_scaled  # Blue channel
+            if green_params['enable']:
+                fft_channels[1] = magnitude_scaled  # Green channel
+            if red_params['enable']:
+                fft_channels[2] = magnitude_scaled  # Red channel
+
+            # Merge the three channels to create color visualization
+            fft_display = cv2.merge(fft_channels)  # BGR order
+
+        # Draw colored circles for each enabled channel (BGR order)
+        params_list = [(blue_params, (255, 0, 0)),    # Blue in BGR
+                       (green_params, (0, 255, 0)),    # Green in BGR
+                       (red_params, (0, 0, 255))]      # Red in BGR
+
+        for params, color_bgr in params_list:
+            if params['enable']:
+                radius = params['radius']
+                smoothness = params['smoothness']
+
+                # Calculate opacity based on smoothness
+                circle_opacity = 0.5 * (1.0 - smoothness / 100.0)
+
+                # Draw filled circle with variable opacity
+                overlay = fft_display.copy()
+                cv2.circle(overlay, (ccol, crow), int(radius), color_bgr, -1)
+                fft_display = cv2.addWeighted(fft_display, 1.0, overlay, circle_opacity, 0)
+
+                # Draw black dotted line at the radius to show cutoff even when overlapping
+                # Draw dotted circle by drawing short arc segments
+                num_segments = 60
+                for i in range(num_segments):
+                    if i % 2 == 0:  # Draw every other segment for dotted effect
+                        angle1 = (i / num_segments) * 360
+                        angle2 = ((i + 1) / num_segments) * 360
+                        cv2.ellipse(fft_display, (ccol, crow), (int(radius), int(radius)),
+                                   0, angle1, angle2, (0, 0, 0), 2)
+
+        return fft_display
+
     def draw(self, frame, face_mask=None):
         """Apply FFT-based high-pass filter"""
         # Convert to grayscale
@@ -80,8 +253,8 @@ class FFTFilter:
 
         # If showing FFT visualization
         if self.show_fft:
-            # Compute magnitude spectrum for visualization
-            magnitude_spectrum = 20 * np.log(cv2.magnitude(fshift[:, :, 0], fshift[:, :, 1]) + 1)
+            # Compute magnitude spectrum for visualization (use ORIGINAL dft_shift to show full spectrum)
+            magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]) + 1)
 
             # Normalize to 0-255
             magnitude_normalized = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
@@ -95,7 +268,7 @@ class FFTFilter:
 
             # Draw red circle with variable opacity showing the reject region
             overlay = fft_display.copy()
-            cv2.circle(overlay, (ccol, crow), self.radius, (0, 0, 255), -1)
+            cv2.circle(overlay, (ccol, crow), int(self.radius), (0, 0, 255), -1)
             fft_display = cv2.addWeighted(fft_display, 1.0 - circle_opacity, overlay, circle_opacity, 0)
 
             return fft_display
@@ -156,8 +329,23 @@ class ControlPanel:
 
         self._build_ui()
 
-        # Load saved settings if they exist
+        # Load saved settings BEFORE adding traces to prevent auto-switching modes
         self._load_settings()
+
+        # Add traces to auto-select Grayscale Composite when grayscale controls change
+        self.fft_radius.trace_add("write", self._on_grayscale_control_change)
+        self.fft_smoothness.trace_add("write", self._on_grayscale_control_change)
+
+        # Add traces to auto-select Individual Color Channels when any RGB control changes
+        self.red_enable.trace_add("write", self._on_rgb_control_change)
+        self.red_radius.trace_add("write", self._on_rgb_control_change)
+        self.red_smoothness.trace_add("write", self._on_rgb_control_change)
+        self.green_enable.trace_add("write", self._on_rgb_control_change)
+        self.green_radius.trace_add("write", self._on_rgb_control_change)
+        self.green_smoothness.trace_add("write", self._on_rgb_control_change)
+        self.blue_enable.trace_add("write", self._on_rgb_control_change)
+        self.blue_radius.trace_add("write", self._on_rgb_control_change)
+        self.blue_smoothness.trace_add("write", self._on_rgb_control_change)
 
         # Auto-size window to fit all content
         self.root.update_idletasks()  # Ensure all widgets are laid out
@@ -220,6 +408,9 @@ class ControlPanel:
         # Header
         ttk.Label(left_column, text="Output Mode:").pack(anchor='w', pady=(0, 5))
 
+        # Show FFT checkbox - placed before the output mode sections
+        ttk.Checkbutton(fft_frame, text="Show FFT (instead of image)", variable=self.show_fft).pack(anchor='w', pady=(5, 10))
+
         # Row 1: Grayscale Composite with its controls - grouped in a frame
         gs_composite_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         gs_composite_group.pack(fill='x', pady=(5, 10))
@@ -263,8 +454,8 @@ class ControlPanel:
         gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         gs_bitplanes_group.pack(fill='x', pady=(0, 10))
 
-        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes", value="grayscale_bitplanes",
-                       variable=self.output_mode).pack(anchor='w')
+        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes (Not Implemented)", value="grayscale_bitplanes",
+                       variable=self.output_mode, state='disabled').pack(anchor='w')
 
         # Row 3: Individual Color Channels - grouped section with table layout
         color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=5)
@@ -332,15 +523,12 @@ class ControlPanel:
         color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         color_bitplanes_group.pack(fill='x', pady=(0, 10))
 
-        ttk.Radiobutton(color_bitplanes_group, text="Color Bitplanes", value="color_bitplanes",
-                       variable=self.output_mode).pack(anchor='w')
+        ttk.Radiobutton(color_bitplanes_group, text="Color Bitplanes (Not Implemented)", value="color_bitplanes",
+                       variable=self.output_mode, state='disabled').pack(anchor='w')
 
         # Common controls at bottom
         common_frame = ttk.Frame(fft_frame)
         common_frame.pack(fill='x', pady=(10, 0))
-
-        # Show FFT checkbox
-        ttk.Checkbutton(common_frame, text="Show FFT (instead of image)", variable=self.show_fft).pack(anchor='w')
 
         # Gain slider with value on right
         ttk.Label(common_frame, text="Gain (-5 to +5)").pack(anchor='w', pady=(5, 0))
@@ -372,7 +560,17 @@ class ControlPanel:
             'show_original': self.show_original.get(),
             'gain': self.gain.get(),
             'invert': self.invert.get(),
-            'output_mode': self.output_mode.get()
+            'output_mode': self.output_mode.get(),
+            # RGB channel settings
+            'red_enable': self.red_enable.get(),
+            'red_radius': self.red_radius.get(),
+            'red_smoothness': self.red_smoothness.get(),
+            'green_enable': self.green_enable.get(),
+            'green_radius': self.green_radius.get(),
+            'green_smoothness': self.green_smoothness.get(),
+            'blue_enable': self.blue_enable.get(),
+            'blue_radius': self.blue_radius.get(),
+            'blue_smoothness': self.blue_smoothness.get()
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -402,9 +600,28 @@ class ControlPanel:
             self.invert.set(settings.get('invert', DEFAULT_INVERT))
             self.output_mode.set(settings.get('output_mode', DEFAULT_OUTPUT_MODE))
 
+            # Load RGB channel settings
+            self.red_enable.set(settings.get('red_enable', True))
+            self.red_radius.set(settings.get('red_radius', DEFAULT_FFT_RADIUS))
+            self.red_smoothness.set(settings.get('red_smoothness', DEFAULT_FFT_SMOOTHNESS))
+            self.green_enable.set(settings.get('green_enable', True))
+            self.green_radius.set(settings.get('green_radius', DEFAULT_FFT_RADIUS))
+            self.green_smoothness.set(settings.get('green_smoothness', DEFAULT_FFT_SMOOTHNESS))
+            self.blue_enable.set(settings.get('blue_enable', True))
+            self.blue_radius.set(settings.get('blue_radius', DEFAULT_FFT_RADIUS))
+            self.blue_smoothness.set(settings.get('blue_smoothness', DEFAULT_FFT_SMOOTHNESS))
+
             print(f"Settings loaded from {settings_file}")
         except Exception as e:
             print(f"Error loading settings: {e}")
+
+    def _on_rgb_control_change(self, *args):
+        """Auto-select Individual Color Channels radio button when RGB controls are changed"""
+        self.output_mode.set("color_channels")
+
+    def _on_grayscale_control_change(self, *args):
+        """Auto-select Grayscale Composite radio button when grayscale controls are changed"""
+        self.output_mode.set("grayscale_composite")
 
     def _on_camera_change(self):
         """Handle camera selection change"""
@@ -439,17 +656,16 @@ class CombinedSketchFilter:
 
     def draw(self, frame, face_mask=None):
         """Apply FFT filter and return result"""
-        # If showing FFT visualization, return that directly
-        if self.fft.show_fft:
-            return self.fft.draw(frame)
-
         # Apply FFT filter
         fft_result = self.fft.draw(frame)
 
-        # Convert to 3-channel for display
-        result_3channel = cv2.cvtColor(fft_result, cv2.COLOR_GRAY2BGR)
-
-        return result_3channel
+        # If showing FFT, it's already BGR, otherwise convert from grayscale
+        if self.fft.show_fft:
+            return fft_result
+        else:
+            # Convert to 3-channel for display
+            result_3channel = cv2.cvtColor(fft_result, cv2.COLOR_GRAY2BGR)
+            return result_3channel
 
 
 class EdgeDetector:
@@ -697,16 +913,43 @@ def main():
         if effect_enabled:
             # Sketch filter mode
             sketch.update()
-            result = sketch.draw(frame)
 
-            # Apply gain (multiply by 2^gain)
-            gain = controls.gain.get()
-            if gain != 0:
-                result = np.clip(result * (2 ** gain), 0, 255).astype(np.uint8)
+            # Get output mode
+            output_mode = controls.output_mode.get()
 
-            # Apply invert
-            if controls.invert.get():
-                result = 255 - result
+            if output_mode == "color_channels":
+                # Individual Color Channels mode - use RGB channel filtering
+                red_params = {
+                    'enable': controls.red_enable.get(),
+                    'radius': controls.red_radius.get(),
+                    'smoothness': controls.red_smoothness.get()
+                }
+                green_params = {
+                    'enable': controls.green_enable.get(),
+                    'radius': controls.green_radius.get(),
+                    'smoothness': controls.green_smoothness.get()
+                }
+                blue_params = {
+                    'enable': controls.blue_enable.get(),
+                    'radius': controls.blue_radius.get(),
+                    'smoothness': controls.blue_smoothness.get()
+                }
+                # Pass params in RGB order (function signature order)
+                result = sketch.fft.draw_rgb_channels(frame, red_params, green_params, blue_params)
+            else:
+                # Grayscale composite mode (and other modes to be implemented)
+                result = sketch.draw(frame)
+
+            # Apply gain and invert only if NOT showing FFT
+            if not controls.show_fft.get():
+                # Apply gain (multiply by 2^gain)
+                gain = controls.gain.get()
+                if gain != 0:
+                    result = np.clip(result * (2 ** gain), 0, 255).astype(np.uint8)
+
+                # Apply invert
+                if controls.invert.get():
+                    result = 255 - result
 
             # Effect enabled
         else:
