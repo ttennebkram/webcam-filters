@@ -9,106 +9,130 @@ import os
 import signal
 
 
-class MatrixRain:
-    """Matrix-style fixed character grid with brightness-based rendering"""
+# Configuration constants - Canny Edge Detection
+DEFAULT_CANNY_BLUR_KERNEL = 3  # Default blur kernel size for Canny (must be odd)
+DEFAULT_THRESHOLD1 = 25  # Default Canny lower threshold
+DEFAULT_THRESHOLD2 = 7   # Default Canny upper threshold
+DEFAULT_APERTURE_SIZE = 3  # Default Sobel kernel size (3, 5, or 7)
+DEFAULT_L2_GRADIENT = True  # Default gradient calculation method (True = L2, False = L1)
+
+# Configuration constants - High-Pass Filter
+DEFAULT_FREQUENCY_BLUR_KERNEL = 95  # Default blur kernel size for high-pass filter (must be odd)
+
+# Configuration constants - Combined
+DEFAULT_APPLY_CANNY = True  # Default: apply Canny edge detection
+DEFAULT_APPLY_FREQUENCY = True  # Default: apply frequency filter
+DEFAULT_INVERT = True  # Default: invert the final image
+
+
+class CannyEdgeDetector:
+    """Simple Canny edge detector with adjustable parameters"""
 
     def __init__(self, width, height):
         self.width = width
         self.height = height
 
-        # Matrix character set: ASCII only for maximum speed
-        self.chars = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.¦|<>*+-=')
-
-        # Character grid settings
-        self.char_width = 10  # Horizontal spacing
-        self.char_height = 18  # Vertical spacing
-        self.num_cols = width // self.char_width
-        self.num_rows = height // self.char_height
-
-        # Fixed grid of characters - each position has a character
-        self.grid = []
-        for row in range(self.num_rows):
-            grid_row = []
-            for col in range(self.num_cols):
-                grid_row.append({
-                    'char': random.choice(self.chars),
-                    'change_counter': random.randint(0, 30)  # When to change character
-                })
-            self.grid.append(grid_row)
-
-        # Streamers - waves of illumination moving down columns
-        self.streamers = []
-        for i in range(self.num_cols):
-            if random.random() < 0.3:  # 30% of columns have active streamers
-                self.streamers.append({
-                    'col': i,
-                    'row': random.randint(-20, 0),
-                    'speed': random.uniform(0.3, 1.2),  # Rows per frame
-                    'length': random.randint(10, 25)  # Length of trail
-                })
-            else:
-                self.streamers.append(None)
+        # Canny parameters with custom defaults
+        self.blur_kernel = DEFAULT_CANNY_BLUR_KERNEL
+        self.threshold1 = DEFAULT_THRESHOLD1
+        self.threshold2 = DEFAULT_THRESHOLD2
+        self.aperture_size = DEFAULT_APERTURE_SIZE
+        self.l2_gradient = DEFAULT_L2_GRADIENT
 
     def update(self):
-        """Update character grid and streamers"""
-        # Randomly change characters in the grid
-        for row in range(self.num_rows):
-            for col in range(self.num_cols):
-                cell = self.grid[row][col]
-                cell['change_counter'] -= 1
-                if cell['change_counter'] <= 0:
-                    cell['char'] = random.choice(self.chars)
-                    cell['change_counter'] = random.randint(20, 40)
-
-        # Update streamers
-        for i, streamer in enumerate(self.streamers):
-            if streamer is not None:
-                # Move streamer down
-                streamer['row'] += streamer['speed']
-
-                # Reset if off screen
-                if streamer['row'] > self.num_rows + streamer['length']:
-                    streamer['row'] = random.randint(-30, -5)
-                    streamer['speed'] = random.uniform(0.3, 1.2)
-                    streamer['length'] = random.randint(10, 25)
-            else:
-                # Randomly spawn new streamers
-                if random.random() < 0.002:  # Small chance each frame
-                    self.streamers[i] = {
-                        'col': i,
-                        'row': random.randint(-20, 0),
-                        'speed': random.uniform(0.3, 1.2),
-                        'length': random.randint(10, 25)
-                    }
+        """Update - not needed for static effect"""
+        pass
 
     def draw(self, frame, face_mask=None):
-        """White edges with original color background"""
-        # Start with original frame
-        result = frame.copy()
-
-        # Detect edges
+        """Apply Canny edge detection and return edges as grayscale image"""
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
 
-        # Dilate edges to make them more prominent
-        kernel = np.ones((2, 2), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
+        # Apply Gaussian blur (only if blur_kernel > 1)
+        if self.blur_kernel > 1:
+            blurred = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
+        else:
+            blurred = gray
 
-        # Blur edges for soft effect
-        edges = cv2.GaussianBlur(edges, (5, 5), 0)
+        # Apply Canny edge detection with all parameters
+        edges = cv2.Canny(blurred, self.threshold1, self.threshold2,
+                         apertureSize=self.aperture_size, L2gradient=self.l2_gradient)
 
-        # Convert edges to 3-channel for blending
-        edges_3channel = cv2.merge([edges, edges, edges])
+        return edges
 
-        # Create white color
-        white = np.ones_like(result, dtype=np.uint8) * 255
 
-        # Blend white edges on top of original frame
-        alpha = edges_3channel.astype(np.float32) / 255.0
-        result = (result.astype(np.float32) * (1.0 - alpha) + white.astype(np.float32) * alpha).astype(np.uint8)
+class HighPassFilter:
+    """High-pass filter to extract fine details from image"""
 
-        return result
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+        # Filter parameter - kernel size for low-pass filter (must be odd)
+        self.blur_kernel = DEFAULT_FREQUENCY_BLUR_KERNEL  # Larger kernel = more high-frequency details
+
+    def update(self):
+        """Update - not needed for static effect"""
+        pass
+
+    def draw(self, frame, face_mask=None):
+        """Apply high-pass filter to extract fine details"""
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Create low-pass version by blurring
+        if self.blur_kernel > 1:
+            low_pass = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
+        else:
+            low_pass = gray
+
+        # High-pass = abs(original - low-pass)
+        # Use absolute difference so no signal = 0 (black background)
+        high_pass = cv2.absdiff(gray, low_pass)
+
+        return high_pass
+
+
+class CombinedSketchFilter:
+    """Combines Canny edge detection and frequency filter"""
+
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+        self.canny = CannyEdgeDetector(width, height)
+        self.frequency = HighPassFilter(width, height)
+
+        self.apply_canny = DEFAULT_APPLY_CANNY
+        self.apply_frequency = DEFAULT_APPLY_FREQUENCY
+        self.invert = DEFAULT_INVERT
+
+    def update(self):
+        """Update - not needed for static effect"""
+        pass
+
+    def draw(self, frame, face_mask=None):
+        """Apply combined filters and return result"""
+        result = np.zeros((self.height, self.width), dtype=np.uint8)
+
+        # Apply Canny if enabled
+        if self.apply_canny:
+            canny_result = self.canny.draw(frame)
+            result = cv2.add(result, canny_result)
+
+        # Apply frequency filter if enabled
+        if self.apply_frequency:
+            frequency_result = self.frequency.draw(frame)
+            result = cv2.add(result, frequency_result)
+
+        # Invert if enabled
+        if self.invert:
+            result = cv2.bitwise_not(result)
+
+        # Convert to 3-channel for display
+        result_3channel = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+
+        return result_3channel
 
 
 class EdgeDetector:
@@ -260,19 +284,49 @@ def main():
     print("Controls:")
     print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
+    print("  Use trackbars to adjust parameters")
 
     # Start window thread for better event handling and native controls
     cv2.startWindowThread()
 
-    # Initialize Matrix rain and edge detector
-    matrix = MatrixRain(width, height)
-    edge_detector = EdgeDetector()
+    # Initialize combined sketch filter
+    sketch = CombinedSketchFilter(width, height)
 
-    # Create window with native macOS controls (red/yellow/green buttons)
-    window_name = 'Matrix Vision'
+    # Create main window for video display
+    window_name = 'Sketch Filter'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
+
+    # Create separate controls window
+    controls_window = 'Controls'
+    cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(controls_window, 500, 300)
+
+    # Create trackbars for parameters in controls window
+    # Trackbar callback (does nothing, we read values in the loop)
+    def nothing(x):
+        pass
+
+    # Frequency filter controls
+    cv2.createTrackbar('Apply Frequency (0=Off 1=On)', controls_window, int(DEFAULT_APPLY_FREQUENCY), 1, nothing)
+    max_dimension = max(width, height)
+    max_slider = max_dimension // 2
+    freq_slider_default = (DEFAULT_FREQUENCY_BLUR_KERNEL - 1) // 2
+    cv2.createTrackbar(f'Frequency Blur (1-{max_dimension})', controls_window, freq_slider_default, max_slider, nothing)
+
+    # Canny controls
+    cv2.createTrackbar('Apply Canny (0=Off 1=On)', controls_window, int(DEFAULT_APPLY_CANNY), 1, nothing)
+    canny_blur_slider_default = (DEFAULT_CANNY_BLUR_KERNEL - 1) // 2
+    cv2.createTrackbar('Canny Blur (1-31)', controls_window, canny_blur_slider_default, 15, nothing)
+    cv2.createTrackbar('Canny Thresh1 (0-255)', controls_window, DEFAULT_THRESHOLD1, 255, nothing)
+    cv2.createTrackbar('Canny Thresh2 (0-255)', controls_window, DEFAULT_THRESHOLD2, 255, nothing)
+    aperture_slider_default = {3: 0, 5: 1, 7: 2}[DEFAULT_APERTURE_SIZE]
+    cv2.createTrackbar('Canny Aperture (3/5/7)', controls_window, aperture_slider_default, 2, nothing)
+    cv2.createTrackbar('Canny L2Grad (0=Off 1=On)', controls_window, int(DEFAULT_L2_GRADIENT), 1, nothing)
+
+    # Invert toggle
+    cv2.createTrackbar('Invert (0=Off 1=On)', controls_window, int(DEFAULT_INVERT), 1, nothing)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -293,10 +347,31 @@ def main():
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
 
+        # Read trackbar values and update parameters
+        sketch.apply_canny = bool(cv2.getTrackbarPos('Apply Canny (0=Off 1=On)', controls_window))
+        sketch.apply_frequency = bool(cv2.getTrackbarPos('Apply Frequency (0=Off 1=On)', controls_window))
+        sketch.invert = bool(cv2.getTrackbarPos('Invert (0=Off 1=On)', controls_window))
+
+        # Canny parameters
+        canny_blur_slider = cv2.getTrackbarPos('Canny Blur (1-31)', controls_window)
+        sketch.canny.blur_kernel = canny_blur_slider * 2 + 1
+        sketch.canny.threshold1 = cv2.getTrackbarPos('Canny Thresh1 (0-255)', controls_window)
+        sketch.canny.threshold2 = cv2.getTrackbarPos('Canny Thresh2 (0-255)', controls_window)
+
+        aperture_slider = cv2.getTrackbarPos('Canny Aperture (3/5/7)', controls_window)
+        aperture_map = [3, 5, 7]
+        sketch.canny.aperture_size = aperture_map[aperture_slider]
+
+        sketch.canny.l2_gradient = bool(cv2.getTrackbarPos('Canny L2Grad (0=Off 1=On)', controls_window))
+
+        # Frequency filter parameter
+        freq_blur_slider = cv2.getTrackbarPos(f'Frequency Blur (1-{max_dimension})', controls_window)
+        sketch.frequency.blur_kernel = freq_blur_slider * 2 + 1
+
         if effect_enabled:
-            # Matrix mode: update grid and draw based on brightness
-            matrix.update()
-            result = matrix.draw(frame)
+            # Sketch filter mode
+            sketch.update()
+            result = sketch.draw(frame)
             # Effect enabled
         else:
             # Preview mode: show raw webcam
@@ -310,15 +385,51 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display mode and FPS
-        cv2.putText(result, f"FPS: {fps:.1f}", (10, 30),
+        # Display FPS and parameters at top left
+        y_offset = 30
+        line_height = 30
+        cv2.putText(result, f"FPS: {fps:.1f}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+
+        cv2.putText(result, f"Apply Frequency: {sketch.apply_frequency}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Frequency Blur: {sketch.frequency.blur_kernel}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+
+        cv2.putText(result, f"Apply Canny: {sketch.apply_canny}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Canny Blur: {sketch.canny.blur_kernel}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Canny Thresh1: {sketch.canny.threshold1}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Canny Thresh2: {sketch.canny.threshold2}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Canny Aperture: {sketch.canny.aperture_size}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+        cv2.putText(result, f"Canny L2Grad: {sketch.canny.l2_gradient}", (10, y_offset),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        y_offset += line_height
+
+        cv2.putText(result, f"Invert: {sketch.invert}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
         cv2.imshow(window_name, result)
 
-        # Check if window was closed via close button
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+        # Show empty image in controls window (just for trackbars)
+        cv2.imshow(controls_window, np.zeros((1, 500, 3), dtype=np.uint8))
+
+        # Check if either window was closed via close button
+        if (cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1 or
+            cv2.getWindowProperty(controls_window, cv2.WND_PROP_VISIBLE) < 1):
             break
 
         # Handle keyboard input (wrapped in try for Ctrl+C handling)
@@ -341,7 +452,6 @@ def main():
     # Cleanup
     cap.release()
     cv2.destroyAllWindows()
-    edge_detector.face_detection.close()
 
 
 if __name__ == '__main__':
