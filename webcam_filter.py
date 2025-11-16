@@ -18,8 +18,10 @@ class CannyEdgeDetector:
 
         # Canny parameters
         self.blur_kernel = 5
-        self.threshold1 = 50
+        self.threshold1 = 0
         self.threshold2 = 150
+        self.aperture_size = 3
+        self.l2_gradient = False
 
     def update(self):
         """Update - not needed for static effect"""
@@ -30,11 +32,15 @@ class CannyEdgeDetector:
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Apply Gaussian blur
-        blurred = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
+        # Apply Gaussian blur (only if blur_kernel > 1)
+        if self.blur_kernel > 1:
+            blurred = cv2.GaussianBlur(gray, (self.blur_kernel, self.blur_kernel), 0)
+        else:
+            blurred = gray
 
-        # Apply Canny edge detection
-        edges = cv2.Canny(blurred, self.threshold1, self.threshold2)
+        # Apply Canny edge detection with all parameters
+        edges = cv2.Canny(blurred, self.threshold1, self.threshold2,
+                         apertureSize=self.aperture_size, L2gradient=self.l2_gradient)
 
         # Convert to 3-channel for display
         result = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
@@ -191,6 +197,7 @@ def main():
     print("Controls:")
     print("  SPACEBAR - Toggle effect on/off")
     print("  Q, ESC, or Ctrl+C - Quit")
+    print("  Use trackbars to adjust Canny parameters")
 
     # Start window thread for better event handling and native controls
     cv2.startWindowThread()
@@ -203,6 +210,22 @@ def main():
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     # Set initial size
     cv2.resizeWindow(window_name, width, height)
+
+    # Create trackbars for Canny parameters
+    # Trackbar callback (does nothing, we read values in the loop)
+    def nothing(x):
+        pass
+
+    # Blur kernel (must be odd, so we use slider 0-10 and convert to 1,3,5,7,...,21)
+    cv2.createTrackbar('Blur Kernel', window_name, 2, 10, nothing)  # Default: 2 -> 5
+    # Threshold 1 (lower threshold)
+    cv2.createTrackbar('Threshold 1', window_name, 0, 255, nothing)  # Default: 0
+    # Threshold 2 (upper threshold)
+    cv2.createTrackbar('Threshold 2', window_name, 150, 255, nothing)  # Default: 150
+    # Aperture size (must be 3, 5, or 7)
+    cv2.createTrackbar('Aperture Size', window_name, 1, 3, nothing)  # 0->3, 1->5, 2->7, 3->7
+    # L2 gradient (0 or 1)
+    cv2.createTrackbar('L2 Gradient', window_name, 0, 1, nothing)  # Default: 0 (False)
 
     # Mode toggle
     effect_enabled = True  # Start with effect ON
@@ -222,6 +245,19 @@ def main():
 
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
+
+        # Read trackbar values and update canny parameters
+        blur_slider = cv2.getTrackbarPos('Blur Kernel', window_name)
+        canny.blur_kernel = blur_slider * 2 + 1  # Convert 0-10 to 1,3,5,7,...,21
+        canny.threshold1 = cv2.getTrackbarPos('Threshold 1', window_name)
+        canny.threshold2 = cv2.getTrackbarPos('Threshold 2', window_name)
+
+        aperture_slider = cv2.getTrackbarPos('Aperture Size', window_name)
+        # Map 0->3, 1->5, 2->7, 3->7
+        aperture_map = [3, 5, 7, 7]
+        canny.aperture_size = aperture_map[aperture_slider]
+
+        canny.l2_gradient = bool(cv2.getTrackbarPos('L2 Gradient', window_name))
 
         if effect_enabled:
             # Canny edge detection mode
@@ -248,6 +284,10 @@ def main():
         cv2.putText(result, f"Threshold1: {canny.threshold1}", (10, 90),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         cv2.putText(result, f"Threshold2: {canny.threshold2}", (10, 120),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"Aperture: {canny.aperture_size}", (10, 150),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(result, f"L2Grad: {canny.l2_gradient}", (10, 180),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Show the result
