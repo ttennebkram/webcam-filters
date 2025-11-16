@@ -341,6 +341,10 @@ class ControlPanel:
         # Load saved settings BEFORE adding traces to prevent auto-switching modes
         self._load_settings()
 
+        # Auto-expand bit plane table if grayscale_bitplanes mode is selected
+        if self.output_mode.get() == "grayscale_bitplanes":
+            self._toggle_bitplane_table()
+
         # Add traces to auto-select Grayscale Composite when grayscale controls change
         self.fft_radius.trace_add("write", self._on_grayscale_control_change)
         self.fft_smoothness.trace_add("write", self._on_grayscale_control_change)
@@ -567,12 +571,27 @@ class ControlPanel:
         gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         gs_bitplanes_group.pack(fill='x', pady=(0, 10))
 
-        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes", value="grayscale_bitplanes",
-                       variable=self.output_mode).pack(anchor='w', pady=(0, 5))
+        # Header with radio button and expand/collapse button
+        header_frame = ttk.Frame(gs_bitplanes_group)
+        header_frame.pack(fill='x', pady=(0, 5))
 
-        # Create table for bit planes
+        # Radio button on left
+        bitplane_radio = ttk.Radiobutton(header_frame, text="Grayscale Bit Planes",
+                                        value="grayscale_bitplanes",
+                                        variable=self.output_mode,
+                                        command=self._on_bitplane_radio_select)
+        bitplane_radio.pack(side='left', anchor='w')
+
+        # Expand/collapse on right
+        self.bitplane_expanded = tk.BooleanVar(value=False)
+        self.bitplane_toggle_btn = ttk.Button(header_frame, text="▶", width=1,
+                                              command=self._toggle_bitplane_table)
+        self.bitplane_toggle_btn.pack(side='right', padx=(2, 0))
+        ttk.Label(header_frame, text="Expand/Collapse").pack(side='right', padx=(5, 0))
+
+        # Create table for bit planes (initially hidden)
         bitplane_table_frame = ttk.Frame(gs_bitplanes_group)
-        bitplane_table_frame.pack(fill='x', padx=10)
+        self.bitplane_table_frame = bitplane_table_frame  # Store reference for show/hide
 
         # Header row (row 0)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='e')
@@ -733,6 +752,29 @@ class ControlPanel:
     def _on_bitplane_control_change(self, *args):
         """Auto-select Grayscale Bit Planes radio button when bit plane controls are changed"""
         self.output_mode.set("grayscale_bitplanes")
+        # Also expand the table when a control is changed
+        if not self.bitplane_expanded.get():
+            self._toggle_bitplane_table()
+
+    def _toggle_bitplane_table(self):
+        """Toggle the visibility of the bit plane table"""
+        if self.bitplane_expanded.get():
+            # Collapse
+            self.bitplane_table_frame.pack_forget()
+            self.bitplane_toggle_btn.config(text="▶")
+            self.bitplane_expanded.set(False)
+        else:
+            # Expand
+            self.bitplane_table_frame.pack(fill='x', padx=10)
+            self.bitplane_toggle_btn.config(text="▼")
+            self.bitplane_expanded.set(True)
+            # Also select the radio button when expanding
+            self.output_mode.set("grayscale_bitplanes")
+
+    def _on_bitplane_radio_select(self):
+        """Expand the bit plane table when radio button is selected"""
+        if not self.bitplane_expanded.get():
+            self._toggle_bitplane_table()
 
     def _on_camera_change(self):
         """Handle camera selection change"""
