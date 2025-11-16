@@ -302,17 +302,17 @@ def main():
     else:
         print("\nAvailable cameras:")
         for i, cam in enumerate(available_cameras):
-            print(f"  {i+1}. Camera {cam['id']} - {cam['width']}x{cam['height']}")
+            print(f"  {i}. Camera {cam['id']} - {cam['width']}x{cam['height']}")
 
         while True:
             try:
-                choice = input(f"\nSelect camera (1-{len(available_cameras)}): ")
-                choice_idx = int(choice) - 1
+                choice = input(f"\nSelect camera (0-{len(available_cameras)-1}): ")
+                choice_idx = int(choice)
                 if 0 <= choice_idx < len(available_cameras):
                     selected_camera = available_cameras[choice_idx]
                     break
                 else:
-                    print(f"Please enter a number between 1 and {len(available_cameras)}")
+                    print(f"Please enter a number between 0 and {len(available_cameras)-1}")
             except ValueError:
                 print("Please enter a valid number")
             except KeyboardInterrupt:
