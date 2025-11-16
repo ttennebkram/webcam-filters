@@ -327,6 +327,15 @@ class ControlPanel:
         self.blue_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
         self.blue_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
 
+        # Grayscale bit plane controls (8 bit planes: 7 MSB down to 0 LSB)
+        self.bitplane_enable = []
+        self.bitplane_radius = []
+        self.bitplane_smoothness = []
+        for i in range(8):
+            self.bitplane_enable.append(tk.BooleanVar(value=True))
+            self.bitplane_radius.append(tk.IntVar(value=DEFAULT_FFT_RADIUS))
+            self.bitplane_smoothness.append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
+
         self._build_ui()
 
         # Load saved settings BEFORE adding traces to prevent auto-switching modes
@@ -346,6 +355,12 @@ class ControlPanel:
         self.blue_enable.trace_add("write", self._on_rgb_control_change)
         self.blue_radius.trace_add("write", self._on_rgb_control_change)
         self.blue_smoothness.trace_add("write", self._on_rgb_control_change)
+
+        # Add traces to auto-select Grayscale Bit Planes when any bit plane control changes
+        for i in range(8):
+            self.bitplane_enable[i].trace_add("write", self._on_bitplane_control_change)
+            self.bitplane_radius[i].trace_add("write", self._on_bitplane_control_change)
+            self.bitplane_smoothness[i].trace_add("write", self._on_bitplane_control_change)
 
         # Auto-size window to fit all content
         self.root.update_idletasks()  # Ensure all widgets are laid out
@@ -367,7 +382,43 @@ class ControlPanel:
     def _build_ui(self):
         """Build the tkinter UI"""
         padding = {'padx': 10, 'pady': 3}
-        container = self.root
+
+        # Create a canvas and scrollbar for scrolling
+        canvas = tk.Canvas(self.root, height=700)  # Set reasonable initial height
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Pack scrollbar and canvas
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        # Use scrollable_frame as container instead of root
+        container = scrollable_frame
+
+        # Bind mousewheel scrolling - store canvas reference for the callback
+        self._scrollable_canvas = canvas
+
+        def _on_mousewheel(event):
+            # Platform-specific scrolling
+            if event.num == 5 or event.delta < 0:
+                self._scrollable_canvas.yview_scroll(1, "units")
+            elif event.num == 4 or event.delta > 0:
+                self._scrollable_canvas.yview_scroll(-1, "units")
+            return "break"
+
+        # Bind for macOS/Windows
+        self.root.bind_all("<MouseWheel>", _on_mousewheel)
+        # Bind for Linux
+        self.root.bind_all("<Button-4>", _on_mousewheel)
+        self.root.bind_all("<Button-5>", _on_mousewheel)
 
         # Camera Selection Section
         camera_frame = ttk.LabelFrame(container, text="Camera Selection", padding=10)
@@ -450,14 +501,7 @@ class ControlPanel:
         fft_smoothness_slider.pack(side='left', fill='x', expand=True)
         ttk.Label(smooth_row, textvariable=self.fft_smoothness, width=5).pack(side='left', padx=(5, 0))
 
-        # Row 2: Grayscale Bit Planes - grouped section
-        gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
-        gs_bitplanes_group.pack(fill='x', pady=(0, 10))
-
-        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes (Not Implemented)", value="grayscale_bitplanes",
-                       variable=self.output_mode, state='disabled').pack(anchor='w')
-
-        # Row 3: Individual Color Channels - grouped section with table layout
+        # Row 2: Individual Color Channels - grouped section with table layout
         color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         color_channels_group.pack(fill='x', pady=(0, 10))
 
@@ -519,6 +563,56 @@ class ControlPanel:
         table_frame.columnconfigure(2, weight=1)  # Filter Radius column expands
         table_frame.columnconfigure(4, weight=1)  # Smoothness column expands
 
+        # Row 3: Grayscale Bit Planes - grouped section with table layout
+        gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
+        gs_bitplanes_group.pack(fill='x', pady=(0, 10))
+
+        ttk.Radiobutton(gs_bitplanes_group, text="Grayscale Bit Planes", value="grayscale_bitplanes",
+                       variable=self.output_mode).pack(anchor='w', pady=(0, 5))
+
+        # Create table for bit planes
+        bitplane_table_frame = ttk.Frame(gs_bitplanes_group)
+        bitplane_table_frame.pack(fill='x', padx=10)
+
+        # Header row (row 0)
+        ttk.Label(bitplane_table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='e')
+        ttk.Label(bitplane_table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(bitplane_table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
+        ttk.Label(bitplane_table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
+        ttk.Label(bitplane_table_frame, text="Smoothness (Sigmoid/10)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(bitplane_table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
+
+        # Create 8 rows for bit planes (7 MSB down to 0 LSB)
+        bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
+        for i, label in enumerate(bit_labels):
+            row = i + 1  # +1 for header row
+
+            # Bit plane label (right-justified)
+            ttk.Label(bitplane_table_frame, text=label).grid(row=row, column=0, padx=5, pady=5, sticky='e')
+
+            # Enabled checkbox
+            ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
+
+            # Radius slider
+            radius_slider = ttk.Scale(bitplane_table_frame, from_=5, to=200, variable=self.bitplane_radius[i], orient='horizontal',
+                                     command=lambda v, idx=i: self.bitplane_radius[idx].set(int(float(v))))
+            radius_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
+
+            # Radius value label
+            tk.Label(bitplane_table_frame, textvariable=self.bitplane_radius[i], width=4).grid(row=row, column=3, padx=(2, 10), pady=5)
+
+            # Smoothness slider
+            smooth_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_smoothness[i], orient='horizontal',
+                                      command=lambda v, idx=i: self.bitplane_smoothness[idx].set(int(float(v))))
+            smooth_slider.grid(row=row, column=4, padx=5, pady=5, sticky='ew')
+
+            # Smoothness value label
+            tk.Label(bitplane_table_frame, textvariable=self.bitplane_smoothness[i], width=4).grid(row=row, column=5, padx=2, pady=5)
+
+        # Configure column weights for proper expansion
+        bitplane_table_frame.columnconfigure(2, weight=1)  # Filter Radius column expands
+        bitplane_table_frame.columnconfigure(4, weight=1)  # Smoothness column expands
+
         # Row 4: Color Bitplanes - grouped section
         color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         color_bitplanes_group.pack(fill='x', pady=(0, 10))
@@ -570,7 +664,11 @@ class ControlPanel:
             'green_smoothness': self.green_smoothness.get(),
             'blue_enable': self.blue_enable.get(),
             'blue_radius': self.blue_radius.get(),
-            'blue_smoothness': self.blue_smoothness.get()
+            'blue_smoothness': self.blue_smoothness.get(),
+            # Grayscale bit plane settings
+            'bitplane_enable': [bp.get() for bp in self.bitplane_enable],
+            'bitplane_radius': [bp.get() for bp in self.bitplane_radius],
+            'bitplane_smoothness': [bp.get() for bp in self.bitplane_smoothness]
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -611,6 +709,15 @@ class ControlPanel:
             self.blue_radius.set(settings.get('blue_radius', DEFAULT_FFT_RADIUS))
             self.blue_smoothness.set(settings.get('blue_smoothness', DEFAULT_FFT_SMOOTHNESS))
 
+            # Load grayscale bit plane settings
+            bitplane_enable = settings.get('bitplane_enable', [True] * 8)
+            bitplane_radius = settings.get('bitplane_radius', [DEFAULT_FFT_RADIUS] * 8)
+            bitplane_smoothness = settings.get('bitplane_smoothness', [DEFAULT_FFT_SMOOTHNESS] * 8)
+            for i in range(8):
+                self.bitplane_enable[i].set(bitplane_enable[i] if i < len(bitplane_enable) else True)
+                self.bitplane_radius[i].set(bitplane_radius[i] if i < len(bitplane_radius) else DEFAULT_FFT_RADIUS)
+                self.bitplane_smoothness[i].set(bitplane_smoothness[i] if i < len(bitplane_smoothness) else DEFAULT_FFT_SMOOTHNESS)
+
             print(f"Settings loaded from {settings_file}")
         except Exception as e:
             print(f"Error loading settings: {e}")
@@ -622,6 +729,10 @@ class ControlPanel:
     def _on_grayscale_control_change(self, *args):
         """Auto-select Grayscale Composite radio button when grayscale controls are changed"""
         self.output_mode.set("grayscale_composite")
+
+    def _on_bitplane_control_change(self, *args):
+        """Auto-select Grayscale Bit Planes radio button when bit plane controls are changed"""
+        self.output_mode.set("grayscale_bitplanes")
 
     def _on_camera_change(self):
         """Handle camera selection change"""
