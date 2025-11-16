@@ -56,8 +56,8 @@ class MatrixRain:
 
         # Frame thickness
         frame_thickness = 0  # No dark frame between squares
-        # Flat raised border width (no refraction) - 12 pixels
-        flat_border = 12
+        # Flat raised border width (no refraction) - 8 pixels
+        flat_border = 8
         # Transition zone from flat to full refraction
         transition_zone = size // 16  # Smaller bevel slope (~7.5 pixels)
 
@@ -115,25 +115,58 @@ class MatrixRain:
                     offset_y[y, x] = refract_y
                     alpha[y, x] = 1.0 * bevel_strength
                 else:
-                    # In the indented center - full refraction
-                    if abs(dx) > abs(dy):
-                        if dx > 0:
-                            refract_x = 35.0
-                            refract_y = (dy / abs(dx) * 20.0) if abs(dx) > 0 else 0.0
-                        else:
-                            refract_x = -35.0
-                            refract_y = (dy / abs(dx) * 20.0) if abs(dx) > 0 else 0.0
+                    # In the indented valley center - create crosshatch diagonal pattern
+                    # Diagonal lines run at 45 degrees in both directions
+                    diagonal_spacing = 40  # Space between diagonal ridges (reduced number by half again)
+                    diagonal_width = 1  # Width of each diagonal ridge (slightly rounded top)
+
+                    # Calculate position along both diagonals (45 degree angles)
+                    diagonal_pos1 = (dx + dy) % diagonal_spacing  # One direction
+                    diagonal_pos2 = (dx - dy) % diagonal_spacing  # Other direction
+
+                    # Distance from center of diagonal ridges in both directions
+                    dist_from_ridge1 = abs(diagonal_pos1 - diagonal_spacing / 2)
+                    dist_from_ridge2 = abs(diagonal_pos2 - diagonal_spacing / 2)
+
+                    # Use the minimum distance (closer to either diagonal)
+                    dist_from_ridge = min(dist_from_ridge1, dist_from_ridge2)
+
+                    if dist_from_ridge < diagonal_width:
+                        # On a diagonal ridge - more pronounced elevation
+                        # Gentle rounding (1-4 pixels of curvature)
+                        ridge_roundness = 1.0 - (dist_from_ridge / diagonal_width)
+                        ridge_height = ridge_roundness * 0.6  # More pronounced elevation
+
+                        # Very minimal refraction on ridge tops for sharper effect
+                        refract_x = 3.0 * (1.0 - ridge_height)
+                        refract_y = 3.0 * (1.0 - ridge_height)
+                        alpha[y, x] = 0.2 + 0.5 * ridge_height
                     else:
-                        if dy > 0:
-                            refract_y = 35.0
-                            refract_x = (dx / abs(dy) * 20.0) if abs(dy) > 0 else 0.0
+                        # Between ridges - valley bottom with strong refraction for visibility
+                        # Distance to nearest ridge
+                        valley_depth = (dist_from_ridge - diagonal_width) / (diagonal_spacing / 2 - diagonal_width)
+                        valley_depth = min(1.0, valley_depth)
+
+                        # Much stronger refraction in valleys for dramatic visibility
+                        if abs(dx) > abs(dy):
+                            if dx > 0:
+                                refract_x = 70.0 * valley_depth
+                                refract_y = (dy / abs(dx) * 45.0 * valley_depth) if abs(dx) > 0 else 0.0
+                            else:
+                                refract_x = -70.0 * valley_depth
+                                refract_y = (dy / abs(dx) * 45.0 * valley_depth) if abs(dx) > 0 else 0.0
                         else:
-                            refract_y = -35.0
-                            refract_x = (dx / abs(dy) * 20.0) if abs(dy) > 0 else 0.0
+                            if dy > 0:
+                                refract_y = 70.0 * valley_depth
+                                refract_x = (dx / abs(dy) * 45.0 * valley_depth) if abs(dy) > 0 else 0.0
+                            else:
+                                refract_y = -70.0 * valley_depth
+                                refract_x = (dx / abs(dy) * 45.0 * valley_depth) if abs(dy) > 0 else 0.0
+
+                        alpha[y, x] = 1.0 * valley_depth
 
                     offset_x[y, x] = refract_x
                     offset_y[y, x] = refract_y
-                    alpha[y, x] = 1.0  # Full opacity in center
 
     def update(self):
         """Update animation - static effect, no updates needed"""
