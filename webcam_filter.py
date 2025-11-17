@@ -1027,6 +1027,22 @@ class VideoWindow:
 
         self.current_photo = photo  # Keep reference to prevent garbage collection
 
+    def resize(self, width, height):
+        """Resize the video window
+
+        Args:
+            width: New window width
+            height: New window height
+        """
+        if not self.is_open:
+            return
+
+        # Resize canvas
+        self.canvas.config(width=width, height=height)
+
+        # Update window geometry
+        self.window.geometry(f"{width}x{height}")
+
     def set_key_callback(self, callback):
         """Set callback for keyboard events
 
@@ -1053,6 +1069,9 @@ class ControlPanel:
 
         # Camera selection variable
         self.selected_camera = tk.IntVar(value=selected_camera_id)
+        self.selected_resolution = tk.StringVar(value="")  # Will be set during UI build
+        self.resolution_changed = False
+        self.new_resolution = None
 
         # Effect toggle (shared with main loop) - inverted logic: show_original = effect disabled
         self.show_original = tk.BooleanVar(value=False)
@@ -1143,7 +1162,7 @@ class ControlPanel:
 
         # Auto-size window to fit all content
         self.root.update_idletasks()  # Ensure all widgets are laid out
-        width = 650  # Fixed width (wider for table layout)
+        width = 665  # Fixed width (wider for table layout)
         # Get the required height from the container
         height = self.root.winfo_reqheight()
         # Add a small buffer
@@ -1230,14 +1249,34 @@ class ControlPanel:
         camera_frame = ttk.LabelFrame(container, text="Camera Selection", padding=10)
         camera_frame.pack(fill='x', **padding)
 
-        ttk.Label(camera_frame, text="Select Camera:").pack(anchor='w')
+        # Two column layout for camera selection using grid
+        # Column headers
+        ttk.Label(camera_frame, text="Select Camera:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
+        ttk.Label(camera_frame, text="Resolution:").grid(row=0, column=1, sticky='w', padx=5, pady=2)
+
+        # Create frame for radio buttons
+        cam_buttons_frame = ttk.Frame(camera_frame)
+        cam_buttons_frame.grid(row=1, column=0, sticky='nw', padx=5, pady=2)
 
         # Create radio buttons for each camera
         for cam in self.available_cameras:
-            cam_text = f"Camera {cam['id']}: {cam['width']}x{cam['height']}"
-            ttk.Radiobutton(camera_frame, text=cam_text, value=cam['id'],
+            cam_text = f"Camera {cam['id']}"
+            ttk.Radiobutton(cam_buttons_frame, text=cam_text, value=cam['id'],
                            variable=self.selected_camera,
-                           command=self._on_camera_change).pack(anchor='w', pady=2)
+                           command=self._on_camera_change).pack(anchor='w', pady=1)
+
+        # Resolution dropdown - will be populated based on selected camera
+        self.resolution_combobox = ttk.Combobox(camera_frame, textvariable=self.selected_resolution,
+                                                 state='readonly', width=15)
+        self.resolution_combobox.grid(row=1, column=1, sticky='nw', padx=5, pady=2)
+        self.resolution_combobox.bind('<<ComboboxSelected>>', self._on_resolution_change)
+
+        # Add note about performance
+        ttk.Label(camera_frame, text="(smaller = faster)", font=('TkDefaultFont', 12, 'italic'),
+                 foreground='gray50').grid(row=1, column=2, sticky='w', padx=(0, 5), pady=2)
+
+        # Populate resolution dropdown for initially selected camera
+        self._update_resolution_dropdown()
 
         # Source Section
         source_frame = ttk.LabelFrame(container, text="Source", padding=10)
@@ -1298,7 +1337,7 @@ class ControlPanel:
         ttk.Label(radius_row, textvariable=self.fft_radius, width=5).pack(side='left', padx=(5, 0))
 
         # Smoothness slider
-        ttk.Label(gs_right, text="Filter Cutoff Smoothness (0-100 pixels)", wraplength=250).pack(anchor='w', pady=(5, 0))
+        ttk.Label(gs_right, text="Filter Cutoff Smoothness 0-100 pixels (Butterworth offset)", wraplength=250).pack(anchor='w', pady=(5, 0))
         smooth_row = ttk.Frame(gs_right)
         smooth_row.pack(fill='x')
         fft_smoothness_slider = ttk.Scale(smooth_row, from_=0, to=100,
@@ -1335,7 +1374,7 @@ class ControlPanel:
         ttk.Label(table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)  # Value label column
-        ttk.Label(table_frame, text="Smoothness (Butterworth)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(table_frame, text="Smoothness (Butterworth offset)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)  # Value label column
 
         # Red channel (row 1)
@@ -1412,7 +1451,7 @@ class ControlPanel:
         ttk.Label(bitplane_table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
-        ttk.Label(bitplane_table_frame, text="Smoothness (Butterworth)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(bitplane_table_frame, text="Smoothness (Butterworth offset)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
         # Create 8 rows for bit planes (7 MSB down to 0 LSB)
@@ -1530,7 +1569,7 @@ class ControlPanel:
             ttk.Label(table_frame, text="Enabled", style=style_name).grid(row=0, column=1, padx=5, pady=2)
             ttk.Label(table_frame, text="Filter Radius (pixels)", style=style_name).grid(row=0, column=2, padx=5, pady=2)
             ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
-            ttk.Label(table_frame, text="Smoothness (Butterworth)", style=style_name).grid(row=0, column=4, padx=5, pady=2)
+            ttk.Label(table_frame, text="Smoothness (Butterworth offset)", style=style_name).grid(row=0, column=4, padx=5, pady=2)
             ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
             # Create 8 rows for bit planes (7 MSB down to 0 LSB)
@@ -1644,7 +1683,10 @@ class ControlPanel:
                 'green': [bp.get() for bp in self.color_bitplane_smoothness['green']],
                 'blue': [bp.get() for bp in self.color_bitplane_smoothness['blue']]
             },
-            'color_bp_selected_tab': self.color_bp_selected_tab.get()
+            'color_bp_selected_tab': self.color_bp_selected_tab.get(),
+            # Camera and resolution settings
+            'selected_camera': self.selected_camera.get(),
+            'selected_resolution': self.selected_resolution.get()
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -1740,6 +1782,18 @@ class ControlPanel:
                 # Only switch tab if color_bitplanes mode is selected
                 if self.output_mode.get() == "color_bitplanes":
                     self._switch_color_bp_tab(saved_tab)
+
+            # Restore camera and resolution settings
+            saved_camera = settings.get('selected_camera')
+            if saved_camera is not None:
+                self.selected_camera.set(saved_camera)
+
+            saved_resolution = settings.get('selected_resolution', '')
+            if saved_resolution:
+                self.selected_resolution.set(saved_resolution)
+
+            # Update resolution dropdown for the selected camera
+            self._update_resolution_dropdown()
 
             # print(f"Settings loaded from {settings_file}")
         except Exception as e:
@@ -1850,6 +1904,26 @@ class ControlPanel:
         """Handle camera selection change"""
         self.camera_changed = True
         self.new_camera_id = self.selected_camera.get()
+        self._update_resolution_dropdown()
+
+    def _update_resolution_dropdown(self):
+        """Update resolution dropdown based on selected camera"""
+        camera_id = self.selected_camera.get()
+        for cam in self.available_cameras:
+            if cam['id'] == camera_id:
+                resolutions = [f"{w}x{h}" for w, h in cam['resolutions']]
+                self.resolution_combobox['values'] = resolutions
+                # Set resolution if nothing selected yet or current selection not available
+                if not self.selected_resolution.get() or self.selected_resolution.get() not in resolutions:
+                    # Prefer 720p (1280x720) as default, otherwise use first available
+                    default_res = "1280x720" if "1280x720" in resolutions else (resolutions[0] if resolutions else "")
+                    self.selected_resolution.set(default_res)
+                break
+
+    def _on_resolution_change(self, event=None):
+        """Handle resolution selection change"""
+        self.resolution_changed = True
+        self.new_resolution = self.selected_resolution.get()
 
     def _on_close(self):
         """Handle window close"""
@@ -1954,11 +2028,20 @@ def signal_handler(sig, frame):
 
 
 def find_available_cameras():
-    """Find all available cameras"""
+    """Find all available cameras and their supported resolutions"""
     import sys
     import os
 
     available_cameras = []
+
+    # Common resolutions to test (width, height)
+    test_resolutions = [
+        (640, 480),    # VGA
+        (1280, 720),   # 720p
+        (1920, 1080),  # 1080p
+        (2560, 1440),  # 1440p
+        (3840, 2160),  # 4K
+    ]
 
     # Suppress OpenCV warnings during camera detection
     # Save original stderr
@@ -1970,26 +2053,46 @@ def find_available_cameras():
         devnull = open(os.devnull, 'w')
         sys.stderr = devnull
 
-        print("Scanning cameras: ", end='', flush=True)
         for camera_id in range(5):  # Check first 5 camera indices
             cap = cv2.VideoCapture(camera_id, cv2.CAP_AVFOUNDATION)
             if cap.isOpened():
                 ret, test_frame = cap.read()
                 if ret and test_frame is not None:
-                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    # Get default resolution
+                    default_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    default_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+                    # Test which resolutions are supported
+                    supported_resolutions = []
+                    for width, height in test_resolutions:
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None:
+                            actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            # Check if we got the resolution we asked for (or close to it)
+                            if abs(actual_width - width) <= 10 and abs(actual_height - height) <= 10:
+                                res_str = f"{actual_width}x{actual_height}"
+                                if res_str not in [f"{w}x{h}" for w, h in supported_resolutions]:
+                                    supported_resolutions.append((actual_width, actual_height))
+
+                    # If no resolutions matched, use the default
+                    if not supported_resolutions:
+                        supported_resolutions.append((default_width, default_height))
+
+                    # Sort resolutions by total pixels (smallest to largest)
+                    supported_resolutions.sort(key=lambda x: x[0] * x[1])
+
                     available_cameras.append({
                         'id': camera_id,
-                        'width': width,
-                        'height': height
+                        'width': default_width,
+                        'height': default_height,
+                        'resolutions': supported_resolutions
                     })
-                    print(f"{camera_id}:OK ", end='', flush=True)
-                else:
-                    print(f"{camera_id}:- ", end='', flush=True)
+                    res_list = ", ".join([f"{w}x{h}" for w, h in supported_resolutions])
+                    print(f"Camera {camera_id}: {res_list}")
                 cap.release()
-            else:
-                print(f"{camera_id}:- ", end='', flush=True)
-        print()  # New line after scanning
     finally:
         # Restore original stderr
         sys.stderr = original_stderr
@@ -2053,13 +2156,23 @@ def main():
         print("Error: Could not open selected webcam")
         return
 
-    # Get webcam dimensions
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    # Create tkinter control panel first (to load resolution preference)
+    # Use temporary dimensions - will be updated after applying resolution
+    temp_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    temp_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    controls = ControlPanel(temp_width, temp_height, available_cameras, selected_camera['id'])
 
-    # Set higher resolution if possible
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    # Apply the selected resolution from control panel
+    selected_res = controls.selected_resolution.get()
+    if selected_res:
+        try:
+            res_width, res_height = map(int, selected_res.split('x'))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, res_width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, res_height)
+        except ValueError:
+            print(f"Warning: Invalid resolution format '{selected_res}', using camera default")
+
+    # Get actual webcam dimensions after applying resolution
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -2069,11 +2182,8 @@ def main():
     print("  Q, ESC, or Ctrl+C - Quit")
     print("  Use control panel to adjust parameters")
 
-    # Initialize combined sketch filter
+    # Initialize combined sketch filter with actual dimensions
     sketch = CombinedSketchFilter(width, height)
-
-    # Create tkinter control panel
-    controls = ControlPanel(width, height, available_cameras, selected_camera['id'])
 
     # Create filter curve visualization window (after control panel so Tkinter root exists)
     sketch.fft.create_visualization_window()
@@ -2208,6 +2318,48 @@ def main():
 
                 # Skip this frame and get a fresh one from the new camera
                 continue
+
+        # Check if resolution was changed
+        if controls.resolution_changed:
+            controls.resolution_changed = False
+            new_resolution = controls.new_resolution
+            print(f"\nChanging resolution to {new_resolution}...")
+
+            try:
+                # Parse resolution string "WIDTHxHEIGHT"
+                res_width, res_height = map(int, new_resolution.split('x'))
+
+                # Set new resolution
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, res_width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, res_height)
+
+                # Verify the resolution was set
+                actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+                if abs(actual_width - res_width) <= 10 and abs(actual_height - res_height) <= 10:
+                    # Reinitialize sketch filter with new dimensions
+                    sketch = CombinedSketchFilter(actual_width, actual_height)
+
+                    # Resize video window to match new resolution
+                    video_window.resize(actual_width, actual_height)
+
+                    print(f"Resolution changed to {actual_width}x{actual_height}")
+                else:
+                    print(f"Warning: Requested {res_width}x{res_height}, got {actual_width}x{actual_height}")
+                    # Update the dropdown to show actual resolution
+                    controls.selected_resolution.set(f"{actual_width}x{actual_height}")
+                    # Still reinitialize with actual dimensions
+                    sketch = CombinedSketchFilter(actual_width, actual_height)
+
+                # Skip this frame and get a fresh one with the new resolution
+                continue
+            except Exception as e:
+                print(f"Error changing resolution: {e}")
+                # Revert to current resolution
+                current_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                current_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                controls.selected_resolution.set(f"{current_width}x{current_height}")
 
         # Mirror the image (flip horizontally)
         frame = cv2.flip(frame, 1)
