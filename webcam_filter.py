@@ -687,6 +687,111 @@ class FFTFilter:
                         reconstructed += (binary_plane << bit)
                 return reconstructed
 
+    def draw_color_bitplanes(self, frame, color_bitplane_params):
+        """Apply FFT-based high-pass filter to individual bit planes of each color channel
+
+        Args:
+            frame: Input BGR frame
+            color_bitplane_params: Dict with keys 'red', 'green', 'blue'
+                                  Each value is a list of 8 dicts with 'enable', 'radius', 'smoothness'
+                                  Index 0 = bit 0 (LSB), Index 7 = bit 7 (MSB)
+        """
+        # Split into BGR channels
+        b, g, r = cv2.split(frame)
+
+        # Process each color channel separately
+        channels = {'blue': b, 'green': g, 'red': r}
+        filtered_channels = {}
+
+        for color_name, channel in channels.items():
+            # Get bit plane parameters for this color
+            bitplane_params = color_bitplane_params[color_name]
+
+            # Decompose this channel into 8 bit planes
+            bit_planes = []
+            for bit in range(8):
+                # Extract this bit plane (create binary image where this bit is set)
+                bit_plane = ((channel >> bit) & 1) * 255
+                bit_planes.append(bit_plane.astype(np.uint8))
+
+            # Process each bit plane
+            # Note: bitplane_params[i] corresponds to UI row i, where:
+            # i=0 is MSB (bit 7), i=7 is LSB (bit 0)
+            # So we need to reverse the mapping: bit N uses params[7-N]
+            filtered_bit_planes = []
+            for bit in range(8):
+                ui_index = 7 - bit  # Reverse mapping
+                params = bitplane_params[ui_index]
+
+                if params['enable']:
+                    # Apply FFT filter to this bit plane
+                    filtered = self._apply_fft_to_channel(bit_planes[bit],
+                                                          params['radius'],
+                                                          params['smoothness'])
+                    filtered_bit_planes.append(filtered)
+                else:
+                    # If disabled, keep the original bit plane (no filtering)
+                    filtered_bit_planes.append(bit_planes[bit])
+
+            # Reconstruct this color channel from filtered bit planes
+            # Count how many bit planes are enabled
+            num_enabled = sum(1 for params in bitplane_params if params['enable'])
+
+            if num_enabled == 0:
+                # No bit planes enabled - return all black
+                filtered_channels[color_name] = np.zeros_like(channel, dtype=np.uint8)
+
+            elif num_enabled == 1:
+                # Single bit enabled: return the filtered bit plane scaled to 0-255
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                        filtered_channels[color_name] = binary_plane * 255
+                        break
+
+            else:
+                # Multiple bits enabled: reconstruct channel with only those bits, then filter
+                # Create bit mask
+                bit_mask = 0
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        bit_mask |= (1 << bit)
+
+                # Apply mask to keep only selected bits
+                masked_channel = channel & bit_mask
+
+                # Check if all enabled bits have same radius/smoothness
+                enabled_params = [bitplane_params[i] for i in range(8) if bitplane_params[i]['enable']]
+                same_params = all(p['radius'] == enabled_params[0]['radius'] and
+                                p['smoothness'] == enabled_params[0]['smoothness']
+                                for p in enabled_params)
+
+                if same_params:
+                    # Same filter params - apply FFT to the masked channel
+                    # Use normalize=False to preserve the intensity levels
+                    filtered = self._apply_fft_to_channel(masked_channel,
+                                                          enabled_params[0]['radius'],
+                                                          enabled_params[0]['smoothness'],
+                                                          normalize=False)
+                    filtered_channels[color_name] = filtered
+                else:
+                    # Different params - process each bit separately
+                    reconstructed = np.zeros_like(channel, dtype=np.uint8)
+                    for bit in range(8):
+                        ui_index = 7 - bit
+                        if bitplane_params[ui_index]['enable']:
+                            binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                            reconstructed += (binary_plane << bit)
+                    filtered_channels[color_name] = reconstructed
+
+        # Merge the three filtered color channels back into BGR image
+        result = cv2.merge([filtered_channels['blue'],
+                           filtered_channels['green'],
+                           filtered_channels['red']])
+        return result
+
     def draw(self, frame, face_mask=None):
         """Apply FFT-based high-pass filter"""
         # Convert to grayscale
@@ -1972,6 +2077,19 @@ def main():
                     result = cv2.cvtColor(gray_result, cv2.COLOR_GRAY2BGR)
                 else:
                     result = gray_result
+            elif output_mode == "color_bitplanes":
+                # Color Bit Planes mode - filter each bit plane of each color independently
+                color_bitplane_params = {}
+                for color in ['red', 'green', 'blue']:
+                    bitplane_params = []
+                    for i in range(8):
+                        bitplane_params.append({
+                            'enable': controls.color_bitplane_enable[color][i].get(),
+                            'radius': controls.color_bitplane_radius[color][i].get(),
+                            'smoothness': controls.color_bitplane_smoothness[color][i].get()
+                        })
+                    color_bitplane_params[color] = bitplane_params
+                result = sketch.fft.draw_color_bitplanes(frame, color_bitplane_params)
             else:
                 # Grayscale composite mode (and other modes to be implemented)
                 # Update FFT filter parameters from UI controls
