@@ -127,7 +127,13 @@ Examples:
 
     # Create the effect instance
     print(f"Loading effect: {effect_class.get_name()}")
-    effect = effect_class(width, height, root)
+
+    # Check if effect needs the root window (for UI effects)
+    from core.base_effect import BaseUIEffect
+    if issubclass(effect_class, BaseUIEffect):
+        effect = effect_class(width, height, root)
+    else:
+        effect = effect_class(width, height)
 
     # Create video window
     video_window = VideoWindow(root, title=f"Webcam Filter - {effect_class.get_name()}",
