@@ -613,6 +613,10 @@ class ControlPanel:
         # Load saved settings BEFORE adding traces to prevent auto-switching modes
         self._load_settings()
 
+        # Auto-expand RGB table if color_channels mode is selected
+        if self.output_mode.get() == "color_channels":
+            self._toggle_rgb_table()
+
         # Auto-expand bit plane table if grayscale_bitplanes mode is selected
         if self.output_mode.get() == "grayscale_bitplanes":
             self._toggle_bitplane_table()
@@ -647,6 +651,8 @@ class ControlPanel:
         height = min(height + 20, 1000)  # Cap at 1000px
         # Position UI window at top-left, video window will be to the right at x=670
         self.root.geometry(f"{width}x{height}+0+0")
+        # Set minimum window size to prevent shrinking when tables collapse
+        self.root.minsize(width, 200)
 
         # Flag to check if window is still open
         self.running = True
@@ -698,6 +704,11 @@ class ControlPanel:
 
         # Use scrollable_frame as container instead of root
         container = scrollable_frame
+
+        # Add invisible spacer frame to maintain minimum width
+        spacer = ttk.Frame(container, width=630, height=1)
+        spacer.pack(fill='x')
+        spacer.pack_propagate(False)
 
         # Bind mousewheel scrolling - store canvas reference for the callback
         self._scrollable_canvas = canvas
@@ -801,12 +812,24 @@ class ControlPanel:
         color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         color_channels_group.pack(fill='x', pady=(0, 10))
 
-        ttk.Radiobutton(color_channels_group, text="Individual Color Channels", value="color_channels",
-                       variable=self.output_mode).pack(anchor='w', pady=(0, 5))
+        # Header with radio button and expand/collapse button
+        rgb_header_frame = ttk.Frame(color_channels_group)
+        rgb_header_frame.pack(fill='x', pady=(0, 5))
 
-        # Create table using grid layout
+        # Radio button on left
+        ttk.Radiobutton(rgb_header_frame, text="Individual Color Channels", value="color_channels",
+                       variable=self.output_mode, command=self._on_rgb_radio_select).pack(side='left')
+
+        # Expand/collapse on right
+        self.rgb_expanded = tk.BooleanVar(value=False)
+        self.rgb_toggle_btn = ttk.Button(rgb_header_frame, text="▶", width=1,
+                                        command=self._toggle_rgb_table)
+        self.rgb_toggle_btn.pack(side='right', padx=(2, 0))
+        ttk.Label(rgb_header_frame, text="Expand/Collapse").pack(side='right', padx=(5, 0))
+
+        # Create table using grid layout (initially hidden)
         table_frame = ttk.Frame(color_channels_group)
-        table_frame.pack(fill='x', pady=(5, 0))
+        self.rgb_table_frame = table_frame  # Store reference for show/hide
 
         # Header row (row 0)
         ttk.Label(table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='w')  # Empty cell for color labels
@@ -940,7 +963,7 @@ class ControlPanel:
         common_frame.pack(fill='x', pady=(10, 0))
 
         # Gain slider with value on right (log scale: 0.2 to 5, center=1)
-        ttk.Label(common_frame, text="Gain (1/5x to 1x [no change] to 5x)").pack(anchor='w', pady=(5, 0))
+        ttk.Label(common_frame, text="Gain: 1/5x to 1x (no gain) to 5x").pack(anchor='w', pady=(5, 0))
         gain_row = ttk.Frame(common_frame)
         gain_row.pack(fill='x')
         gain_slider = ttk.Scale(gain_row, from_=0.2, to=5,
@@ -990,7 +1013,7 @@ class ControlPanel:
         try:
             with open(settings_file, 'w') as f:
                 json.dump(settings, f, indent=2)
-            print(f"Settings saved to {settings_file}")
+            # print(f"Settings saved to {settings_file}")
         except Exception as e:
             print(f"Error saving settings: {e}")
 
@@ -1040,13 +1063,16 @@ class ControlPanel:
 
                 self.bitplane_smoothness[i].set(bitplane_smoothness[i] if i < len(bitplane_smoothness) else DEFAULT_FFT_SMOOTHNESS)
 
-            print(f"Settings loaded from {settings_file}")
+            # print(f"Settings loaded from {settings_file}")
         except Exception as e:
             print(f"Error loading settings: {e}")
 
     def _on_rgb_control_change(self, *args):
         """Auto-select Individual Color Channels radio button when RGB controls are changed"""
         self.output_mode.set("color_channels")
+        # Also expand the table when a control is changed
+        if not self.rgb_expanded.get():
+            self._toggle_rgb_table()
 
     def _on_grayscale_control_change(self, *args):
         """Auto-select Grayscale Composite radio button when grayscale controls are changed"""
@@ -1078,6 +1104,26 @@ class ControlPanel:
         """Expand the bit plane table when radio button is selected"""
         if not self.bitplane_expanded.get():
             self._toggle_bitplane_table()
+
+    def _toggle_rgb_table(self):
+        """Toggle the visibility of the RGB channels table"""
+        if self.rgb_expanded.get():
+            # Collapse
+            self.rgb_table_frame.pack_forget()
+            self.rgb_toggle_btn.config(text="▶")
+            self.rgb_expanded.set(False)
+        else:
+            # Expand
+            self.rgb_table_frame.pack(fill='x', padx=10)
+            self.rgb_toggle_btn.config(text="▼")
+            self.rgb_expanded.set(True)
+            # Also select the radio button when expanding
+            self.output_mode.set("color_channels")
+
+    def _on_rgb_radio_select(self):
+        """Expand the RGB table when radio button is selected"""
+        if not self.rgb_expanded.get():
+            self._toggle_rgb_table()
 
     def _on_camera_change(self):
         """Handle camera selection change"""
@@ -1190,7 +1236,7 @@ def find_available_cameras():
     """Find all available cameras"""
     available_cameras = []
 
-    print("Scanning for available cameras...")
+    # print("Scanning for available cameras...")
     for camera_id in range(5):  # Check first 5 camera indices
         cap = cv2.VideoCapture(camera_id, cv2.CAP_AVFOUNDATION)
         if cap.isOpened():
@@ -1203,7 +1249,7 @@ def find_available_cameras():
                     'width': width,
                     'height': height
                 })
-                print(f"  Found camera {camera_id}: {width}x{height}")
+                # print(f"  Found camera {camera_id}: {width}x{height}")
             cap.release()
 
     return available_cameras
@@ -1247,15 +1293,16 @@ def main():
                 print(f"  Camera {cam['id']}: {cam['width']}x{cam['height']}")
             return
 
-        print(f"Using camera {selected_camera['id']} (from command line)")
+        # print(f"Using camera {selected_camera['id']} (from command line)")
+        pass
     else:
         # Use highest numbered camera
         selected_camera = max(available_cameras, key=lambda c: c['id'])
-        print(f"Using camera {selected_camera['id']} (highest numbered camera)")
-        print(f"To use a different camera, run with: --camera <id>")
+        # print(f"Using camera {selected_camera['id']} (highest numbered camera)")
+        # print(f"To use a different camera, run with: --camera <id>")
 
     # Initialize selected webcam
-    print(f"\nInitializing camera {selected_camera['id']}...")
+    # print(f"\nInitializing camera {selected_camera['id']}...")
     cap = cv2.VideoCapture(selected_camera['id'], cv2.CAP_AVFOUNDATION)
 
     if not cap.isOpened():
@@ -1440,28 +1487,27 @@ def main():
             fps_start_time = time.time()
             fps_counter = 0
 
-        # Display FPS and parameters at top left
+        # Display FPS at top left
         y_offset = 30
-        line_height = 30
         cv2.putText(result, f"FPS: {fps:.1f}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
 
-        cv2.putText(result, f"FFT Radius: {sketch.fft.radius}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"FFT Smoothness: {sketch.fft.smoothness}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
-        cv2.putText(result, f"Show FFT: {sketch.fft.show_fft}", (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        y_offset += line_height
+        # line_height = 30
+        # cv2.putText(result, f"FFT Radius: {sketch.fft.radius}", (10, y_offset),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # y_offset += line_height
+        # cv2.putText(result, f"FFT Smoothness: {sketch.fft.smoothness}", (10, y_offset),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # y_offset += line_height
+        # cv2.putText(result, f"Show FFT: {sketch.fft.show_fft}", (10, y_offset),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # y_offset += line_height
 
         # Display effect status
-        status_text = "EFFECT ON" if effect_enabled else "EFFECT OFF (SPACEBAR to toggle)"
-        status_color = (0, 255, 0) if effect_enabled else (0, 165, 255)  # Green if on, orange if off
-        cv2.putText(result, status_text, (10, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+        # status_text = "EFFECT ON" if effect_enabled else "EFFECT OFF (SPACEBAR to toggle)"
+        # status_color = (0, 255, 0) if effect_enabled else (0, 165, 255)  # Green if on, orange if off
+        # cv2.putText(result, status_text, (10, y_offset),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
 
         # Check if frame is almost black (might be wrong camera)
         mean_brightness = np.mean(frame)
