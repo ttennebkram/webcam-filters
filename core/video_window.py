@@ -67,23 +67,30 @@ class VideoWindow:
         if not self.is_open:
             return
 
-        # Convert BGR to RGB for PIL
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        try:
+            # Convert BGR to RGB for PIL
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-        # Convert to PIL Image
-        image = Image.fromarray(frame_rgb)
+            # Convert to PIL Image
+            image = Image.fromarray(frame_rgb)
 
-        # Convert to PhotoImage
-        photo = ImageTk.PhotoImage(image=image)
+            # Convert to PhotoImage
+            photo = ImageTk.PhotoImage(image=image)
 
-        # Update canvas
-        if self.canvas_image_id is None:
-            self.canvas_image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-        else:
-            self.canvas.itemconfig(self.canvas_image_id, image=photo)
+            # Update canvas
+            if self.canvas_image_id is None:
+                self.canvas_image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+                print(f"Created canvas image, id={self.canvas_image_id}")
+            else:
+                self.canvas.itemconfig(self.canvas_image_id, image=photo)
 
-        # Keep reference to prevent garbage collection
-        self.current_photo = photo
+            # Keep reference to prevent garbage collection
+            self.current_photo = photo
+
+        except Exception as e:
+            print(f"Error updating frame: {e}")
+            import traceback
+            traceback.print_exc()
 
     def set_key_callback(self, callback):
         """Set callback function for keyboard events

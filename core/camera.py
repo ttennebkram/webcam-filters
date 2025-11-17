@@ -42,17 +42,20 @@ def get_camera_name(index):
         return f"Camera {index}"
 
 
-def open_camera(index, width=None, height=None):
+def open_camera(index, width=None, height=None, warmup_frames=5):
     """Open a camera with optional resolution
 
     Args:
         index: Camera index
         width: Desired width (or None for default)
         height: Desired height (or None for default)
+        warmup_frames: Number of frames to discard for camera warmup (default: 5)
 
     Returns:
         cv2.VideoCapture object or None if failed
     """
+    import time
+
     cap = cv2.VideoCapture(index)
 
     if not cap.isOpened():
@@ -62,5 +65,13 @@ def open_camera(index, width=None, height=None):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     if height is not None:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    # Give camera time to initialize
+    time.sleep(0.5)
+
+    # Discard initial frames to allow camera to adjust exposure/white balance
+    for _ in range(warmup_frames):
+        cap.read()
+        time.sleep(0.1)
 
     return cap

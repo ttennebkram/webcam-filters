@@ -69,8 +69,8 @@ Examples:
         """
     )
 
-    parser.add_argument('--effect', '-e', type=str,
-                        help='Effect to run (e.g., seasonal/christmas)')
+    parser.add_argument('--effect', '-e', type=str, default='misc/passthrough',
+                        help='Effect to run (default: misc/passthrough, use --list to see all)')
     parser.add_argument('--list', '-l', action='store_true',
                         help='List all available effects')
     parser.add_argument('--list-cameras', action='store_true',
@@ -93,13 +93,7 @@ Examples:
         list_available_cameras()
         return 0
 
-    # Require an effect
-    if not args.effect:
-        parser.print_help()
-        print("\nError: --effect is required (use --list to see available effects)")
-        return 1
-
-    # Load the effect class
+    # Load the effect class (defaults to passthrough if not specified)
     try:
         effect_class = get_effect_class(args.effect)
     except KeyError as e:
@@ -137,6 +131,8 @@ Examples:
 
     # Create the effect instance
     print(f"Loading effect: {effect_class.get_name()}")
+    if args.effect == 'misc/passthrough':
+        print("(Using default passthrough effect - use --list to see other effects)")
 
     # Check if effect needs the root window (for UI effects)
     from core.base_effect import BaseUIEffect
@@ -148,6 +144,9 @@ Examples:
     # Create video window
     video_window = VideoWindow(root, title=f"Webcam Filter - {effect_class.get_name()}",
                                 width=width, height=height)
+
+    # Force window to show and process events
+    root.update()
 
     # Set up keyboard handler
     effect_enabled = True
@@ -170,12 +169,17 @@ Examples:
 
     # Main loop
     import time
+    frame_count = 0
     try:
         while video_window.is_open:
             ret, frame = cap.read()
             if not ret:
                 print("Error: Lost camera connection")
                 break
+
+            frame_count += 1
+            if frame_count == 1:
+                print(f"First frame received: shape={frame.shape}, dtype={frame.dtype}")
 
             # Mirror the frame horizontally
             frame = cv2.flip(frame, 1)
@@ -184,6 +188,9 @@ Examples:
             if effect_enabled:
                 effect.update()
                 frame = effect.draw(frame)
+
+            if frame_count == 1:
+                print(f"After effect: shape={frame.shape}, dtype={frame.dtype}, min={frame.min()}, max={frame.max()}")
 
             # Display frame
             video_window.update_frame(frame)
