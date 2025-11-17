@@ -12,13 +12,14 @@ from tkinter import ttk
 import threading
 import argparse
 import json
+from PIL import Image, ImageTk
 
 
 # Configuration constants - FFT Filter
 DEFAULT_FFT_RADIUS = 30  # Default radius for FFT low-frequency reject circle
 DEFAULT_FFT_SMOOTHNESS = 0  # Default smoothness (0 = hard circle, 100 = very smooth transition)
 DEFAULT_SHOW_FFT = False  # Default: don't show FFT visualization
-DEFAULT_GAIN = 0  # Default gain (-5 to +5)
+DEFAULT_GAIN = 1  # Default gain (0.2 to 5, 1=no change)
 DEFAULT_INVERT = False  # Default: don't invert
 DEFAULT_OUTPUT_MODE = "grayscale_composite"  # Default output mode
 
@@ -79,8 +80,15 @@ class FFTFilter:
         result = cv2.merge(channels_processed)
         return result
 
-    def _apply_fft_to_channel(self, channel, radius, smoothness):
-        """Apply FFT filter to a single channel"""
+    def _apply_fft_to_channel(self, channel, radius, smoothness, normalize=True):
+        """Apply FFT filter to a single channel
+
+        Args:
+            channel: Input channel
+            radius: High-pass filter radius (0 = no filtering, but still goes through FFT/IFFT)
+            smoothness: Transition smoothness
+            normalize: If True, normalize output to 0-255. If False, clamp to 0-255.
+        """
         # Compute FFT
         dft = cv2.dft(np.float32(channel), flags=cv2.DFT_COMPLEX_OUTPUT)
         dft_shift = np.fft.fftshift(dft)
@@ -99,18 +107,30 @@ class FFTFilter:
         # Apply mask
         fshift = dft_shift * mask
 
-        # Inverse FFT
+        # Inverse FFT with DFT_SCALE flag to properly normalize the output
         f_ishift = np.fft.ifftshift(fshift)
-        img_back = cv2.idft(f_ishift)
+        img_back = cv2.idft(f_ishift, flags=cv2.DFT_SCALE)
         img_back = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
 
-        # Normalize to 0-255
-        high_pass = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        if normalize:
+            # Normalize to 0-255 (stretches min-max range)
+            high_pass = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        else:
+            # Just clamp to 0-255 without stretching
+            high_pass = np.clip(img_back, 0, 255).astype(np.uint8)
 
         return high_pass
 
     def _create_mask(self, distance, radius, smoothness, rows, cols):
-        """Create high-pass mask with given parameters"""
+        """Create high-pass mask with given parameters
+
+        Special case: radius=0 means no filtering, pass all frequencies through
+        """
+        # Special case: radius=0 means no filtering
+        if radius == 0:
+            # Pass all frequencies (all ones mask)
+            return np.ones((rows, cols, 2), np.float32)
+
         if smoothness == 0:
             # Hard circle mask
             mask = np.ones((rows, cols, 2), np.float32)
@@ -210,6 +230,96 @@ class FFTFilter:
 
         return fft_display
 
+    def draw_grayscale_bitplanes(self, frame, bitplane_params):
+        """Apply FFT-based high-pass filter to individual grayscale bit planes
+
+        Args:
+            frame: Input BGR frame
+            bitplane_params: List of 8 dicts, each with 'enable', 'radius', 'smoothness'
+                            Index 0 = bit 0 (LSB), Index 7 = bit 7 (MSB)
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Decompose into bit planes
+        bit_planes = []
+        for bit in range(8):
+            # Extract this bit plane (create binary image where this bit is set)
+            bit_plane = ((gray >> bit) & 1) * 255
+            bit_planes.append(bit_plane.astype(np.uint8))
+
+        # Process each bit plane
+        # Note: bitplane_params[i] corresponds to UI row i, where:
+        # i=0 is MSB (bit 7), i=7 is LSB (bit 0)
+        # So we need to reverse the mapping: bit N uses params[7-N]
+        filtered_bit_planes = []
+        for bit in range(8):
+            ui_index = 7 - bit  # Reverse mapping: bit 7 (MSB) uses params[0], bit 0 (LSB) uses params[7]
+            params = bitplane_params[ui_index]
+
+            if params['enable']:
+                # Apply FFT filter to this bit plane
+                filtered = self._apply_fft_to_channel(bit_planes[bit],
+                                                      params['radius'],
+                                                      params['smoothness'])
+                filtered_bit_planes.append(filtered)
+            else:
+                # If disabled, keep the original bit plane (no filtering)
+                filtered_bit_planes.append(bit_planes[bit])
+
+        # Reconstruct grayscale image from filtered bit planes
+        # Count how many bit planes are enabled
+        num_enabled = sum(1 for params in bitplane_params if params['enable'])
+
+        if num_enabled == 0:
+            # No bit planes enabled - return all black
+            return np.zeros_like(gray, dtype=np.uint8)
+
+        elif num_enabled == 1:
+            # Single bit enabled: return the filtered bit plane scaled to 0-255
+            for ui_index in range(8):
+                if bitplane_params[ui_index]['enable']:
+                    bit = 7 - ui_index
+                    binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                    return binary_plane * 255
+
+        else:
+            # Multiple bits enabled: reconstruct grayscale with only those bits, then filter
+            # Create bit mask
+            bit_mask = 0
+            for ui_index in range(8):
+                if bitplane_params[ui_index]['enable']:
+                    bit = 7 - ui_index
+                    bit_mask |= (1 << bit)
+
+            # Apply mask to keep only selected bits
+            masked_gray = gray & bit_mask
+
+            # Check if all enabled bits have same radius/smoothness
+            enabled_params = [bitplane_params[i] for i in range(8) if bitplane_params[i]['enable']]
+            same_params = all(p['radius'] == enabled_params[0]['radius'] and
+                            p['smoothness'] == enabled_params[0]['smoothness']
+                            for p in enabled_params)
+
+            if same_params:
+                # Same filter params - apply FFT to the masked grayscale image
+                # Use normalize=False to preserve the gray levels (don't stretch to 0-255)
+                filtered = self._apply_fft_to_channel(masked_gray,
+                                                      enabled_params[0]['radius'],
+                                                      enabled_params[0]['smoothness'],
+                                                      normalize=False)
+
+                return filtered
+            else:
+                # Different params - process each bit separately (old behavior)
+                reconstructed = np.zeros_like(gray, dtype=np.uint8)
+                for bit in range(8):
+                    ui_index = 7 - bit
+                    if bitplane_params[ui_index]['enable']:
+                        binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                        reconstructed += (binary_plane << bit)
+                return reconstructed
+
     def draw(self, frame, face_mask=None):
         """Apply FFT-based high-pass filter"""
         # Convert to grayscale
@@ -282,6 +392,90 @@ class FFTFilter:
         high_pass = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
         return high_pass
+
+
+class VideoWindow:
+    """Tkinter window for displaying video using PIL/ImageTk"""
+
+    def __init__(self, root, title="Video", width=640, height=480):
+        """Create a video display window
+
+        Args:
+            root: Parent Tkinter root window
+            title: Window title
+            width: Initial window width
+            height: Initial window height
+        """
+        self.root = root
+        self.window = tk.Toplevel(root)
+        self.window.title(title)
+
+        # Try using Canvas instead of Label for more direct pixel control
+        self.canvas = tk.Canvas(self.window, width=width, height=height, highlightthickness=0)
+        self.canvas.pack()
+
+        # Store current photo reference to prevent garbage collection
+        self.current_photo = None
+        self.canvas_image_id = None
+
+        # Position window
+        self.window.geometry(f"{width}x{height}+420+0")
+
+        # Keyboard handler callback
+        self.on_key_callback = None
+
+        # Bind keyboard events
+        self.window.bind('<space>', lambda e: self._handle_key(' '))
+        self.window.bind('<q>', lambda e: self._handle_key('q'))
+        self.window.bind('<Escape>', lambda e: self._handle_key('esc'))
+
+        # Flag to check if window is open
+        self.is_open = True
+        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _handle_key(self, key):
+        """Handle keyboard input"""
+        if self.on_key_callback:
+            self.on_key_callback(key)
+
+    def _on_close(self):
+        """Handle window close"""
+        self.is_open = False
+        self.window.destroy()
+
+    def update_frame(self, frame_bgr):
+        """Update the displayed frame
+
+        Args:
+            frame_bgr: OpenCV BGR frame (numpy array)
+        """
+        if not self.is_open:
+            return
+
+        # Convert BGR to RGB
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+        # Convert to PIL Image
+        pil_image = Image.fromarray(frame_rgb)
+
+        # Convert to ImageTk
+        photo = ImageTk.PhotoImage(image=pil_image)
+
+        # Update canvas
+        if self.canvas_image_id is None:
+            self.canvas_image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+        else:
+            self.canvas.itemconfig(self.canvas_image_id, image=photo)
+
+        self.current_photo = photo  # Keep reference to prevent garbage collection
+
+    def set_key_callback(self, callback):
+        """Set callback for keyboard events
+
+        Args:
+            callback: Function to call with key name ('q', 'esc', ' ')
+        """
+        self.on_key_callback = callback
 
 
 class ControlPanel:
@@ -613,7 +807,7 @@ class ControlPanel:
             ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
 
             # Radius slider
-            radius_slider = ttk.Scale(bitplane_table_frame, from_=5, to=200, variable=self.bitplane_radius[i], orient='horizontal',
+            radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=200, variable=self.bitplane_radius[i], orient='horizontal',
                                      command=lambda v, idx=i: self.bitplane_radius[idx].set(int(float(v))))
             radius_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
 
@@ -643,15 +837,15 @@ class ControlPanel:
         common_frame = ttk.Frame(fft_frame)
         common_frame.pack(fill='x', pady=(10, 0))
 
-        # Gain slider with value on right
-        ttk.Label(common_frame, text="Gain (-5 to +5)").pack(anchor='w', pady=(5, 0))
+        # Gain slider with value on right (log scale: 0.2 to 5, center=1)
+        ttk.Label(common_frame, text="Gain (1/5x to 1x [no change] to 5x)").pack(anchor='w', pady=(5, 0))
         gain_row = ttk.Frame(common_frame)
         gain_row.pack(fill='x')
-        gain_slider = ttk.Scale(gain_row, from_=-5, to=5,
+        gain_slider = ttk.Scale(gain_row, from_=0.2, to=5,
                                variable=self.gain, orient='horizontal',
-                               command=lambda v: self.gain_display.set(f"{float(v):.1f}"))
+                               command=lambda v: self.gain_display.set(f"{float(v):.2f}"))
         gain_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(gain_row, textvariable=self.gain_display, width=5).pack(side='left', padx=(5, 0))
+        ttk.Label(gain_row, textvariable=self.gain_display, width=6).pack(side='left', padx=(5, 0))
 
         # Invert checkbox
         ttk.Checkbutton(common_frame, text="Invert", variable=self.invert).pack(anchor='w', pady=(5, 0))
@@ -713,7 +907,9 @@ class ControlPanel:
             self.fft_smoothness.set(settings.get('fft_smoothness', DEFAULT_FFT_SMOOTHNESS))
             self.show_fft.set(settings.get('show_fft', DEFAULT_SHOW_FFT))
             self.show_original.set(settings.get('show_original', False))
-            self.gain.set(settings.get('gain', DEFAULT_GAIN))
+            gain_value = settings.get('gain', DEFAULT_GAIN)
+            self.gain.set(gain_value)
+            self.gain_display.set(f"{gain_value:.1f}")  # Update display to match loaded value
             self.invert.set(settings.get('invert', DEFAULT_INVERT))
             self.output_mode.set(settings.get('output_mode', DEFAULT_OUTPUT_MODE))
 
@@ -975,22 +1171,24 @@ def main():
     print("  Q, ESC, or Ctrl+C - Quit")
     print("  Use control panel to adjust parameters")
 
-    # Start window thread for better event handling and native controls
-    cv2.startWindowThread()
-
     # Initialize combined sketch filter
     sketch = CombinedSketchFilter(width, height)
 
     # Create tkinter control panel
     controls = ControlPanel(width, height, available_cameras, selected_camera['id'])
 
-    # Create main window for video display
-    window_name = 'Sketch Filter'
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    # Set initial size
-    cv2.resizeWindow(window_name, width, height)
-    # Move window to avoid overlapping with control panel (offset by 420 pixels to the right)
-    cv2.moveWindow(window_name, 420, 0)
+    # Create Tkinter video window
+    video_window = VideoWindow(controls.root, title='Sketch Filter', width=width, height=height)
+
+    # Set up keyboard handler for video window
+    def handle_video_key(key):
+        if key in ['q', 'esc']:
+            controls.running = False
+        elif key == ' ':
+            # Toggle effect
+            controls.show_original.set(not controls.show_original.get())
+
+    video_window.set_key_callback(handle_video_key)
 
     # FPS calculation
     fps_start_time = time.time()
@@ -1089,16 +1287,31 @@ def main():
                 }
                 # Pass params in RGB order (function signature order)
                 result = sketch.fft.draw_rgb_channels(frame, red_params, green_params, blue_params)
+            elif output_mode == "grayscale_bitplanes":
+                # Grayscale Bit Planes mode - filter each bit plane independently
+                bitplane_params = []
+                for i in range(8):
+                    bitplane_params.append({
+                        'enable': controls.bitplane_enable[i].get(),
+                        'radius': controls.bitplane_radius[i].get(),
+                        'smoothness': controls.bitplane_smoothness[i].get()
+                    })
+                gray_result = sketch.fft.draw_grayscale_bitplanes(frame, bitplane_params)
+                # Convert grayscale to BGR for display
+                result = cv2.cvtColor(gray_result, cv2.COLOR_GRAY2BGR)
             else:
                 # Grayscale composite mode (and other modes to be implemented)
                 result = sketch.draw(frame)
 
             # Apply gain and invert only if NOT showing FFT
             if not controls.show_fft.get():
-                # Apply gain (multiply by 2^gain)
+                # Apply gain (multiplicative, centered at 1)
+                # gain = 1: no change
+                # gain = 5: 5x brighter
+                # gain = 0.2: 1/5 as bright (darker)
                 gain = controls.gain.get()
-                if gain != 0:
-                    result = np.clip(result * (2 ** gain), 0, 255).astype(np.uint8)
+                if gain != 1:
+                    result = np.clip(result * gain, 0, 255).astype(np.uint8)
 
                 # Apply invert
                 if controls.invert.get():
@@ -1158,24 +1371,29 @@ def main():
             cv2.putText(result, camera_text, (w//2 - w2//2, h//2 + 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-        # Show the result
-        cv2.imshow(window_name, result)
+        # Debug: Save BGR result before display (once)
+        if output_mode == "grayscale_bitplanes" and not hasattr(sketch, '_bgr_saved'):
+            sketch._bgr_saved = True
+            cv2.imwrite('/tmp/bgr_before_display.png', result)
+            print(f"BGR result saved to: /tmp/bgr_before_display.png")
+            print(f"BGR result shape: {result.shape}, dtype: {result.dtype}")
+            # Sample the box regions
+            h, w = result.shape[:2]
+            box_size = 80
+            x_start = w - 4 * box_size - 40
+            y_start = 20
+            for i, expected_val in enumerate([0, 64, 128, 192]):
+                x = x_start + i * box_size
+                box_region = result[y_start:y_start+box_size, x:x+box_size, 0]  # Sample B channel
+                unique_vals = np.unique(box_region)
+                print(f"BGR Box {i}: Expected={expected_val}, Unique values={unique_vals}")
 
-        # Check if video window was closed via close button
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+        # Show the result using Tkinter video window
+        video_window.update_frame(result)
+
+        # Check if video window was closed
+        if not video_window.is_open:
             break
-
-        # Handle keyboard input (wrapped in try for Ctrl+C handling)
-        try:
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == 27:  # q or Esc key
-                print("\nExiting...")
-                break
-            # Note: Spacebar toggle is handled by tkinter binding in ControlPanel
-        except KeyboardInterrupt:
-            print("\nCtrl+C in loop - force exiting...")
-            cv2.destroyAllWindows()
-            os._exit(0)
 
     # Cleanup
     cap.release()
