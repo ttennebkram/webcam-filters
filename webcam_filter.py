@@ -885,6 +885,19 @@ class ControlPanel:
             self.bitplane_radius_slider.append(tk.DoubleVar(value=self._radius_to_slider(DEFAULT_FFT_RADIUS)))
             self.bitplane_smoothness.append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
 
+        # Color bit plane controls (3 colors × 8 bit planes each)
+        self.color_bitplane_enable = {'red': [], 'green': [], 'blue': []}
+        self.color_bitplane_radius = {'red': [], 'green': [], 'blue': []}
+        self.color_bitplane_radius_slider = {'red': [], 'green': [], 'blue': []}
+        self.color_bitplane_smoothness = {'red': [], 'green': [], 'blue': []}
+
+        for color in ['red', 'green', 'blue']:
+            for i in range(8):
+                self.color_bitplane_enable[color].append(tk.BooleanVar(value=True))
+                self.color_bitplane_radius[color].append(tk.IntVar(value=0))  # Default to 0
+                self.color_bitplane_radius_slider[color].append(tk.DoubleVar(value=0))  # Default to 0
+                self.color_bitplane_smoothness[color].append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
+
         self._build_ui()
 
         # Load saved settings BEFORE adding traces to prevent auto-switching modes
@@ -1228,12 +1241,134 @@ class ControlPanel:
         bitplane_table_frame.columnconfigure(2, weight=1)  # Filter Radius column expands
         bitplane_table_frame.columnconfigure(4, weight=1)  # Smoothness column expands
 
-        # Row 4: Color Bitplanes - grouped section
+        # Row 4: Color Bit Planes - grouped section with tabbed layout
         color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
         color_bitplanes_group.pack(fill='x', pady=(0, 10))
 
-        ttk.Radiobutton(color_bitplanes_group, text="Color Bitplanes (Not Implemented)", value="color_bitplanes",
-                       variable=self.output_mode, state='disabled').pack(anchor='w')
+        # Header with radio button and expand/collapse button
+        color_bp_header_frame = ttk.Frame(color_bitplanes_group)
+        color_bp_header_frame.pack(fill='x', pady=(0, 5))
+
+        # Radio button on left
+        color_bp_radio = ttk.Radiobutton(color_bp_header_frame, text="Color Bit Planes",
+                                        value="color_bitplanes",
+                                        variable=self.output_mode,
+                                        command=self._on_color_bitplane_radio_select)
+        color_bp_radio.pack(side='left', anchor='w')
+
+        # Expand/collapse on right
+        self.color_bitplane_expanded = tk.BooleanVar(value=False)
+        self.color_bitplane_toggle_btn = ttk.Button(color_bp_header_frame, text="▶", width=1,
+                                                    command=self._toggle_color_bitplane_table)
+        self.color_bitplane_toggle_btn.pack(side='right', padx=(2, 0))
+        ttk.Label(color_bp_header_frame, text="Expand/Collapse").pack(side='right', padx=(5, 0))
+
+        # Create notebook with tabs for Red, Green, Blue (initially hidden)
+        color_bp_notebook_frame = ttk.Frame(color_bitplanes_group)
+        self.color_bitplane_notebook_frame = color_bp_notebook_frame  # Store reference for show/hide
+
+        # Create custom tab bar with colored labels
+        tab_bar = ttk.Frame(color_bp_notebook_frame)
+        tab_bar.pack(fill='x', pady=(0, 0))
+
+        # Create a variable to track which tab is selected
+        self.color_bp_selected_tab = tk.StringVar(value='red')
+
+        # Create colored tab buttons
+        tab_buttons_frame = tk.Frame(tab_bar, bg='gray85')
+        tab_buttons_frame.pack(side='left', fill='x')
+
+        # Store tab frames and buttons for switching
+        self.color_bp_tab_frames = {}
+        self.color_bp_tab_buttons = {}
+
+        # Create container for tab content with border
+        # Using ttk.LabelFrame with very thin border
+        tab_content_container = ttk.Frame(color_bp_notebook_frame, relief='solid', borderwidth=1)
+        tab_content_container.pack(fill='both', expand=True)
+
+        # Create custom ttk styles for colored labels (before the loop to avoid shadowing ttk)
+        style = ttk.Style()
+
+        # Create tabs for Red, Green, Blue with colored labels
+        # Use brighter blue for better contrast on gray background
+        for color_name, color_fg in [('Red', 'red'), ('Green', 'green'), ('Blue', 'DeepSkyBlue')]:
+            color_key = color_name.lower()
+
+            # Create a custom style for colored labels in this tab
+            style_name = f"{color_key}_label.TLabel"
+            style.configure(style_name, foreground=color_fg)
+
+            # Create colored tab button
+            tab_btn = tk.Label(tab_buttons_frame, text=color_name, foreground=color_fg,
+                              relief='raised', borderwidth=1, padx=10, pady=5,
+                              font=('TkDefaultFont', 9, 'bold'), bg='gray85')
+            tab_btn.pack(side='left', padx=(0, 2))
+            tab_btn.bind('<Button-1>', lambda e, c=color_key: self._switch_color_bp_tab(c))
+            self.color_bp_tab_buttons[color_key] = tab_btn
+
+            # Create frame for this tab's content
+            tab_frame = ttk.Frame(tab_content_container)
+            self.color_bp_tab_frames[color_key] = tab_frame
+
+            # Create table for this color's bit planes
+            table_frame = ttk.Frame(tab_frame)
+            table_frame.pack(fill='both', expand=True, padx=5, pady=5)
+
+            # Header row (row 0) - use ttk.Label which blends better with parent frame
+
+            ttk.Label(table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='e')
+            ttk.Label(table_frame, text="Enabled", style=style_name).grid(row=0, column=1, padx=5, pady=2)
+            ttk.Label(table_frame, text="Filter Radius (pixels)", style=style_name).grid(row=0, column=2, padx=5, pady=2)
+            ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
+            ttk.Label(table_frame, text="Smoothness (Butterworth)", style=style_name).grid(row=0, column=4, padx=5, pady=2)
+            ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
+
+            # Create 8 rows for bit planes (7 MSB down to 0 LSB)
+            bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
+            color_key = color_name.lower()
+
+            for i, label in enumerate(bit_labels):
+                row = i + 1  # +1 for header row
+
+                # Bit plane label (right-justified) - use ttk.Label with custom style
+                ttk.Label(table_frame, text=label, style=style_name).grid(row=row, column=0, padx=5, pady=5, sticky='e')
+
+                # Enabled checkbox
+                ttk.Checkbutton(table_frame, variable=self.color_bitplane_enable[color_key][i]).grid(row=row, column=1, padx=5, pady=5)
+
+                # Radius slider (exponential scale: 0-100 slider -> 0-200+ radius)
+                def update_color_bp_radius(slider_val, c=color_key, idx=i):
+                    radius = self._slider_to_radius(float(slider_val))
+                    self.color_bitplane_radius[c][idx].set(radius)
+
+                radius_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                         variable=self.color_bitplane_radius_slider[color_key][i],
+                                         orient='horizontal',
+                                         command=lambda v, c=color_key, idx=i: update_color_bp_radius(v, c, idx))
+                radius_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
+
+                # Radius value label
+                tk.Label(table_frame, textvariable=self.color_bitplane_radius[color_key][i],
+                        width=4, foreground=color_fg).grid(row=row, column=3, padx=(2, 10), pady=5)
+
+                # Smoothness slider
+                smooth_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                          variable=self.color_bitplane_smoothness[color_key][i],
+                                          orient='horizontal',
+                                          command=lambda v, c=color_key, idx=i: self.color_bitplane_smoothness[c][idx].set(int(float(v))))
+                smooth_slider.grid(row=row, column=4, padx=5, pady=5, sticky='ew')
+
+                # Smoothness value label
+                tk.Label(table_frame, textvariable=self.color_bitplane_smoothness[color_key][i],
+                        width=4, foreground=color_fg).grid(row=row, column=5, padx=2, pady=5)
+
+            # Configure column weights for proper expansion
+            table_frame.columnconfigure(2, weight=1)  # Filter Radius column expands
+            table_frame.columnconfigure(4, weight=1)  # Smoothness column expands
+
+        # Show the red tab by default
+        self._switch_color_bp_tab('red')
 
         # Common controls at bottom
         common_frame = ttk.Frame(fft_frame)
@@ -1401,6 +1536,49 @@ class ControlPanel:
         """Expand the RGB table when radio button is selected"""
         if not self.rgb_expanded.get():
             self._toggle_rgb_table()
+
+    def _toggle_color_bitplane_table(self):
+        """Toggle the visibility of the color bit plane notebook"""
+        if self.color_bitplane_expanded.get():
+            # Collapse
+            self.color_bitplane_notebook_frame.pack_forget()
+            self.color_bitplane_toggle_btn.config(text="▶")
+            self.color_bitplane_expanded.set(False)
+        else:
+            # Expand
+            self.color_bitplane_notebook_frame.pack(fill='both', expand=True, padx=10, pady=5)
+            self.color_bitplane_toggle_btn.config(text="▼")
+            self.color_bitplane_expanded.set(True)
+            # Also select the radio button when expanding
+            self.output_mode.set("color_bitplanes")
+
+    def _on_color_bitplane_radio_select(self):
+        """Expand the color bit plane table when radio button is selected"""
+        if not self.color_bitplane_expanded.get():
+            self._toggle_color_bitplane_table()
+
+    def _switch_color_bp_tab(self, color_key):
+        """Switch between Red, Green, Blue tabs in color bit plane section"""
+        # Update all tab button appearances
+        for key, btn in self.color_bp_tab_buttons.items():
+            if key == color_key:
+                # Active tab: sunken relief and white background
+                btn.config(relief='sunken', bg='white')
+            else:
+                # Inactive tabs: raised relief and gray background
+                btn.config(relief='raised', bg='gray85')
+
+        # Hide all tab frames
+        for frame in self.color_bp_tab_frames.values():
+            frame.pack_forget()
+
+        # Show the selected tab frame
+        self.color_bp_tab_frames[color_key].pack(fill='both', expand=True, padx=5, pady=5)
+
+        # Force immediate rendering to prevent progressive widget appearance
+        self.root.update_idletasks()
+
+        self.color_bp_selected_tab.set(color_key)
 
     def _on_camera_change(self):
         """Handle camera selection change"""
@@ -1591,8 +1769,8 @@ def main():
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # Set higher resolution if possible
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -1868,23 +2046,6 @@ def main():
                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
             cv2.putText(result, camera_text, (w//2 - w2//2, h//2 + 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-        # Debug: Save BGR result before display (once)
-        if output_mode == "grayscale_bitplanes" and not hasattr(sketch, '_bgr_saved'):
-            sketch._bgr_saved = True
-            cv2.imwrite('/tmp/bgr_before_display.png', result)
-            print(f"BGR result saved to: /tmp/bgr_before_display.png")
-            print(f"BGR result shape: {result.shape}, dtype: {result.dtype}")
-            # Sample the box regions
-            h, w = result.shape[:2]
-            box_size = 80
-            x_start = w - 4 * box_size - 40
-            y_start = 20
-            for i, expected_val in enumerate([0, 64, 128, 192]):
-                x = x_start + i * box_size
-                box_region = result[y_start:y_start+box_size, x:x+box_size, 0]  # Sample B channel
-                unique_vals = np.unique(box_region)
-                print(f"BGR Box {i}: Expected={expected_val}, Unique values={unique_vals}")
 
         # Show the result using Tkinter video window
         video_window.update_frame(result)
