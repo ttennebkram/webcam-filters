@@ -77,6 +77,10 @@ Examples:
                         help='List all available cameras')
     parser.add_argument('--camera', '-c', type=int, default=0,
                         help='Camera index (default: 0)')
+    parser.add_argument('--width', type=int, default=1280,
+                        help='Camera width (default: 1280)')
+    parser.add_argument('--height', type=int, default=720,
+                        help='Camera height (default: 720)')
 
     args = parser.parse_args()
 
@@ -103,9 +107,9 @@ Examples:
         print("\nUse --list to see available effects")
         return 1
 
-    # Open camera
-    print(f"Opening camera {args.camera}...")
-    cap = open_camera(args.camera)
+    # Open camera with specified or default resolution
+    print(f"Opening camera {args.camera} at {args.width}x{args.height}...")
+    cap = open_camera(args.camera, width=args.width, height=args.height)
     if cap is None:
         print(f"Error: Could not open camera {args.camera}")
         print("\nUse --list-cameras to see available cameras")
@@ -120,6 +124,12 @@ Examples:
 
     height, width = frame.shape[:2]
     print(f"Camera resolution: {width}x{height}")
+
+    # Debug: Check if frame is valid
+    if frame is None or frame.size == 0:
+        print("Error: Invalid frame from camera")
+        cap.release()
+        return 1
 
     # Create Tkinter root window (needed for UI effects)
     root = tk.Tk()
@@ -159,6 +169,7 @@ Examples:
     print("  Q or ESC - Quit")
 
     # Main loop
+    import time
     try:
         while video_window.is_open:
             ret, frame = cap.read()
@@ -178,7 +189,11 @@ Examples:
             video_window.update_frame(frame)
 
             # Update Tkinter
+            root.update_idletasks()
             root.update()
+
+            # Small delay to prevent overwhelming the system
+            time.sleep(0.001)
 
     except KeyboardInterrupt:
         print("\nInterrupted by user")
