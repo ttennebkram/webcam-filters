@@ -147,6 +147,49 @@ class FFTFilter:
             mask[:, :, 1] = transition
         return mask
 
+    def _visualize_grayscale_fft(self, gray_image, radius_list):
+        """Visualize FFT of a grayscale image with dashed circles for each radius
+
+        Args:
+            gray_image: Grayscale image to compute FFT from
+            radius_list: List of radius values to draw as dashed circles
+
+        Returns:
+            BGR visualization image
+        """
+        # Compute FFT
+        dft = cv2.dft(np.float32(gray_image), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+
+        # Compute magnitude spectrum
+        magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]) + 1)
+
+        # Normalize to 0-255
+        normalized = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
+        vis_gray = normalized.astype(np.uint8)
+
+        # Convert to BGR for drawing colored circles
+        vis_bgr = cv2.cvtColor(vis_gray, cv2.COLOR_GRAY2BGR)
+
+        # Draw dashed circles for each unique radius
+        rows, cols = gray_image.shape
+        center = (cols // 2, rows // 2)
+
+        for radius in sorted(radius_list):
+            if radius > 0:
+                # Draw dashed circle
+                num_dashes = 60
+                for i in range(num_dashes):
+                    angle1 = (i / num_dashes) * 2 * np.pi
+                    angle2 = ((i + 0.5) / num_dashes) * 2 * np.pi
+                    x1 = int(center[0] + radius * np.cos(angle1))
+                    y1 = int(center[1] + radius * np.sin(angle1))
+                    x2 = int(center[0] + radius * np.cos(angle2))
+                    y2 = int(center[1] + radius * np.sin(angle2))
+                    cv2.line(vis_bgr, (x1, y1), (x2, y2), (0, 255, 255), 1)  # Yellow dashed circle
+
+        return vis_bgr
+
     def _visualize_rgb_fft_masks(self, frame, red_params, green_params, blue_params):
         """Visualize the FFT masks for all RGB channels with colored circles
 
@@ -240,6 +283,39 @@ class FFTFilter:
         """
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # If showing FFT visualization, determine which image to use for FFT
+        if self.show_fft:
+            # Count enabled bit planes
+            num_enabled = sum(1 for params in bitplane_params if params['enable'])
+
+            if num_enabled == 0:
+                # No bits enabled - show black image with no circles
+                rows, cols = gray.shape
+                return np.zeros((rows, cols, 3), dtype=np.uint8)
+            elif num_enabled == 1:
+                # Single bit: show FFT of 0-255 scaled bit plane
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        bit_plane = ((gray >> bit) & 1) * 255
+                        source_image = bit_plane.astype(np.uint8)
+                        break
+            else:
+                # Multiple bits: show FFT of the masked grayscale image
+                bit_mask = 0
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        bit_mask |= (1 << bit)
+                source_image = gray & bit_mask
+
+            # Collect all unique radius values from enabled bit planes
+            enabled_params = [bitplane_params[i] for i in range(8) if bitplane_params[i]['enable']]
+            radius_list = list(set(params['radius'] for params in enabled_params))
+
+            # Visualize FFT of the source image with all radius circles
+            return self._visualize_grayscale_fft(source_image, radius_list)
 
         # Decompose into bit planes
         bit_planes = []
@@ -418,8 +494,8 @@ class VideoWindow:
         self.current_photo = None
         self.canvas_image_id = None
 
-        # Position window
-        self.window.geometry(f"{width}x{height}+420+0")
+        # Position window to the right of the UI window (which is at x=0, width=650)
+        self.window.geometry(f"{width}x{height}+670+0")
 
         # Keyboard handler callback
         self.on_key_callback = None
@@ -523,11 +599,13 @@ class ControlPanel:
 
         # Grayscale bit plane controls (8 bit planes: 7 MSB down to 0 LSB)
         self.bitplane_enable = []
-        self.bitplane_radius = []
+        self.bitplane_radius = []  # Stores the actual radius value (exponential scale)
+        self.bitplane_radius_slider = []  # Stores the slider position (linear scale)
         self.bitplane_smoothness = []
         for i in range(8):
             self.bitplane_enable.append(tk.BooleanVar(value=True))
             self.bitplane_radius.append(tk.IntVar(value=DEFAULT_FFT_RADIUS))
+            self.bitplane_radius_slider.append(tk.DoubleVar(value=self._radius_to_slider(DEFAULT_FFT_RADIUS)))
             self.bitplane_smoothness.append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
 
         self._build_ui()
@@ -567,7 +645,8 @@ class ControlPanel:
         height = self.root.winfo_reqheight()
         # Add a small buffer
         height = min(height + 20, 1000)  # Cap at 1000px
-        self.root.geometry(f"{width}x{height}")
+        # Position UI window at top-left, video window will be to the right at x=670
+        self.root.geometry(f"{width}x{height}+0+0")
 
         # Flag to check if window is still open
         self.running = True
@@ -576,6 +655,25 @@ class ControlPanel:
         # Make sure window is visible and brought to front
         self.root.deiconify()
         self.root.lift()
+
+    def _slider_to_radius(self, slider_value):
+        """Convert linear slider value (0-100) to exponential radius (0-200+)
+
+        Uses formula: radius = floor(e^(slider/20) - 1)
+        This gives fine control at low values and larger steps at high values
+        """
+        import math
+        return int(math.exp(slider_value / 20.0) - 1)
+
+    def _radius_to_slider(self, radius):
+        """Convert exponential radius value to linear slider position
+
+        Inverse of _slider_to_radius: slider = 20 * ln(radius + 1)
+        """
+        import math
+        if radius <= 0:
+            return 0
+        return 20.0 * math.log(radius + 1)
 
     def _build_ui(self):
         """Build the tkinter UI"""
@@ -806,9 +904,13 @@ class ControlPanel:
             # Enabled checkbox
             ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
 
-            # Radius slider
-            radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=200, variable=self.bitplane_radius[i], orient='horizontal',
-                                     command=lambda v, idx=i: self.bitplane_radius[idx].set(int(float(v))))
+            # Radius slider (exponential scale: 0-100 slider -> 0-200+ radius)
+            def update_radius(slider_val, idx=i):
+                radius = self._slider_to_radius(float(slider_val))
+                self.bitplane_radius[idx].set(radius)
+
+            radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_radius_slider[i], orient='horizontal',
+                                     command=lambda v, idx=i: update_radius(v, idx))
             radius_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
 
             # Radius value label
@@ -930,7 +1032,12 @@ class ControlPanel:
             bitplane_smoothness = settings.get('bitplane_smoothness', [DEFAULT_FFT_SMOOTHNESS] * 8)
             for i in range(8):
                 self.bitplane_enable[i].set(bitplane_enable[i] if i < len(bitplane_enable) else True)
-                self.bitplane_radius[i].set(bitplane_radius[i] if i < len(bitplane_radius) else DEFAULT_FFT_RADIUS)
+
+                # Set radius and update slider position to match
+                radius_val = bitplane_radius[i] if i < len(bitplane_radius) else DEFAULT_FFT_RADIUS
+                self.bitplane_radius[i].set(radius_val)
+                self.bitplane_radius_slider[i].set(self._radius_to_slider(radius_val))
+
                 self.bitplane_smoothness[i].set(bitplane_smoothness[i] if i < len(bitplane_smoothness) else DEFAULT_FFT_SMOOTHNESS)
 
             print(f"Settings loaded from {settings_file}")
@@ -1297,8 +1404,11 @@ def main():
                         'smoothness': controls.bitplane_smoothness[i].get()
                     })
                 gray_result = sketch.fft.draw_grayscale_bitplanes(frame, bitplane_params)
-                # Convert grayscale to BGR for display
-                result = cv2.cvtColor(gray_result, cv2.COLOR_GRAY2BGR)
+                # Convert grayscale to BGR for display (unless already BGR from FFT visualization)
+                if len(gray_result.shape) == 2:
+                    result = cv2.cvtColor(gray_result, cv2.COLOR_GRAY2BGR)
+                else:
+                    result = gray_result
             else:
                 # Grayscale composite mode (and other modes to be implemented)
                 result = sketch.draw(frame)
