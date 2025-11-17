@@ -1160,7 +1160,244 @@ import signal            # Signal handling (Ctrl+C)
 
 ---
 
-*Last updated: November 15, 2025*
+## Branch: Main - Tkinter Display Implementation
+
+### Latest Update: November 16, 2025
+
+**Problem**: OpenCV's `cv2.imshow()` on macOS was applying automatic contrast/gamma adjustment that made intermediate gray values (64, 128, 192) appear as pure black or white when displaying grayscale bit planes. The actual pixel values were correct (verified by saving to PNG), but the display rendering was incorrect.
+
+**Solution**: Replaced OpenCV display with Tkinter window using PIL/ImageTk for accurate image rendering without automatic adjustments.
+
+### Implementation Details
+
+1. **Added PIL Import** (line 15)
+   ```python
+   from PIL import Image, ImageTk
+   ```
+
+2. **Created VideoWindow Class** (lines 404-480)
+   - Tkinter `Toplevel` window for video display
+   - Converts BGR frames to RGB for PIL/ImageTk
+   - Handles keyboard input (SPACE, Q, ESC)
+   - Position: 420 pixels from left (doesn't overlap control panel)
+
+   Key methods:
+   - `update_frame(frame_bgr)`: Converts BGR→RGB→PIL→ImageTk and displays
+   - `set_key_callback(callback)`: Sets keyboard handler
+   - Keyboard bindings handle spacebar (toggle effect), Q/ESC (quit)
+
+3. **Modified main() Function**
+   - Removed `cv2.startWindowThread()`, `cv2.namedWindow()`, `cv2.imshow()`, `cv2.waitKey()`
+   - Created `VideoWindow` instance with keyboard callback
+   - Replaced `cv2.imshow()` with `video_window.update_frame()`
+   - Check `video_window.is_open` instead of OpenCV window property
+
+### Benefits
+- **Accurate grayscale display**: No automatic contrast/gamma adjustment
+- **Consistent UI**: Both control panel and video window use Tkinter
+- **Better cross-platform behavior**: More predictable rendering
+- **Correct display of bit-plane values**: Now shows 4 distinct gray levels (0, 64, 128, 192) as expected
+
+### Related Files
+- Implementation: `/Users/mbennett/Dropbox/dev/webcam-filters/webcam_filter.py`
+- Planning document: `/Users/mbennett/Dropbox/dev/webcam-filters/tkinter_display_plan.md`
+
+---
+
+## Branch: Main - Advanced FFT Filtering System (November 17, 2025)
+
+### Latest Major Update: Comprehensive UI Overhaul
+
+The main branch has evolved from simple edge detection into a sophisticated FFT (Fast Fourier Transform) frequency filtering system with multiple output modes and real-time visualization.
+
+### New Features
+
+#### 1. **Output Mode System**
+Four distinct output modes with independent control:
+
+**Grayscale Composite** (default)
+- Classic single-channel frequency filtering
+- Single radius and smoothness control
+- Butterworth filter in frequency domain
+
+**Individual Color Channels**
+- Per-channel RGB filtering with independent controls
+- Each channel (Red, Green, Blue) has:
+  - Enable/disable toggle
+  - Independent FFT radius (1-350px, exponential scale)
+  - Independent smoothness (1-10)
+- Allows creative color separation effects
+
+**Grayscale Bit Planes**
+- Filters each of 8 bit planes independently
+- Bit plane controls (Bit 7 MSB to Bit 0 LSB):
+  - Enable/disable per bit
+  - Independent radius and smoothness
+- Reveals underlying data structure
+- Creates multi-layered grayscale effects
+
+**Color Bit Planes**
+- Advanced: filters bit planes for each RGB channel
+- Total: 24 independent bit planes (8 per channel × 3 channels)
+- Tabbed interface (Red/Green/Blue tabs)
+- Most computationally intensive mode
+- Creates complex colorful layered effects
+
+#### 2. **Filter Curve Visualization Window**
+Real-time graph showing frequency response:
+- Separate matplotlib window with live updates
+- Shows Butterworth filter curves for all active filters
+- Updates immediately when mode or parameters change
+- X-axis: Distance from FFT center (pixels)
+- Y-axis: Mask value (0=blocked, 1=passed)
+- Color-coded curves:
+  - RGB mode: Red, green, blue lines
+  - Grayscale bit planes: Rainbow gradient (purple→red for MSB→LSB)
+  - Color bit planes: RGB rainbow gradient
+- Fixed to prevent stale visualization when switching modes
+
+#### 3. **Collapsible Control Panels**
+Organized UI with expand/collapse functionality:
+- Camera Controls (always visible)
+- Output Mode Selection (always visible)
+- Individual Color Channels (collapsible)
+- Grayscale Bit Planes (collapsible with 8-row table)
+- Color Bit Planes (collapsible with tabbed interface)
+
+#### 4. **Settings Persistence**
+All settings saved to `~/.webcam_filter_settings.json`:
+- Camera selection
+- Output mode
+- All filter parameters (radius, smoothness, enable states)
+- UI state (expanded/collapsed panels)
+- Mirror flip preference
+- Restored on application restart
+
+#### 5. **Mirror Flip Option**
+Toggle between Normal View and Flip Left/Right:
+- Radio buttons in Camera Controls
+- Persisted in settings
+- Loaded on startup
+- Applied conditionally in video processing
+
+### Technical Implementation
+
+**FFT Frequency Filtering Pipeline** (lines 374-852):
+1. Convert to grayscale or split RGB channels
+2. Apply FFT: `cv2.dft(float_data, flags=cv2.DFT_COMPLEX_OUTPUT)`
+3. Shift zero-frequency to center: `np.fft.fftshift()`
+4. Create Butterworth filter mask based on radius/smoothness
+5. Apply mask to frequency domain
+6. Inverse FFT: `cv2.idft()` after `ifftshift()`
+7. Reconstruct image from filtered data
+
+**Butterworth Filter** (lines 305-373):
+```python
+def create_butterworth_mask(rows, cols, radius, smoothness=2):
+    center_y, center_x = rows // 2, cols // 2
+    y, x = np.ogrid[:rows, :cols]
+    distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+
+    # Butterworth formula: H(u,v) = 1 / (1 + (D/D0)^(2n))
+    if radius > 0:
+        mask = 1.0 / (1.0 + np.power(distance / radius, 2 * smoothness))
+    else:
+        mask = np.zeros((rows, cols), np.float32)
+
+    return np.stack([mask, mask], axis=-1)  # Complex mask
+```
+
+**Bit Plane Extraction** (lines 633-761):
+```python
+# Extract individual bit planes
+for bit in range(8):
+    bit_plane = ((gray_frame >> bit) & 1).astype(np.float32) * 255.0
+    # Apply FFT filtering to this bit plane
+    filtered_bit_plane = apply_fft_filter(bit_plane, params)
+    # Reconstruct with threshold
+    reconstructed_bit = (filtered_bit_plane > 127.5).astype(np.uint8)
+    result += reconstructed_bit << bit
+```
+
+**Visualization Refresh** (lines 2088-2153):
+- New `_refresh_visualization()` method
+- Called by radio button callbacks
+- Immediately updates filter curve graph when mode changes
+- Gathers current parameters based on active mode
+- Creates dummy distance array for visualization
+- Triggers matplotlib canvas redraw
+
+### UI Components
+
+**Control Panel** (Tkinter):
+- Width: 400 pixels
+- Collapsible sections with ▶/▼ indicators
+- Tables for bit plane controls:
+  - Grayscale: 8 rows (Bit 7-0)
+  - Color: 3 tabs × 8 rows each
+- Exponential sliders for radius (1-350px)
+- Linear sliders for smoothness (1-10)
+- Checkboxes for enable/disable
+- Mirror flip radio buttons
+
+**Video Display** (Tkinter + PIL):
+- Replaced OpenCV's `cv2.imshow()` with Tkinter window
+- Accurate grayscale rendering (no auto-contrast)
+- Position: 420px from left (doesn't overlap control panel)
+- Handles keyboard input (SPACE, Q, ESC)
+
+**Filter Visualization** (Matplotlib):
+- Embedded FigureCanvasTkAgg
+- Real-time filter curve updates
+- Grid with reference lines at 0, 0.03, 0.5, 1.0
+- Legend with filter descriptions
+- Title changes based on mode
+
+### Recent Bug Fixes
+
+**November 17, 2025 - Visualization Mode Switching Issue**:
+- **Problem**: When switching output modes (e.g., Color Bit Planes → Grayscale Bit Planes), the filter curve graph showed stale data from the previous mode
+- **Root Cause**: Visualization only updated during video frame processing, not immediately when radio buttons were clicked
+- **Solution**: Added `_refresh_visualization()` method that:
+  1. Reads current output mode
+  2. Gathers appropriate parameters (RGB, grayscale bitplane, or color bitplane)
+  3. Calls `update_visualization()` with correct params
+  4. Forces matplotlib canvas redraw
+- **Implementation**: Added calls to `_refresh_visualization()` in all three radio button callbacks:
+  - `_on_rgb_radio_select()`
+  - `_on_bitplane_radio_select()`
+  - `_on_color_bitplane_radio_select()`
+
+### Performance Characteristics
+
+**Complexity by Mode**:
+1. **Grayscale Composite**: Fastest (1 FFT + 1 IFFT)
+2. **Individual Color Channels**: Moderate (3 FFTs, one per channel)
+3. **Grayscale Bit Planes**: Slower (8 FFTs, one per bit plane)
+4. **Color Bit Planes**: Slowest (24 FFTs, 8 per channel × 3)
+
+**Optimizations**:
+- Pre-computed Butterworth masks cached when parameters don't change
+- Visualization updates only when needed (not every frame)
+- Settings loaded/saved only on startup/change
+- Collapsible UI reduces widget overhead
+
+### File Locations
+- Main implementation: `/Users/mbennett/Dropbox/dev/webcam-filters/webcam_filter.py`
+- Settings file: `~/.webcam_filter_settings.json`
+- Planning docs: `/Users/mbennett/Dropbox/dev/webcam-filters/tkinter_display_plan.md`
+
+### Dependencies
+- **cv2** (OpenCV): FFT operations, image processing
+- **numpy**: Array operations, FFT shifting
+- **tkinter**: UI framework for controls and video
+- **matplotlib**: Filter curve visualization
+- **PIL** (Pillow): Image conversion for Tkinter display
+- **json**: Settings persistence
+
+---
+
+*Last updated: November 17, 2025*
 *Repository: webcam-filters (formerly matrix-vision)*
 *Primary file: webcam_filter.py (branch-specific versions)*
 *Total branches: 15*
