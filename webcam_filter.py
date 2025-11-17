@@ -20,13 +20,76 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 
-# Configuration constants - FFT Filter
+# ============================================================================
+# CONFIGURATION CONSTANTS
+# ============================================================================
+
+# FFT Filter Defaults
 DEFAULT_FFT_RADIUS = 30  # Default radius for FFT low-frequency reject circle
 DEFAULT_FFT_SMOOTHNESS = 0  # Default smoothness (0 = hard circle, 100 = very smooth transition)
 DEFAULT_SHOW_FFT = False  # Default: don't show FFT visualization
 DEFAULT_GAIN = 1  # Default gain (0.2 to 5, 1=no change)
 DEFAULT_INVERT = False  # Default: don't invert
 DEFAULT_OUTPUT_MODE = "grayscale_composite"  # Default output mode
+
+# Butterworth Filter Algorithm Parameters
+BUTTERWORTH_ORDER_MAX = 10.0  # Maximum Butterworth filter order
+BUTTERWORTH_ORDER_MIN = 0.5  # Minimum Butterworth filter order
+BUTTERWORTH_ORDER_RANGE = 9.5  # Order range (max - min)
+BUTTERWORTH_SMOOTHNESS_SCALE = 100.0  # Smoothness parameter scale (0-100)
+BUTTERWORTH_TARGET_ATTENUATION = 0.03  # Target filter attenuation at user radius (3%)
+BUTTERWORTH_DIVISION_EPSILON = 1e-10  # Small epsilon to avoid division by zero
+
+# Visualization Window Settings
+VIZ_WINDOW_WIDTH = 600  # Visualization window width in pixels
+VIZ_WINDOW_HEIGHT = 400  # Visualization window height in pixels
+VIZ_FIGURE_WIDTH_INCHES = 6  # Matplotlib figure width in inches
+VIZ_FIGURE_HEIGHT_INCHES = 4  # Matplotlib figure height in inches
+VIZ_FIGURE_DPI = 100  # Figure dots per inch
+
+# Visualization Graph Axis Limits
+VIZ_Y_AXIS_MIN = -0.1  # Y-axis minimum (below 0 for clarity)
+VIZ_Y_AXIS_MAX = 1.1  # Y-axis maximum (above 1 for clarity)
+VIZ_X_AXIS_MIN = 0  # X-axis minimum
+VIZ_X_AXIS_MAX = 400  # X-axis maximum (distance from FFT center in pixels)
+
+# Visualization Reference Lines
+VIZ_REF_LINE_ALPHA_MAJOR = 0.5  # Alpha for major reference lines (0, 1)
+VIZ_REF_LINE_ALPHA_MINOR = 0.3  # Alpha for minor reference lines (0.03, 0.5)
+VIZ_GRID_ALPHA = 0.3  # Alpha for background grid
+
+# Visualization Line Styling - Bit Planes
+VIZ_LINEWIDTH_BIT7_MSB = 2.0  # Bit 7 (MSB) line width
+VIZ_LINEWIDTH_BIT6 = 1.7  # Bit 6 line width
+VIZ_LINEWIDTH_BIT5 = 1.5  # Bit 5 line width
+VIZ_LINEWIDTH_BIT4 = 1.3  # Bit 4 line width
+VIZ_LINEWIDTH_VREF = 1.0  # Vertical reference line width
+
+# Visualization Alpha Values - Bit Planes
+VIZ_ALPHA_BIT7_MSB = 0.95  # Bit 7 (MSB) alpha
+VIZ_ALPHA_BIT6 = 0.90  # Bit 6 alpha
+VIZ_ALPHA_BIT5 = 0.85  # Bit 5 alpha
+VIZ_ALPHA_BIT4 = 0.80  # Bit 4 alpha
+VIZ_ALPHA_VREF = 0.4  # Vertical reference line alpha
+
+# Visualization Font Sizes
+VIZ_FONTSIZE_TITLE = 12  # Title font size
+VIZ_FONTSIZE_AXIS_LABEL = 10  # Axis label font size
+VIZ_FONTSIZE_LEGEND_BITPLANE = 7  # Bit plane mode legend font size
+VIZ_FONTSIZE_LEGEND_GRAYSCALE = 8  # Grayscale mode legend font size
+VIZ_FONTSIZE_LEGEND_RGB = 9  # RGB mode legend font size
+VIZ_FONTSIZE_ANNOTATION = 9  # Annotation text font size
+
+# Visualization Legend Settings
+VIZ_LEGEND_NCOL_BITPLANE = 3  # Number of columns for bit plane legend
+VIZ_LEGEND_NCOL_GRAYSCALE = 2  # Number of columns for grayscale legend
+
+# FFT Visualization Settings
+FFT_LOG_SCALE_MULTIPLIER = 20  # Multiplier for log magnitude spectrum (20*log)
+FFT_CIRCLE_DASH_SEGMENTS = 60  # Number of segments for dashed circle rendering
+FFT_CIRCLE_DASH_GAP_RATIO = 0.5  # Ratio for dash gaps (every other segment)
+FFT_CIRCLE_OPACITY_BASE = 0.5  # Base opacity multiplier for filled circles
+FFT_CIRCLE_THICKNESS = 2  # Line thickness for dotted circle borders
 
 
 class FFTFilter:
@@ -63,16 +126,16 @@ class FFTFilter:
         self.viz_window = tk.Toplevel()
         self.viz_window.title("Filter Curve Visualization")
         # Position will be set by the caller after all windows are created
-        self.viz_window.geometry("600x400+0+0")  # Temporary position
+        self.viz_window.geometry(f"{VIZ_WINDOW_WIDTH}x{VIZ_WINDOW_HEIGHT}+0+0")  # Temporary position
 
         # Create matplotlib figure using Figure directly (not plt.subplots)
-        self.viz_fig = Figure(figsize=(6, 4), dpi=100)
+        self.viz_fig = Figure(figsize=(VIZ_FIGURE_WIDTH_INCHES, VIZ_FIGURE_HEIGHT_INCHES), dpi=VIZ_FIGURE_DPI)
         self.viz_ax = self.viz_fig.add_subplot(111)
         self.viz_ax.set_xlabel('Distance from Center (pixels)')
         self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)')
         self.viz_ax.set_title('FFT Filter Transition Curve')
-        self.viz_ax.grid(True, alpha=0.3)
-        self.viz_ax.set_ylim(-0.1, 1.1)
+        self.viz_ax.grid(True, alpha=VIZ_GRID_ALPHA)
+        self.viz_ax.set_ylim(VIZ_Y_AXIS_MIN, VIZ_Y_AXIS_MAX)
 
         # Embed matplotlib in Tkinter
         self.viz_canvas = FigureCanvasTkAgg(self.viz_fig, master=self.viz_window)
@@ -117,41 +180,50 @@ class FFTFilter:
 
             # Clear and redraw
             self.viz_ax.clear()
-            self.viz_ax.set_xlabel('Distance from FFT Center (pixels)', fontsize=10)
-            self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)', fontsize=10)
-            self.viz_ax.grid(True, alpha=0.3)
-            self.viz_ax.set_ylim(-0.1, 1.1)
-            self.viz_ax.set_xlim(0, 400)
+            self.viz_ax.set_xlabel('Distance from FFT Center (pixels)', fontsize=VIZ_FONTSIZE_AXIS_LABEL)
+            self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)', fontsize=VIZ_FONTSIZE_AXIS_LABEL)
+            self.viz_ax.grid(True, alpha=VIZ_GRID_ALPHA)
+            self.viz_ax.set_ylim(VIZ_Y_AXIS_MIN, VIZ_Y_AXIS_MAX)
+            self.viz_ax.set_xlim(VIZ_X_AXIS_MIN, VIZ_X_AXIS_MAX)
 
             # Draw horizontal lines at 0, 0.03, 0.5, and 1
-            self.viz_ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
-            self.viz_ax.axhline(y=0.03, color='gray', linestyle=':', alpha=0.3)
-            self.viz_ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.3)
-            self.viz_ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
+            self.viz_ax.axhline(y=0, color='gray', linestyle=':', alpha=VIZ_REF_LINE_ALPHA_MAJOR)
+            self.viz_ax.axhline(y=BUTTERWORTH_TARGET_ATTENUATION, color='gray', linestyle=':', alpha=VIZ_REF_LINE_ALPHA_MINOR)
+            self.viz_ax.axhline(y=0.5, color='gray', linestyle=':', alpha=VIZ_REF_LINE_ALPHA_MINOR)
+            self.viz_ax.axhline(y=1, color='gray', linestyle=':', alpha=VIZ_REF_LINE_ALPHA_MAJOR)
 
             if color_bitplane_params is not None:
                 # Color Bit Planes mode - plot bit plane curves for each color channel
-                self.viz_ax.set_title('Color Bit Plane Filter Responses', fontsize=12, fontweight='bold')
+                self.viz_ax.set_title('Color Bit Plane Filter Responses', fontsize=VIZ_FONTSIZE_TITLE, fontweight='bold')
 
                 # Use varying linewidths and line styles to distinguish bit planes
                 # Bits 7-4: Solid lines with decreasing width
                 # Bits 3-0: Dotted lines with same widths as 7-4
                 linewidths = [
-                    2.0,  # Bit 7 (MSB): thickest solid
-                    1.7,  # Bit 6: solid
-                    1.5,  # Bit 5: solid
-                    1.3,  # Bit 4: solid
-                    2.0,  # Bit 3: thickest dotted (same as bit 7)
-                    1.7,  # Bit 2: dotted (same as bit 6)
-                    1.5,  # Bit 1: dotted (same as bit 5)
-                    1.3,  # Bit 0 (LSB): dotted (same as bit 4)
+                    VIZ_LINEWIDTH_BIT7_MSB,  # Bit 7 (MSB): thickest solid
+                    VIZ_LINEWIDTH_BIT6,      # Bit 6: solid
+                    VIZ_LINEWIDTH_BIT5,      # Bit 5: solid
+                    VIZ_LINEWIDTH_BIT4,      # Bit 4: solid
+                    VIZ_LINEWIDTH_BIT7_MSB,  # Bit 3: thickest dotted (same as bit 7)
+                    VIZ_LINEWIDTH_BIT6,      # Bit 2: dotted (same as bit 6)
+                    VIZ_LINEWIDTH_BIT5,      # Bit 1: dotted (same as bit 5)
+                    VIZ_LINEWIDTH_BIT4,      # Bit 0 (LSB): dotted (same as bit 4)
                 ]
 
                 # Line styles: solid for bits 7-4, dotted for bits 3-0
                 linestyles = ['-', '-', '-', '-', ':', ':', ':', ':']
 
                 # Use slightly varying alpha values to help distinguish overlapping lines
-                alphas = [0.95, 0.90, 0.85, 0.80, 0.95, 0.90, 0.85, 0.80]
+                alphas = [
+                    VIZ_ALPHA_BIT7_MSB,  # Bit 7
+                    VIZ_ALPHA_BIT6,      # Bit 6
+                    VIZ_ALPHA_BIT5,      # Bit 5
+                    VIZ_ALPHA_BIT4,      # Bit 4
+                    VIZ_ALPHA_BIT7_MSB,  # Bit 3 (same as 7)
+                    VIZ_ALPHA_BIT6,      # Bit 2 (same as 6)
+                    VIZ_ALPHA_BIT5,      # Bit 1 (same as 5)
+                    VIZ_ALPHA_BIT4,      # Bit 0 (same as 4)
+                ]
 
                 # Colors for each channel: red, green, blue
                 colors = {'red': 'r', 'green': 'g', 'blue': 'b'}
@@ -179,33 +251,33 @@ class FFTFilter:
                             # Draw vertical line at this bit plane's radius
                             if bitplane_params[i]['radius'] > 0:
                                 self.viz_ax.axvline(x=bitplane_params[i]['radius'], color=color_code,
-                                                  linestyle=':', linewidth=1.0, alpha=0.4)
+                                                  linestyle=':', linewidth=VIZ_LINEWIDTH_VREF, alpha=VIZ_ALPHA_VREF)
 
                 # Add legend with smaller font and multiple columns
-                self.viz_ax.legend(loc='lower right', fontsize=7, ncol=3)
+                self.viz_ax.legend(loc='lower right', fontsize=VIZ_FONTSIZE_LEGEND_BITPLANE, ncol=VIZ_LEGEND_NCOL_BITPLANE)
             elif rgb_params is not None:
                 # RGB mode - plot separate curves for each enabled channel
-                self.viz_ax.set_title('RGB Channel Filter Responses', fontsize=12, fontweight='bold')
+                self.viz_ax.set_title('RGB Channel Filter Responses', fontsize=VIZ_FONTSIZE_TITLE, fontweight='bold')
 
-                # Use line widths from bit plane pattern (top 3: 2.0, 1.7, 1.5)
+                # Use line widths from bit plane pattern (top 3)
                 # All solid lines, but with R, G, B colors
-                # Red channel - thickest (2.0)
+                # Red channel - thickest
                 if rgb_params['red']['enable']:
                     red_mask = self._compute_filter_curve(distances, rgb_params['red']['radius'], rgb_params['red']['smoothness'])
-                    self.viz_ax.plot(distances, red_mask, 'r-', linewidth=2.0, label='Red', alpha=0.95)
+                    self.viz_ax.plot(distances, red_mask, 'r-', linewidth=VIZ_LINEWIDTH_BIT7_MSB, label='Red', alpha=VIZ_ALPHA_BIT7_MSB)
 
-                # Green channel - medium (1.7)
+                # Green channel - medium
                 if rgb_params['green']['enable']:
                     green_mask = self._compute_filter_curve(distances, rgb_params['green']['radius'], rgb_params['green']['smoothness'])
-                    self.viz_ax.plot(distances, green_mask, 'g-', linewidth=1.7, label='Green', alpha=0.90)
+                    self.viz_ax.plot(distances, green_mask, 'g-', linewidth=VIZ_LINEWIDTH_BIT6, label='Green', alpha=VIZ_ALPHA_BIT6)
 
-                # Blue channel - thinnest (1.5)
+                # Blue channel - thinnest
                 if rgb_params['blue']['enable']:
                     blue_mask = self._compute_filter_curve(distances, rgb_params['blue']['radius'], rgb_params['blue']['smoothness'])
-                    self.viz_ax.plot(distances, blue_mask, 'b-', linewidth=1.5, label='Blue', alpha=0.85)
+                    self.viz_ax.plot(distances, blue_mask, 'b-', linewidth=VIZ_LINEWIDTH_BIT5, label='Blue', alpha=VIZ_ALPHA_BIT5)
 
                 # Add legend
-                self.viz_ax.legend(loc='lower right', fontsize=9)
+                self.viz_ax.legend(loc='lower right', fontsize=VIZ_FONTSIZE_LEGEND_RGB)
             elif bitplane_params is not None:
                 # Bit plane mode - plot curves for each enabled bit plane
                 self.viz_ax.set_title('Bit Plane Filter Responses', fontsize=12, fontweight='bold')
@@ -250,19 +322,19 @@ class FFTFilter:
                 self.viz_ax.legend(loc='lower right', fontsize=8, ncol=2)
             else:
                 # Grayscale mode - single black curve
-                self.viz_ax.set_title('Butterworth Highpass Filter Response', fontsize=12, fontweight='bold')
+                self.viz_ax.set_title('Butterworth Highpass Filter Response', fontsize=VIZ_FONTSIZE_TITLE, fontweight='bold')
 
                 # Get mask values along horizontal center line
                 mask_values = mask[center_y, :, 0]
 
                 # Calculate Butterworth order from smoothness
                 # Map smoothness (0-100) to order (0.5-10), inverted
-                order = 10.0 - (smoothness / 100.0) * 9.5
-                if order < 0.5:
-                    order = 0.5
+                order = BUTTERWORTH_ORDER_MAX - (smoothness / BUTTERWORTH_SMOOTHNESS_SCALE) * BUTTERWORTH_ORDER_RANGE
+                if order < BUTTERWORTH_ORDER_MIN:
+                    order = BUTTERWORTH_ORDER_MIN
 
                 # Calculate effective cutoff (shifted D0)
-                target_attenuation = 0.03
+                target_attenuation = BUTTERWORTH_TARGET_ATTENUATION
                 shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
                 effective_cutoff = radius * shift_factor
 
@@ -316,16 +388,16 @@ class FFTFilter:
             return (distances > radius).astype(float)
 
         # Butterworth filter
-        order = 10.0 - (smoothness / 100.0) * 9.5
-        if order < 0.5:
-            order = 0.5
+        order = BUTTERWORTH_ORDER_MAX - (smoothness / BUTTERWORTH_SMOOTHNESS_SCALE) * BUTTERWORTH_ORDER_RANGE
+        if order < BUTTERWORTH_ORDER_MIN:
+            order = BUTTERWORTH_ORDER_MIN
 
-        target_attenuation = 0.03
+        target_attenuation = BUTTERWORTH_TARGET_ATTENUATION
         shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
         effective_cutoff = radius * shift_factor
 
         with np.errstate(divide='ignore', invalid='ignore'):
-            transition = 1.0 / (1.0 + np.power(effective_cutoff / (distances + 1e-10), 2 * order))
+            transition = 1.0 / (1.0 + np.power(effective_cutoff / (distances + BUTTERWORTH_DIVISION_EPSILON), 2 * order))
             transition = np.nan_to_num(transition, nan=0.0, posinf=0.0, neginf=0.0)
             transition = np.clip(transition, 0, 1)
 
@@ -458,9 +530,9 @@ class FFTFilter:
             # Map smoothness (0-100) to order (0.5-10)
             # Lower order = smoother, higher order = sharper
             # Invert so higher smoothness = smoother transition
-            order = 10.0 - (smoothness / 100.0) * 9.5
-            if order < 0.5:
-                order = 0.5
+            order = BUTTERWORTH_ORDER_MAX - (smoothness / BUTTERWORTH_SMOOTHNESS_SCALE) * BUTTERWORTH_ORDER_RANGE
+            if order < BUTTERWORTH_ORDER_MIN:
+                order = BUTTERWORTH_ORDER_MIN
 
             mask = np.ones((rows, cols, 2), np.float32)
 
@@ -469,7 +541,7 @@ class FFTFilter:
             # Solving: (D0/radius)^(2n) = 1/0.03 - 1 = 32.33
             # D0/radius = 32.33^(1/(2n))
             # D0 = radius * 32.33^(1/(2n))
-            target_attenuation = 0.03  # Target value at user's radius (within 3% of zero)
+            target_attenuation = BUTTERWORTH_TARGET_ATTENUATION  # Target value at user's radius (within 3% of zero)
             shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
             effective_cutoff = radius * shift_factor
 
@@ -477,7 +549,7 @@ class FFTFilter:
             # Avoid division by zero at center
             with np.errstate(divide='ignore', invalid='ignore'):
                 # H = 1 / [1 + (D0/D)^(2n)]
-                transition = 1.0 / (1.0 + np.power(effective_cutoff / (distance + 1e-10), 2 * order))
+                transition = 1.0 / (1.0 + np.power(effective_cutoff / (distance + BUTTERWORTH_DIVISION_EPSILON), 2 * order))
                 transition = np.nan_to_num(transition, nan=0.0, posinf=0.0, neginf=0.0)
                 transition = np.clip(transition, 0, 1)
 
