@@ -13,6 +13,11 @@ import threading
 import argparse
 import json
 from PIL import Image, ImageTk
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend first
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 
 # Configuration constants - FFT Filter
@@ -34,9 +39,134 @@ class FFTFilter:
         self.smoothness = DEFAULT_FFT_SMOOTHNESS  # Smoothness of transition (0-100)
         self.show_fft = DEFAULT_SHOW_FFT  # Whether to show FFT visualization
 
+        # Matplotlib visualization window
+        self.viz_window = None
+        self.viz_fig = None
+        self.viz_ax = None
+        self.viz_canvas = None
+
     def update(self):
         """Update - not needed for static effect"""
         pass
+
+    def create_visualization_window(self, control_panel_y=0, control_panel_height=800):
+        """Create a matplotlib window to visualize the filter curve
+
+        Args:
+            control_panel_y: Y position of control panel window
+            control_panel_height: Height of control panel window
+        """
+        if self.viz_window is not None:
+            return  # Already created
+
+        # Create Tkinter window for matplotlib
+        self.viz_window = tk.Toplevel()
+        self.viz_window.title("Filter Curve Visualization")
+        # Position will be set by the caller after all windows are created
+        self.viz_window.geometry("600x400+0+0")  # Temporary position
+
+        # Create matplotlib figure using Figure directly (not plt.subplots)
+        self.viz_fig = Figure(figsize=(6, 4), dpi=100)
+        self.viz_ax = self.viz_fig.add_subplot(111)
+        self.viz_ax.set_xlabel('Distance from Center (pixels)')
+        self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)')
+        self.viz_ax.set_title('FFT Filter Transition Curve')
+        self.viz_ax.grid(True, alpha=0.3)
+        self.viz_ax.set_ylim(-0.1, 1.1)
+
+        # Embed matplotlib in Tkinter
+        self.viz_canvas = FigureCanvasTkAgg(self.viz_fig, master=self.viz_window)
+        self.viz_canvas.draw()
+        self.viz_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Handle window close
+        self.viz_window.protocol("WM_DELETE_WINDOW", self._on_viz_close)
+
+    def _on_viz_close(self):
+        """Handle visualization window close"""
+        if self.viz_window:
+            self.viz_window.destroy()
+            self.viz_window = None
+            self.viz_fig = None
+            self.viz_ax = None
+            self.viz_canvas = None
+
+    def update_visualization(self, mask, distance, radius, smoothness):
+        """Update the filter curve visualization
+
+        Args:
+            mask: The frequency domain mask (rows, cols, 2)
+            distance: Distance array from center
+            radius: Current filter radius
+            smoothness: Current smoothness value
+        """
+        if self.viz_window is None:
+            return
+
+        try:
+            # Get horizontal cross-section through center
+            rows, cols = distance.shape
+            center_y = rows // 2
+
+            # Get distances and mask values along horizontal center line
+            distances = distance[center_y, :]
+            mask_values = mask[center_y, :, 0]
+
+            # Calculate Butterworth order from smoothness
+            # Map smoothness (0-100) to order (0.5-10), inverted
+            order = 10.0 - (smoothness / 100.0) * 9.5
+            if order < 0.5:
+                order = 0.5
+
+            # Calculate effective cutoff (shifted D0)
+            target_attenuation = 0.03
+            shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
+            effective_cutoff = radius * shift_factor
+
+            # Clear and redraw
+            self.viz_ax.clear()
+            self.viz_ax.set_xlabel('Distance from Center (pixels)', fontsize=10)
+            self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)', fontsize=10)
+            self.viz_ax.set_title('Butterworth Highpass Filter Response', fontsize=12, fontweight='bold')
+            self.viz_ax.grid(True, alpha=0.3)
+            self.viz_ax.set_ylim(-0.1, 1.1)
+
+            # Plot the filter curve in black
+            self.viz_ax.plot(distances, mask_values, 'k-', linewidth=2)
+
+            # Draw vertical line at user's radius (where filter ≈ 0.03) in red
+            self.viz_ax.axvline(x=radius, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='User Radius (H≈0.03)')
+
+            # Draw vertical line at effective D₀ (where filter = 0.5) in blue
+            self.viz_ax.axvline(x=effective_cutoff, color='blue', linestyle='--', linewidth=1.5, alpha=0.7, label='D₀ (H=0.5)')
+
+            # Draw horizontal lines at 0, 0.03, 0.5, and 1
+            self.viz_ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
+            self.viz_ax.axhline(y=0.03, color='red', linestyle=':', alpha=0.3)
+            self.viz_ax.axhline(y=0.5, color='blue', linestyle=':', alpha=0.3)
+            self.viz_ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
+
+            # Add legend
+            self.viz_ax.legend(loc='lower right', fontsize=8)
+
+            # Add text annotations for parameters
+            self.viz_ax.text(0.02, 0.98, f'User Radius: {radius:.1f}',
+                           transform=self.viz_ax.transAxes,
+                           verticalalignment='top', fontsize=9,
+                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+            self.viz_ax.text(0.02, 0.88, f'D₀: {effective_cutoff:.1f}',
+                           transform=self.viz_ax.transAxes,
+                           verticalalignment='top', fontsize=9,
+                           bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+            self.viz_ax.text(0.02, 0.78, f'Order (n): {order:.2f}',
+                           transform=self.viz_ax.transAxes,
+                           verticalalignment='top', fontsize=9,
+                           bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
+
+            # Force immediate update
+            self.viz_canvas.draw()
+        except Exception as e:
+            print(f"Error updating visualization: {e}")
 
     def draw_rgb_channels(self, frame, red_params, green_params, blue_params):
         """Apply FFT-based high-pass filter to individual RGB channels
@@ -104,6 +234,11 @@ class FFTFilter:
 
         mask = self._create_mask(distance, radius, smoothness, rows, cols)
 
+        # Store last mask for visualization
+        self.last_mask = mask
+        self.last_mask_distance = distance
+        self.last_mask_radius = radius
+
         # Apply mask
         fshift = dft_shift * mask
 
@@ -137,14 +272,42 @@ class FFTFilter:
             mask_area = distance <= radius
             mask[mask_area] = 0
         else:
-            # Smooth transition using sigmoid, but clamped to preserve hard cutoff inside radius
-            sigma = smoothness / 10.0
+            # Smooth transition using Butterworth highpass filter
+            # Formula: H = 1 / [1 + (D0/D)^(2n)]
+            # where D0 = cutoff radius, D = distance, n = order
+            # Higher smoothness = lower order = gentler transition
+            # Map smoothness (0-100) to order (0.5-10)
+            # Lower order = smoother, higher order = sharper
+            # Invert so higher smoothness = smoother transition
+            order = 10.0 - (smoothness / 100.0) * 9.5
+            if order < 0.5:
+                order = 0.5
+
             mask = np.ones((rows, cols, 2), np.float32)
-            transition = 1.0 / (1.0 + np.exp(-(distance - radius) / sigma))
-            transition = np.clip(transition, 0, 1)
-            transition[distance < radius] = 0
+
+            # Shift D0 to the right so that at distance=radius, H is very small (< 0.03)
+            # We want: 0.03 = 1 / [1 + (D0/radius)^(2n)]
+            # Solving: (D0/radius)^(2n) = 1/0.03 - 1 = 32.33
+            # D0/radius = 32.33^(1/(2n))
+            # D0 = radius * 32.33^(1/(2n))
+            target_attenuation = 0.03  # Target value at user's radius (within 3% of zero)
+            shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
+            effective_cutoff = radius * shift_factor
+
+            # Butterworth highpass filter formula
+            # Avoid division by zero at center
+            with np.errstate(divide='ignore', invalid='ignore'):
+                # H = 1 / [1 + (D0/D)^(2n)]
+                transition = 1.0 / (1.0 + np.power(effective_cutoff / (distance + 1e-10), 2 * order))
+                transition = np.nan_to_num(transition, nan=0.0, posinf=0.0, neginf=0.0)
+                transition = np.clip(transition, 0, 1)
+
             mask[:, :, 0] = transition
             mask[:, :, 1] = transition
+
+        # Update visualization with the mask
+        self.update_visualization(mask, distance, radius, smoothness)
+
         return mask
 
     def _visualize_grayscale_fft(self, gray_image, radius_list):
@@ -414,25 +577,8 @@ class FFTFilter:
         y, x = np.ogrid[:rows, :cols]
         distance = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
 
-        if self.smoothness == 0:
-            # Hard circle mask
-            mask = np.ones((rows, cols, 2), np.float32)
-            mask_area = distance <= self.radius
-            mask[mask_area] = 0
-        else:
-            # Smooth transition using sigmoid, but clamped to preserve hard cutoff inside radius
-            # Smoothness controls the width of the transition zone
-            sigma = self.smoothness / 10.0  # Scale smoothness to reasonable sigma range
-            mask = np.ones((rows, cols, 2), np.float32)
-            # Create smooth transition from 0 at center to 1 at radius
-            # Sigmoid centered at radius
-            transition = 1.0 / (1.0 + np.exp(-(distance - self.radius) / sigma))
-            # Clamp to ensure full blocking inside radius - no sigmoid creep!
-            # When distance < radius, force to 0 to preserve maximum ringing
-            transition = np.clip(transition, 0, 1)
-            transition[distance < self.radius] = 0
-            mask[:, :, 0] = transition
-            mask[:, :, 1] = transition
+        # Use _create_mask to get the same smooth filtering as other modes
+        mask = self._create_mask(distance, self.radius, self.smoothness, rows, cols)
 
         # Apply mask to FFT
         fshift = dft_shift * mask
@@ -494,8 +640,8 @@ class VideoWindow:
         self.current_photo = None
         self.canvas_image_id = None
 
-        # Position window to the right of the UI window (which is at x=0, width=650)
-        self.window.geometry(f"{width}x{height}+670+0")
+        # Position will be set by main() after all windows are created
+        self.window.geometry(f"{width}x{height}+0+0")
 
         # Keyboard handler callback
         self.on_key_callback = None
@@ -649,7 +795,7 @@ class ControlPanel:
         height = self.root.winfo_reqheight()
         # Add a small buffer
         height = min(height + 20, 1000)  # Cap at 1000px
-        # Position UI window at top-left, video window will be to the right at x=670
+        # Position will be set by main() to center all windows
         self.root.geometry(f"{width}x{height}+0+0")
         # Set minimum window size to prevent shrinking when tables collapse
         self.root.minsize(width, 200)
@@ -1331,8 +1477,69 @@ def main():
     # Create tkinter control panel
     controls = ControlPanel(width, height, available_cameras, selected_camera['id'])
 
+    # Create filter curve visualization window (after control panel so Tkinter root exists)
+    sketch.fft.create_visualization_window()
+
+    # Draw initial visualization with default parameters
+    initial_radius = controls.fft_radius.get()
+    initial_smoothness = controls.fft_smoothness.get()
+    # Create a dummy mask and distance for initial visualization
+    dummy_size = 480
+    center = dummy_size // 2
+    y, x = np.ogrid[:dummy_size, :dummy_size]
+    dummy_distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
+    dummy_mask = sketch.fft._create_mask(dummy_distance, initial_radius, initial_smoothness, dummy_size, dummy_size)
+
     # Create Tkinter video window
     video_window = VideoWindow(controls.root, title='Sketch Filter', width=width, height=height)
+
+    # Calculate centered window positions
+    # Get screen dimensions
+    screen_width = controls.root.winfo_screenwidth()
+    screen_height = controls.root.winfo_screenheight()
+
+    # Force update to get actual control panel dimensions
+    controls.root.update_idletasks()
+    control_width = controls.root.winfo_width()
+    control_height = controls.root.winfo_height()
+
+    # Window dimensions
+    gap = 20  # Gap between windows horizontally
+    vertical_gap = 60  # Preferred gap between control panel and graph (can be reduced if needed)
+    video_width = width
+    video_height = height
+    graph_width = 600
+    graph_height = 400
+
+    # Calculate total width needed for control panel + video
+    total_width = control_width + gap + video_width
+
+    # Center the layout horizontally
+    start_x = max(0, (screen_width - total_width) // 2)
+
+    # Position control panel at top
+    control_x = start_x
+    control_y = 0
+    controls.root.geometry(f"{control_width}x{control_height}+{control_x}+{control_y}")
+
+    # Position video window to the right of control panel
+    video_x = control_x + control_width + gap
+    video_y = 0
+    video_window.window.geometry(f"{video_width}x{video_height}+{video_x}+{video_y}")
+
+    # Position graph window below control panel with fallback for screen size
+    graph_x = control_x
+    # Try preferred gap, but reduce if it would go off screen
+    graph_y_preferred = control_y + control_height + vertical_gap
+
+    # Check if graph fits with preferred gap
+    if graph_y_preferred + graph_height <= screen_height:
+        graph_y = graph_y_preferred
+    else:
+        # Reduce gap to fit on screen, minimum gap of 20px
+        graph_y = max(control_y + control_height + gap, screen_height - graph_height - 20)
+
+    sketch.fft.viz_window.geometry(f"{graph_width}x{graph_height}+{graph_x}+{graph_y}")
 
     # Set up keyboard handler for video window
     def handle_video_key(key):
@@ -1458,6 +1665,10 @@ def main():
                     result = gray_result
             else:
                 # Grayscale composite mode (and other modes to be implemented)
+                # Update FFT filter parameters from UI controls
+                sketch.fft.radius = controls.fft_radius.get()
+                sketch.fft.smoothness = controls.fft_smoothness.get()
+                sketch.fft.show_fft = controls.show_fft.get()
                 result = sketch.draw(frame)
 
             # Apply gain and invert only if NOT showing FFT
