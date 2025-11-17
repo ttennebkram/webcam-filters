@@ -91,7 +91,7 @@ class FFTFilter:
             self.viz_ax = None
             self.viz_canvas = None
 
-    def update_visualization(self, mask, distance, radius, smoothness, rgb_params=None, bitplane_params=None):
+    def update_visualization(self, mask, distance, radius, smoothness, rgb_params=None, bitplane_params=None, color_bitplane_params=None):
         """Update the filter curve visualization
 
         Args:
@@ -101,6 +101,8 @@ class FFTFilter:
             smoothness: Current smoothness value
             rgb_params: Optional dict with 'red', 'green', 'blue' params for RGB mode
             bitplane_params: Optional list of 8 dicts with 'enable', 'radius', 'smoothness' for bit plane mode
+            color_bitplane_params: Optional dict with keys 'red', 'green', 'blue',
+                                  each containing list of 8 dicts with 'enable', 'radius', 'smoothness'
         """
         if self.viz_window is None:
             return
@@ -119,6 +121,7 @@ class FFTFilter:
             self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)', fontsize=10)
             self.viz_ax.grid(True, alpha=0.3)
             self.viz_ax.set_ylim(-0.1, 1.1)
+            self.viz_ax.set_xlim(0, 400)
 
             # Draw horizontal lines at 0, 0.03, 0.5, and 1
             self.viz_ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
@@ -126,24 +129,80 @@ class FFTFilter:
             self.viz_ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.3)
             self.viz_ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
 
-            if rgb_params is not None:
+            if color_bitplane_params is not None:
+                # Color Bit Planes mode - plot bit plane curves for each color channel
+                self.viz_ax.set_title('Color Bit Plane Filter Responses', fontsize=12, fontweight='bold')
+
+                # Use varying linewidths and line styles to distinguish bit planes
+                # Bits 7-4: Solid lines with decreasing width
+                # Bits 3-0: Dotted lines with same widths as 7-4
+                linewidths = [
+                    2.0,  # Bit 7 (MSB): thickest solid
+                    1.7,  # Bit 6: solid
+                    1.5,  # Bit 5: solid
+                    1.3,  # Bit 4: solid
+                    2.0,  # Bit 3: thickest dotted (same as bit 7)
+                    1.7,  # Bit 2: dotted (same as bit 6)
+                    1.5,  # Bit 1: dotted (same as bit 5)
+                    1.3,  # Bit 0 (LSB): dotted (same as bit 4)
+                ]
+
+                # Line styles: solid for bits 7-4, dotted for bits 3-0
+                linestyles = ['-', '-', '-', '-', ':', ':', ':', ':']
+
+                # Use slightly varying alpha values to help distinguish overlapping lines
+                alphas = [0.95, 0.90, 0.85, 0.80, 0.95, 0.90, 0.85, 0.80]
+
+                # Colors for each channel: red, green, blue
+                colors = {'red': 'r', 'green': 'g', 'blue': 'b'}
+
+                # Plot each color's bit planes
+                for color_name, color_code in colors.items():
+                    bitplane_params = color_bitplane_params[color_name]
+
+                    # Plot each enabled bit plane for this color
+                    for i in range(8):
+                        if bitplane_params[i]['enable']:
+                            bit_mask = self._compute_filter_curve(distances, bitplane_params[i]['radius'], bitplane_params[i]['smoothness'])
+                            bit_label = f"{color_name.capitalize()} Bit {7-i}" if i == 0 else f"{color_name[0].upper()}{7-i}"
+                            if i == 0:
+                                bit_label = f"{color_name.capitalize()} Bit 7 (MSB)"
+                            elif i == 7:
+                                bit_label = f"{color_name.capitalize()} Bit 0 (LSB)"
+                            else:
+                                bit_label = f"{color_name.capitalize()} Bit {7-i}"
+                            # Use varying linewidths and solid vs dotted for distinction, colored by channel
+                            self.viz_ax.plot(distances, bit_mask, color=color_code,
+                                           linewidth=linewidths[i], linestyle=linestyles[i],
+                                           label=bit_label, alpha=alphas[i], antialiased=True)
+
+                            # Draw vertical line at this bit plane's radius
+                            if bitplane_params[i]['radius'] > 0:
+                                self.viz_ax.axvline(x=bitplane_params[i]['radius'], color=color_code,
+                                                  linestyle=':', linewidth=1.0, alpha=0.4)
+
+                # Add legend with smaller font and multiple columns
+                self.viz_ax.legend(loc='lower right', fontsize=7, ncol=3)
+            elif rgb_params is not None:
                 # RGB mode - plot separate curves for each enabled channel
                 self.viz_ax.set_title('RGB Channel Filter Responses', fontsize=12, fontweight='bold')
 
-                # Red channel
+                # Use line widths from bit plane pattern (top 3: 2.0, 1.7, 1.5)
+                # All solid lines, but with R, G, B colors
+                # Red channel - thickest (2.0)
                 if rgb_params['red']['enable']:
                     red_mask = self._compute_filter_curve(distances, rgb_params['red']['radius'], rgb_params['red']['smoothness'])
-                    self.viz_ax.plot(distances, red_mask, 'r--', linewidth=2, label='Red', alpha=0.8)
+                    self.viz_ax.plot(distances, red_mask, 'r-', linewidth=2.0, label='Red', alpha=0.95)
 
-                # Green channel
+                # Green channel - medium (1.7)
                 if rgb_params['green']['enable']:
                     green_mask = self._compute_filter_curve(distances, rgb_params['green']['radius'], rgb_params['green']['smoothness'])
-                    self.viz_ax.plot(distances, green_mask, 'g-.', linewidth=2, label='Green', alpha=0.8)
+                    self.viz_ax.plot(distances, green_mask, 'g-', linewidth=1.7, label='Green', alpha=0.90)
 
-                # Blue channel
+                # Blue channel - thinnest (1.5)
                 if rgb_params['blue']['enable']:
                     blue_mask = self._compute_filter_curve(distances, rgb_params['blue']['radius'], rgb_params['blue']['smoothness'])
-                    self.viz_ax.plot(distances, blue_mask, 'b:', linewidth=2.5, label='Blue', alpha=0.8)
+                    self.viz_ax.plot(distances, blue_mask, 'b-', linewidth=1.5, label='Blue', alpha=0.85)
 
                 # Add legend
                 self.viz_ax.legend(loc='lower right', fontsize=9)
@@ -704,6 +763,14 @@ class FFTFilter:
         rows, cols = b.shape
         crow, ccol = rows // 2, cols // 2
 
+        # Calculate distance array for visualization
+        y, x = np.ogrid[:rows, :cols]
+        distance = np.sqrt((x - ccol) ** 2 + (y - crow) ** 2)
+
+        # Update filter curve visualization with color bitplane parameters
+        dummy_mask = np.ones((rows, cols, 2), np.float32)
+        self.update_visualization(dummy_mask, distance, 0, 0, color_bitplane_params=color_bitplane_params)
+
         # Process each color channel to determine what to show in FFT
         fft_channels_bgr = []
         for color_name in ['blue', 'green', 'red']:
@@ -792,6 +859,16 @@ class FFTFilter:
                                   Each value is a list of 8 dicts with 'enable', 'radius', 'smoothness'
                                   Index 0 = bit 0 (LSB), Index 7 = bit 7 (MSB)
         """
+        # Update filter curve visualization with color bitplane parameters
+        # Calculate distance array for visualization
+        rows, cols = frame.shape[:2]
+        crow, ccol = rows // 2, cols // 2
+        y, x = np.ogrid[:rows, :cols]
+        distance = np.sqrt((x - ccol) ** 2 + (y - crow) ** 2)
+
+        dummy_mask = np.ones((rows, cols, 2), np.float32)
+        self.update_visualization(dummy_mask, distance, 0, 0, color_bitplane_params=color_bitplane_params)
+
         # If showing FFT visualization, create and return the visualization
         if self.show_fft:
             return self._visualize_color_bitplanes_fft(frame, color_bitplane_params)
