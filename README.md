@@ -10,24 +10,24 @@
   - [Main](#branch-main)
   - [Frequency Filter](#branch-frequency-filter)
   - [Signals Ringing](#branch-signals-ringing)
-  - [Seasons: Christmas](#branch-seasons-christmas)
-  - [Seasons: Winter](#branch-seasons-winter)
-  - [Seasons: Fall](#branch-seasons-fall)
-  - [Seasons: Summer](#branch-seasons-summer)
-  - [Seasons: Spring](#branch-seasons-spring)
+  - [Seasons Christmas](#branch-seasons-christmas)
+  - [Seasons Winter](#branch-seasons-winter)
+  - [Seasons Fall](#branch-seasons-fall)
+  - [Seasons Summer](#branch-seasons-summer)
+  - [Seasons Spring](#branch-seasons-spring)
   - [Stained Glass](#branch-stained-glass)
-  - [Matrix: Color](#branch-matrix-color)
-  - [Matrix: Green](#branch-matrix-green)
-  - [Matrix: Physics Version](#branch-matrix-old-moving-char-physics-version)
-  - [Lines: Canny](#branch-lines-canny)
-  - [Lines: Color Dense](#branch-lines-color-dense)
-  - [Lines: Color Enhanced](#branch-lines-color-enhanced)
-  - [Lines: Mono from 24 Channels](#branch-lines-mono-from-24-channels)
-  - [Lines: Mono Traditional Canny](#branch-lines-mono-traditional-canny)
-  - [Lines: Sketch](#branch-lines-sketch)
-  - [Refraction: Cut Glass](#branch-refraction-cut-glass)
-  - [Refraction: Rain Drops](#branch-refraction-rain-drops)
-  - [Refraction: Square Lenses](#branch-refraction-square-lenses)
+  - [Matrix Color](#branch-matrix-color)
+  - [Matrix Green](#branch-matrix-green)
+  - [Matrix Physics Version](#branch-matrix-old-moving-char-physics-version)
+  - [Lines Canny](#branch-lines-canny)
+  - [Lines Color Dense](#branch-lines-color-dense)
+  - [Lines Color Enhanced](#branch-lines-color-enhanced)
+  - [Lines Mono from 24 Channels](#branch-lines-mono-from-24-channels)
+  - [Lines Mono Traditional Canny](#branch-lines-mono-traditional-canny)
+  - [Lines Sketch](#branch-lines-sketch)
+  - [Refraction Cut Glass](#branch-refraction-cut-glass)
+  - [Refraction Rain Drops](#branch-refraction-rain-drops)
+  - [Refraction Square Lenses](#branch-refraction-square-lenses)
 - [Common Technical Patterns](#common-technical-patterns)
 - [Key Learnings](#key-learnings)
 - [Git Branch Summary](#git-branch-summary)
@@ -164,7 +164,7 @@ python webcam_filter.py
 
 ---
 
-## Branch: Seasons-Christmas
+## Branch Seasons-Christmas
 
 ```bash
 git checkout seasons-christmas
@@ -211,7 +211,7 @@ for ball in self.ornament_balls:
 
 ---
 
-## Branch: Seasons-Winter
+## Branch Seasons-Winter
 
 ```bash
 git checkout seasons-winter
@@ -281,7 +281,7 @@ User feedback guided iterative refinement.
 
 ---
 
-## Branch: Seasons-Fall
+## Branch Seasons-Fall
 
 ```bash
 git checkout seasons-fall
@@ -341,7 +341,7 @@ leaf['x'] = base_x + oscillation_amplitude * np.sin(time * oscillation_speed + p
 
 ---
 
-## Branch: Seasons-Spring
+## Branch Seasons-Spring
 
 ```bash
 git checkout seasons-spring
@@ -357,7 +357,7 @@ Spring-themed webcam filter effects.
 
 ---
 
-## Branch: Stained Glass
+## Branch Stained Glass
 
 ```bash
 git checkout stained-glass
@@ -378,7 +378,7 @@ Stained glass window effect using color quantization.
 
 ---
 
-## Branch: Frequency-Filter
+## Branch Frequency-Filter
 
 ```bash
 git checkout frequency-filter
@@ -394,7 +394,7 @@ High-pass frequency filtering for edge enhancement and detail extraction.
 
 ---
 
-## Branch: Signals-Ringing
+## Branch Signals-Ringing
 
 ```bash
 git checkout signals-ringing
@@ -410,7 +410,7 @@ Signal processing effects with ringing artifacts.
 
 ---
 
-## Branch: Main
+## Branch Main
 
 ```bash
 git checkout main
@@ -434,7 +434,7 @@ Simple white edges on original color background.
 
 ---
 
-## Branch: Seasons-Summer
+## Branch Seasons-Summer
 
 ```bash
 git checkout seasons-summer
@@ -535,7 +535,7 @@ for y in range(region_h):
 
 ---
 
-## Branch: Matrix-Color
+## Branch Matrix-Color
 
 ```bash
 git checkout matrix-color
@@ -586,7 +586,7 @@ color = tuple(int(c * intensity_scale * 1.5) for c in bg_color)
 
 ---
 
-## Branch: Matrix-Green
+## Branch Matrix-Green
 
 ```bash
 git checkout matrix-green
@@ -639,7 +639,7 @@ dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel
 
 ---
 
-## Branch: Matrix-Old-Moving-Char-Physics-Version
+## Branch Matrix-Old-Moving-Char-Physics-Version
 
 ```bash
 git checkout matrix-old-moving-char-physics-version
@@ -720,7 +720,7 @@ This is the most sophisticated implementation with realistic physics simulation.
 
 ---
 
-## Branch: Lines-Canny
+## Branch Lines-Canny
 
 ```bash
 git checkout lines-canny
@@ -736,7 +736,7 @@ Basic Canny edge detection for clean line art effects.
 
 ---
 
-## Branch: Lines-Color-Dense
+## Branch Lines-Color-Dense
 
 ```bash
 git checkout lines-color-dense
@@ -807,7 +807,7 @@ Artistic visualization showing how color information is encoded in digital image
 
 ---
 
-## Branch: Lines-Color-Enhanced
+## Branch Lines-Color-Enhanced
 
 ```bash
 git checkout lines-color-enhanced
@@ -823,7 +823,7 @@ Enhanced color-based line detection with vibrant edge effects.
 
 ---
 
-## Branch: Lines-Mono-From-24-Channels
+## Branch Lines-Mono-From-24-Channels
 
 ```bash
 git checkout lines-mono-from-24-channels
@@ -889,7 +889,7 @@ Creates traditional illustration effect - resembles pen and ink drawings, etchin
 
 ---
 
-## Branch: Lines-Mono-Traditional-Canny
+## Branch Lines-Mono-Traditional-Canny
 
 ```bash
 git checkout lines-mono-traditional-canny
@@ -952,7 +952,7 @@ Most stable and detailed pen-and-ink effect. Best for environments with changing
 
 ---
 
-## Branch: Lines-Sketch
+## Branch Lines-Sketch
 
 ```bash
 git checkout lines-sketch
@@ -968,7 +968,7 @@ Sketch-style line rendering for artistic hand-drawn effects.
 
 ---
 
-## Branch: Refraction-Cut-Glass
+## Branch Refraction-Cut-Glass
 
 ```bash
 git checkout refraction-cut-glass
@@ -984,7 +984,7 @@ Cut glass refraction effect creating prismatic distortions.
 
 ---
 
-## Branch: Refraction-Rain-Drops
+## Branch Refraction-Rain-Drops
 
 ```bash
 git checkout refraction-rain-drops
@@ -1073,7 +1073,7 @@ Simulates rain on camera lens or water running down glass. Most realistic optica
 
 ---
 
-## Branch: Refraction-Square-Lenses
+## Branch Refraction-Square-Lenses
 
 ```bash
 git checkout refraction-square-lenses
@@ -1474,11 +1474,7 @@ import signal            # Signal handling (Ctrl+C)
 
 ---
 
-<<<<<<< HEAD:effects_synopsis.md
-*Last updated: November 15, 2025*
-*Repository: webcam-filters (formerly matrix-vision)*
-=======
-## Branch: Main - Tkinter Display Implementation
+## Branch Main - Tkinter Display Implementation
 
 ### Latest Update: November 16, 2024
 
@@ -1522,7 +1518,7 @@ import signal            # Signal handling (Ctrl+C)
 
 ---
 
-## Branch: Main - Advanced FFT Filtering System (November 17, 2024)
+## Branch Main - Advanced FFT Filtering System (November 17, 2024)
 
 ### Latest Major Update: Comprehensive UI Overhaul
 
@@ -1717,6 +1713,5 @@ for bit in range(8):
 
 *Last updated: November 17, 2024*
 *Repository: webcam-filters*
->>>>>>> 2ad3913 (Replace old README.txt with comprehensive README.md documentation):README.md
 *Primary file: webcam_filter.py (branch-specific versions)*
-*Total branches: 15*
+*Total branches: 21*
