@@ -7,20 +7,27 @@
 - [Installation & Setup](#installation--setup)
 - [Repository Structure](#repository-structure)
 - [Branch Descriptions](#branch-descriptions)
-  - [Christmas](#branch-christmas)
-  - [Winter](#branch-winter)
-  - [Fall](#branch-fall)
-  - [Summer](#branch-summer)
-  - [Stained Glass](#branch-stained-glass)
   - [Main](#branch-main)
-  - [Matrix-Color](#branch-matrix-color)
-  - [Matrix-Green](#branch-matrix-green)
-  - [Matrix-Old-Moving-Char-Physics-Version](#branch-matrix-old-moving-char-physics-version)
-  - [Color-Dense-Lines](#branch-color-dense-lines)
-  - [Mono-Lines-From-24-Channels](#branch-mono-lines-from-24-channels)
-  - [Mono-Traditional-Canny-Lines](#branch-mono-traditional-canny-lines)
-  - [Rain-Drops](#branch-rain-drops)
-  - [Square-Lenses](#branch-square-lenses)
+  - [Frequency Filter](#branch-frequency-filter)
+  - [Signals Ringing](#branch-signals-ringing)
+  - [Seasons: Christmas](#branch-seasons-christmas)
+  - [Seasons: Winter](#branch-seasons-winter)
+  - [Seasons: Fall](#branch-seasons-fall)
+  - [Seasons: Summer](#branch-seasons-summer)
+  - [Seasons: Spring](#branch-seasons-spring)
+  - [Stained Glass](#branch-stained-glass)
+  - [Matrix: Color](#branch-matrix-color)
+  - [Matrix: Green](#branch-matrix-green)
+  - [Matrix: Physics Version](#branch-matrix-old-moving-char-physics-version)
+  - [Lines: Canny](#branch-lines-canny)
+  - [Lines: Color Dense](#branch-lines-color-dense)
+  - [Lines: Color Enhanced](#branch-lines-color-enhanced)
+  - [Lines: Mono from 24 Channels](#branch-lines-mono-from-24-channels)
+  - [Lines: Mono Traditional Canny](#branch-lines-mono-traditional-canny)
+  - [Lines: Sketch](#branch-lines-sketch)
+  - [Refraction: Cut Glass](#branch-refraction-cut-glass)
+  - [Refraction: Rain Drops](#branch-refraction-rain-drops)
+  - [Refraction: Square Lenses](#branch-refraction-square-lenses)
 - [Common Technical Patterns](#common-technical-patterns)
 - [Key Learnings](#key-learnings)
 - [Git Branch Summary](#git-branch-summary)
@@ -40,19 +47,30 @@ Development of seasonal-themed webcam filters using Python, OpenCV, MediaPipe, a
 | Branch | Effect | Command |
 |--------|--------|---------|
 | **main** | FFT frequency filtering with multiple modes | `git checkout main` |
-| **christmas** | Pine garland with ornaments and snow | `git checkout christmas` |
-| **winter** | Arctic blue edges with heavy snow | `git checkout winter` |
-| **fall** | Autumn colors with falling leaves | `git checkout fall` |
-| **summer** | Golden sunset with thermal heat waves | `git checkout summer` |
+| **frequency-filter** | High-pass frequency filter | `git checkout frequency-filter` |
+| **signals-ringing** | Signal processing with ringing effects | `git checkout signals-ringing` |
+| **Seasonal Effects** |
+| **seasons-christmas** | Pine garland with ornaments and snow | `git checkout seasons-christmas` |
+| **seasons-winter** | Arctic blue edges with heavy snow | `git checkout seasons-winter` |
+| **seasons-fall** | Autumn colors with falling leaves | `git checkout seasons-fall` |
+| **seasons-summer** | Golden sunset with thermal heat waves | `git checkout seasons-summer` |
+| **seasons-spring** | Spring-themed effects | `git checkout seasons-spring` |
 | **stained-glass** | Color quantization effect | `git checkout stained-glass` |
+| **Matrix Effects** |
 | **matrix-color** | Colorful Matrix rain | `git checkout matrix-color` |
 | **matrix-green** | Classic green Matrix rain | `git checkout matrix-green` |
 | **matrix-old-moving-char-physics-version** | Physics-based Matrix flow | `git checkout matrix-old-moving-char-physics-version` |
-| **color-dense-lines** | 24-layer RGB bit-plane edges | `git checkout color-dense-lines` |
-| **mono-lines-from-24-channels** | Pen-and-ink on white | `git checkout mono-lines-from-24-channels` |
-| **mono-traditional-canny-lines** | Stable textured sketch | `git checkout mono-traditional-canny-lines` |
-| **rain-drops** | Water droplet refraction | `git checkout rain-drops` |
-| **square-lenses** | Compound fisheye grid | `git checkout square-lenses` |
+| **Line/Edge Effects** |
+| **lines-canny** | Basic Canny edge detection | `git checkout lines-canny` |
+| **lines-color-dense** | 24-layer RGB bit-plane edges | `git checkout lines-color-dense` |
+| **lines-color-enhanced** | Enhanced color line effects | `git checkout lines-color-enhanced` |
+| **lines-mono-from-24-channels** | Pen-and-ink on white | `git checkout lines-mono-from-24-channels` |
+| **lines-mono-traditional-canny** | Stable textured sketch | `git checkout lines-mono-traditional-canny` |
+| **lines-sketch** | Sketch-style line rendering | `git checkout lines-sketch` |
+| **Refraction/Optical Effects** |
+| **refraction-cut-glass** | Cut glass refraction effect | `git checkout refraction-cut-glass` |
+| **refraction-rain-drops** | Water droplet refraction | `git checkout refraction-rain-drops` |
+| **refraction-square-lenses** | Compound fisheye grid | `git checkout refraction-square-lenses` |
 
 **After switching branches, run:**
 ```bash
@@ -146,10 +164,10 @@ python webcam_filter.py
 
 ---
 
-## Branch: Christmas
+## Branch: Seasons-Christmas
 
 ```bash
-git checkout christmas
+git checkout seasons-christmas
 ```
 
 ### Effect Description
@@ -193,10 +211,10 @@ for ball in self.ornament_balls:
 
 ---
 
-## Branch: Winter
+## Branch: Seasons-Winter
 
 ```bash
-git checkout winter
+git checkout seasons-winter
 ```
 
 ### Effect Description
@@ -263,10 +281,10 @@ User feedback guided iterative refinement.
 
 ---
 
-## Branch: Fall
+## Branch: Seasons-Fall
 
 ```bash
-git checkout fall
+git checkout seasons-fall
 ```
 
 ### Effect Description
@@ -323,6 +341,22 @@ leaf['x'] = base_x + oscillation_amplitude * np.sin(time * oscillation_speed + p
 
 ---
 
+## Branch: Seasons-Spring
+
+```bash
+git checkout seasons-spring
+```
+
+### Effect Description
+Spring-themed webcam filter effects.
+
+### Key Features
+1. **Spring Elements**
+   - Cherry blossoms, rain showers, or green tints
+   - Seasonal color palette
+
+---
+
 ## Branch: Stained Glass
 
 ```bash
@@ -341,6 +375,38 @@ Stained glass window effect using color quantization.
 2. **K-means Color Quantization**
    - Reduces colors to create stained glass segments
    - Bilateral filtering for smoothing while preserving edges
+
+---
+
+## Branch: Frequency-Filter
+
+```bash
+git checkout frequency-filter
+```
+
+### Effect Description
+High-pass frequency filtering for edge enhancement and detail extraction.
+
+### Key Features
+1. **Adjustable Blur Kernel**
+   - Configurable blur kernel size
+   - High-pass filter implementation
+
+---
+
+## Branch: Signals-Ringing
+
+```bash
+git checkout signals-ringing
+```
+
+### Effect Description
+Signal processing effects with ringing artifacts.
+
+### Key Features
+1. **Signal Processing**
+   - Ringing effects from frequency filtering
+   - Advanced signal analysis
 
 ---
 
@@ -368,10 +434,10 @@ Simple white edges on original color background.
 
 ---
 
-## Branch: Summer
+## Branch: Seasons-Summer
 
 ```bash
-git checkout summer
+git checkout seasons-summer
 ```
 
 ### Effect Description
@@ -654,10 +720,26 @@ This is the most sophisticated implementation with realistic physics simulation.
 
 ---
 
-## Branch: Color-Dense-Lines
+## Branch: Lines-Canny
 
 ```bash
-git checkout color-dense-lines
+git checkout lines-canny
+```
+
+### Effect Description
+Basic Canny edge detection for clean line art effects.
+
+### Key Features
+1. **Canny Edge Detection**
+   - Standard Canny algorithm
+   - Adjustable thresholds
+
+---
+
+## Branch: Lines-Color-Dense
+
+```bash
+git checkout lines-color-dense
 ```
 
 ### Effect Description
@@ -725,10 +807,26 @@ Artistic visualization showing how color information is encoded in digital image
 
 ---
 
-## Branch: Mono-Lines-From-24-Channels
+## Branch: Lines-Color-Enhanced
 
 ```bash
-git checkout mono-lines-from-24-channels
+git checkout lines-color-enhanced
+```
+
+### Effect Description
+Enhanced color-based line detection with vibrant edge effects.
+
+### Key Features
+1. **Enhanced Color Processing**
+   - Saturated color edges
+   - Vibrant line rendering
+
+---
+
+## Branch: Lines-Mono-From-24-Channels
+
+```bash
+git checkout lines-mono-from-24-channels
 ```
 
 ### Effect Description
@@ -791,10 +889,10 @@ Creates traditional illustration effect - resembles pen and ink drawings, etchin
 
 ---
 
-## Branch: Mono-Traditional-Canny-Lines
+## Branch: Lines-Mono-Traditional-Canny
 
 ```bash
-git checkout mono-traditional-canny-lines
+git checkout lines-mono-traditional-canny
 ```
 
 ### Effect Description
@@ -854,10 +952,42 @@ Most stable and detailed pen-and-ink effect. Best for environments with changing
 
 ---
 
-## Branch: Rain-Drops
+## Branch: Lines-Sketch
 
 ```bash
-git checkout rain-drops
+git checkout lines-sketch
+```
+
+### Effect Description
+Sketch-style line rendering for artistic hand-drawn effects.
+
+### Key Features
+1. **Sketch Rendering**
+   - Hand-drawn appearance
+   - Artistic line variation
+
+---
+
+## Branch: Refraction-Cut-Glass
+
+```bash
+git checkout refraction-cut-glass
+```
+
+### Effect Description
+Cut glass refraction effect creating prismatic distortions.
+
+### Key Features
+1. **Cut Glass Pattern**
+   - Prismatic refraction
+   - Angular distortion patterns
+
+---
+
+## Branch: Refraction-Rain-Drops
+
+```bash
+git checkout refraction-rain-drops
 ```
 
 ### Effect Description
@@ -943,10 +1073,10 @@ Simulates rain on camera lens or water running down glass. Most realistic optica
 
 ---
 
-## Branch: Square-Lenses
+## Branch: Refraction-Square-Lenses
 
 ```bash
-git checkout square-lenses
+git checkout refraction-square-lenses
 ```
 
 ### Effect Description
