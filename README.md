@@ -1,10 +1,141 @@
 # Webcam Filter Effects - Development Synopsis
 
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Quick Reference - Branch Switching](#quick-reference---branch-switching)
+- [Installation & Setup](#installation--setup)
+- [Repository Structure](#repository-structure)
+- [Branch Descriptions](#branch-descriptions)
+  - [Christmas](#branch-christmas)
+  - [Winter](#branch-winter)
+  - [Fall](#branch-fall)
+  - [Summer](#branch-summer)
+  - [Stained Glass](#branch-stained-glass)
+  - [Main](#branch-main)
+  - [Matrix-Color](#branch-matrix-color)
+  - [Matrix-Green](#branch-matrix-green)
+  - [Matrix-Old-Moving-Char-Physics-Version](#branch-matrix-old-moving-char-physics-version)
+  - [Color-Dense-Lines](#branch-color-dense-lines)
+  - [Mono-Lines-From-24-Channels](#branch-mono-lines-from-24-channels)
+  - [Mono-Traditional-Canny-Lines](#branch-mono-traditional-canny-lines)
+  - [Rain-Drops](#branch-rain-drops)
+  - [Square-Lenses](#branch-square-lenses)
+- [Common Technical Patterns](#common-technical-patterns)
+- [Key Learnings](#key-learnings)
+- [Git Branch Summary](#git-branch-summary)
+- [Performance Metrics](#performance-metrics)
+- [Code Architecture](#code-architecture)
+- [Dependencies](#dependencies)
+
+---
+
 ## Project Overview
 Development of seasonal-themed webcam filters using Python, OpenCV, MediaPipe, and NumPy. Multiple git branches created for different seasonal effects, all using a single `webcam_filter.py` file per branch.
 
+---
+
+## Quick Reference - Branch Switching
+
+| Branch | Effect | Command |
+|--------|--------|---------|
+| **main** | FFT frequency filtering with multiple modes | `git checkout main` |
+| **christmas** | Pine garland with ornaments and snow | `git checkout christmas` |
+| **winter** | Arctic blue edges with heavy snow | `git checkout winter` |
+| **fall** | Autumn colors with falling leaves | `git checkout fall` |
+| **summer** | Golden sunset with thermal heat waves | `git checkout summer` |
+| **stained-glass** | Color quantization effect | `git checkout stained-glass` |
+| **matrix-color** | Colorful Matrix rain | `git checkout matrix-color` |
+| **matrix-green** | Classic green Matrix rain | `git checkout matrix-green` |
+| **matrix-old-moving-char-physics-version** | Physics-based Matrix flow | `git checkout matrix-old-moving-char-physics-version` |
+| **color-dense-lines** | 24-layer RGB bit-plane edges | `git checkout color-dense-lines` |
+| **mono-lines-from-24-channels** | Pen-and-ink on white | `git checkout mono-lines-from-24-channels` |
+| **mono-traditional-canny-lines** | Stable textured sketch | `git checkout mono-traditional-canny-lines` |
+| **rain-drops** | Water droplet refraction | `git checkout rain-drops` |
+| **square-lenses** | Compound fisheye grid | `git checkout square-lenses` |
+
+**After switching branches, run:**
+```bash
+python webcam_filter.py
+# Or for Python 3 specifically:
+python3 webcam_filter.py
+```
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+- **Python Version**: Python 3.7 or higher recommended
+- **Operating System**: macOS, Linux, or Windows
+- **Webcam**: Built-in or USB webcam
+
+### Installing Dependencies
+
+```bash
+# Install required packages
+pip install opencv-python numpy mediapipe pillow matplotlib
+
+# Or use pip3 if you have multiple Python versions
+pip3 install opencv-python numpy mediapipe pillow matplotlib
+```
+
+### Dependency Details
+- **opencv-python** (cv2): Image processing and computer vision
+- **numpy**: Array operations and mathematical functions
+- **mediapipe**: Face detection (used in some effects)
+- **pillow** (PIL): Image format conversion for Tkinter display
+- **matplotlib**: Real-time filter visualization (main branch)
+
+### Camera Setup
+
+#### Finding Available Cameras
+The application automatically detects available cameras on startup. You'll see a list like:
+```
+Available cameras:
+0: Built-in Camera
+1: USB Webcam
+```
+
+#### Troubleshooting Camera Issues
+
+**Camera not detected:**
+- Check camera permissions in System Preferences (macOS) or Settings (Windows)
+- Ensure no other application is using the camera
+- Try unplugging and replugging USB cameras
+
+**Poor performance:**
+- Close other applications using the camera
+- Try a lower-resolution camera if available
+- Some effects (rain-drops, matrix-physics) are more demanding
+
+**Camera shows black screen:**
+- Check if camera lens is covered
+- Verify camera works in other applications
+- Try a different camera index (0, 1, 2, etc.)
+
+### Running the Application
+
+```bash
+# Navigate to the repository
+cd /path/to/webcam-filters
+
+# Switch to desired branch
+git checkout christmas
+
+# Run the application
+python webcam_filter.py
+```
+
+### Keyboard Controls
+- **SPACEBAR**: Toggle effect on/off
+- **Q or ESC**: Quit application
+- **Ctrl+C**: Force exit (terminal)
+
+---
+
 ## Repository Structure
-- **Main repository**: `/Users/mbennett/Dropbox/dev/matrix-vision` (renamed to `webcam-filters`)
+- **Main repository**: `/Users/mbennett/Dropbox/dev/webcam-filters`
 - **Single file approach**: `webcam_filter.py` - different versions on different branches
 - **Git branches** (15 total):
   - **Seasonal**: christmas, winter, fall, summer
@@ -16,6 +147,10 @@ Development of seasonal-themed webcam filters using Python, OpenCV, MediaPipe, a
 ---
 
 ## Branch: Christmas
+
+```bash
+git checkout christmas
+```
 
 ### Effect Description
 Pine garland border with reflective ornamental balls and falling snow.
@@ -59,6 +194,10 @@ for ball in self.ornament_balls:
 ---
 
 ## Branch: Winter
+
+```bash
+git checkout winter
+```
 
 ### Effect Description
 Arctic blue near edges transitioning to white in center, with falling snow.
@@ -126,6 +265,10 @@ User feedback guided iterative refinement.
 
 ## Branch: Fall
 
+```bash
+git checkout fall
+```
+
 ### Effect Description
 Autumn color palette with realistic falling leaves.
 
@@ -182,6 +325,10 @@ leaf['x'] = base_x + oscillation_amplitude * np.sin(time * oscillation_speed + p
 
 ## Branch: Stained Glass
 
+```bash
+git checkout stained-glass
+```
+
 ### Effect Description
 Stained glass window effect using color quantization.
 
@@ -198,6 +345,10 @@ Stained glass window effect using color quantization.
 ---
 
 ## Branch: Main
+
+```bash
+git checkout main
+```
 
 ### Effect Description
 Simple white edges on original color background.
@@ -218,6 +369,10 @@ Simple white edges on original color background.
 ---
 
 ## Branch: Summer
+
+```bash
+git checkout summer
+```
 
 ### Effect Description
 Golden sunset with thermal heat waves rising from bottom.
@@ -316,6 +471,10 @@ for y in range(region_h):
 
 ## Branch: Matrix-Color
 
+```bash
+git checkout matrix-color
+```
+
 ### Effect Description
 Matrix-style character grid with full-color saturation, creating a vibrant, colorful Matrix rain effect with colored edges and character streamers.
 
@@ -362,6 +521,10 @@ color = tuple(int(c * intensity_scale * 1.5) for c in bg_color)
 ---
 
 ## Branch: Matrix-Green
+
+```bash
+git checkout matrix-green
+```
 
 ### Effect Description
 Classic Matrix rain effect with traditional green-on-black aesthetic, featuring green characters and edges on a dark background.
@@ -411,6 +574,10 @@ dimmed_frame[:, :, 1] = dimmed_gray  # Only green channel
 ---
 
 ## Branch: Matrix-Old-Moving-Char-Physics-Version
+
+```bash
+git checkout matrix-old-moving-char-physics-version
+```
 
 ### Effect Description
 Advanced Matrix rain with realistic physics-based character flow around obstacles (edges and faces). Characters flow like water particles, each with independent lateral movement.
@@ -489,6 +656,10 @@ This is the most sophisticated implementation with realistic physics simulation.
 
 ## Branch: Color-Dense-Lines
 
+```bash
+git checkout color-dense-lines
+```
+
 ### Effect Description
 Artistic edge visualization using bit-plane decomposition across RGB channels, creating a dense, colorful layered line effect.
 
@@ -556,6 +727,10 @@ Artistic visualization showing how color information is encoded in digital image
 
 ## Branch: Mono-Lines-From-24-Channels
 
+```bash
+git checkout mono-lines-from-24-channels
+```
+
 ### Effect Description
 Pen-and-ink style rendering using bit-plane decomposition from grayscale, creating dark lines on white background like a traditional sketch.
 
@@ -618,6 +793,10 @@ Creates traditional illustration effect - resembles pen and ink drawings, etchin
 
 ## Branch: Mono-Traditional-Canny-Lines
 
+```bash
+git checkout mono-traditional-canny-lines
+```
+
 ### Effect Description
 Traditional Canny edge detection with advanced temporal smoothing and high-pass filtering to create stable, textured pen-and-ink style effect.
 
@@ -676,6 +855,10 @@ Most stable and detailed pen-and-ink effect. Best for environments with changing
 ---
 
 ## Branch: Rain-Drops
+
+```bash
+git checkout rain-drops
+```
 
 ### Effect Description
 Water droplet refraction effect where drops fall down the screen, refracting the background image like real water on glass.
@@ -761,6 +944,10 @@ Simulates rain on camera lens or water running down glass. Most realistic optica
 ---
 
 ## Branch: Square-Lenses
+
+```bash
+git checkout square-lenses
+```
 
 ### Effect Description
 Fisheye lens grid effect dividing the screen into square regions, each with magnified fisheye distortion.
@@ -1063,10 +1250,7 @@ def main():
 
 ## File Paths
 
-### Original Repository
-`/Users/mbennett/Dropbox/dev/matrix-vision/webcam_filter.py`
-
-### Renamed Repository
+### Repository Location
 `/Users/mbennett/Dropbox/dev/webcam-filters/webcam_filter.py`
 
 ### Each branch has its own version of `webcam_filter.py`
@@ -1150,7 +1334,7 @@ import signal            # Signal handling (Ctrl+C)
 
 ## Documentation Updates
 
-**November 15, 2025** - Comprehensive documentation update:
+**November 15, 2024** - Comprehensive documentation update:
 - Added 9 previously undocumented branches (matrix variants, edge/line effects, optical effects)
 - Total branches documented: 15 (up from 6)
 - Added complexity rankings and performance characteristics
@@ -1162,7 +1346,7 @@ import signal            # Signal handling (Ctrl+C)
 
 ## Branch: Main - Tkinter Display Implementation
 
-### Latest Update: November 16, 2025
+### Latest Update: November 16, 2024
 
 **Problem**: OpenCV's `cv2.imshow()` on macOS was applying automatic contrast/gamma adjustment that made intermediate gray values (64, 128, 192) appear as pure black or white when displaying grayscale bit planes. The actual pixel values were correct (verified by saving to PNG), but the display rendering was incorrect.
 
@@ -1204,7 +1388,7 @@ import signal            # Signal handling (Ctrl+C)
 
 ---
 
-## Branch: Main - Advanced FFT Filtering System (November 17, 2025)
+## Branch: Main - Advanced FFT Filtering System (November 17, 2024)
 
 ### Latest Major Update: Comprehensive UI Overhaul
 
@@ -1355,7 +1539,7 @@ for bit in range(8):
 
 ### Recent Bug Fixes
 
-**November 17, 2025 - Visualization Mode Switching Issue**:
+**November 17, 2024 - Visualization Mode Switching Issue**:
 - **Problem**: When switching output modes (e.g., Color Bit Planes → Grayscale Bit Planes), the filter curve graph showed stale data from the previous mode
 - **Root Cause**: Visualization only updated during video frame processing, not immediately when radio buttons were clicked
 - **Solution**: Added `_refresh_visualization()` method that:
@@ -1397,7 +1581,7 @@ for bit in range(8):
 
 ---
 
-*Last updated: November 17, 2025*
-*Repository: webcam-filters (formerly matrix-vision)*
+*Last updated: November 17, 2024*
+*Repository: webcam-filters*
 *Primary file: webcam_filter.py (branch-specific versions)*
 *Total branches: 15*
