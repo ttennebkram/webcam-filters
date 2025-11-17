@@ -1236,15 +1236,18 @@ class ControlPanel:
 
         # RGB channel controls
         self.red_enable = tk.BooleanVar(value=True)
-        self.red_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.red_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)  # Actual radius value (exponential scale)
+        self.red_radius_slider = tk.IntVar(value=int(self._radius_to_slider(DEFAULT_FFT_RADIUS)))  # Slider position (linear scale)
         self.red_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
 
         self.green_enable = tk.BooleanVar(value=True)
-        self.green_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.green_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)  # Actual radius value (exponential scale)
+        self.green_radius_slider = tk.IntVar(value=int(self._radius_to_slider(DEFAULT_FFT_RADIUS)))  # Slider position (linear scale)
         self.green_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
 
         self.blue_enable = tk.BooleanVar(value=True)
-        self.blue_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)
+        self.blue_radius = tk.IntVar(value=DEFAULT_FFT_RADIUS)  # Actual radius value (exponential scale)
+        self.blue_radius_slider = tk.IntVar(value=int(self._radius_to_slider(DEFAULT_FFT_RADIUS)))  # Slider position (linear scale)
         self.blue_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
 
         # Grayscale bit plane controls (8 bit planes: 7 MSB down to 0 LSB)
@@ -1530,8 +1533,14 @@ class ControlPanel:
         red_label = tk.Label(table_frame, text="Red", foreground="red", font=('TkDefaultFont', 9, 'bold'))
         red_label.grid(row=1, column=0, padx=5, pady=5, sticky='w')
         ttk.Checkbutton(table_frame, variable=self.red_enable).grid(row=1, column=1, padx=5, pady=5)
-        red_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.red_radius, orient='horizontal',
-                                     command=lambda v: self.red_radius.set(int(float(v))))
+
+        # Radius slider (exponential scale: 0-100 slider -> 0-200+ radius)
+        def update_red_radius(slider_val):
+            radius = self._slider_to_radius(float(slider_val))
+            self.red_radius.set(radius)
+
+        red_radius_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.red_radius_slider, orient='horizontal',
+                                     command=lambda v: update_red_radius(v))
         red_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
         tk.Label(table_frame, textvariable=self.red_radius, width=4, foreground="red").grid(row=1, column=3, padx=(2, 10), pady=5)
         red_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.red_smoothness, orient='horizontal',
@@ -1543,8 +1552,14 @@ class ControlPanel:
         green_label = tk.Label(table_frame, text="Green", foreground="green", font=('TkDefaultFont', 9, 'bold'))
         green_label.grid(row=2, column=0, padx=5, pady=5, sticky='w')
         ttk.Checkbutton(table_frame, variable=self.green_enable).grid(row=2, column=1, padx=5, pady=5)
-        green_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.green_radius, orient='horizontal',
-                                       command=lambda v: self.green_radius.set(int(float(v))))
+
+        # Radius slider (exponential scale: 0-100 slider -> 0-200+ radius)
+        def update_green_radius(slider_val):
+            radius = self._slider_to_radius(float(slider_val))
+            self.green_radius.set(radius)
+
+        green_radius_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.green_radius_slider, orient='horizontal',
+                                       command=lambda v: update_green_radius(v))
         green_radius_slider.grid(row=2, column=2, padx=5, pady=5, sticky='ew')
         tk.Label(table_frame, textvariable=self.green_radius, width=4, foreground="green").grid(row=2, column=3, padx=(2, 10), pady=5)
         green_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.green_smoothness, orient='horizontal',
@@ -1556,8 +1571,14 @@ class ControlPanel:
         blue_label = tk.Label(table_frame, text="Blue", foreground="blue", font=('TkDefaultFont', 9, 'bold'))
         blue_label.grid(row=3, column=0, padx=5, pady=5, sticky='w')
         ttk.Checkbutton(table_frame, variable=self.blue_enable).grid(row=3, column=1, padx=5, pady=5)
-        blue_radius_slider = ttk.Scale(table_frame, from_=5, to=200, variable=self.blue_radius, orient='horizontal',
-                                      command=lambda v: self.blue_radius.set(int(float(v))))
+
+        # Radius slider (exponential scale: 0-100 slider -> 0-200+ radius)
+        def update_blue_radius(slider_val):
+            radius = self._slider_to_radius(float(slider_val))
+            self.blue_radius.set(radius)
+
+        blue_radius_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.blue_radius_slider, orient='horizontal',
+                                      command=lambda v: update_blue_radius(v))
         blue_radius_slider.grid(row=3, column=2, padx=5, pady=5, sticky='ew')
         tk.Label(table_frame, textvariable=self.blue_radius, width=4, foreground="blue").grid(row=3, column=3, padx=(2, 10), pady=5)
         blue_smooth_slider = ttk.Scale(table_frame, from_=0, to=100, variable=self.blue_smoothness, orient='horizontal',
