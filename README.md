@@ -7,27 +7,32 @@
 - [Installation & Setup](#installation--setup)
 - [Repository Structure](#repository-structure)
 - [Branch Descriptions](#branch-descriptions)
-  - [Main](#branch-main)
-  - [Frequency Filter](#branch-frequency-filter)
-  - [Signals Ringing](#branch-signals-ringing)
-  - [Seasons Christmas](#branch-seasons-christmas)
-  - [Seasons Winter](#branch-seasons-winter)
-  - [Seasons Fall](#branch-seasons-fall)
-  - [Seasons Summer](#branch-seasons-summer)
-  - [Seasons Spring](#branch-seasons-spring)
-  - [Stained Glass](#branch-stained-glass)
-  - [Matrix Color](#branch-matrix-color)
-  - [Matrix Green](#branch-matrix-green)
-  - [Matrix Physics Version](#branch-matrix-old-moving-char-physics-version)
-  - [Lines Canny](#branch-lines-canny)
-  - [Lines Color Dense](#branch-lines-color-dense)
-  - [Lines Color Enhanced](#branch-lines-color-enhanced)
-  - [Lines Mono from 24 Channels](#branch-lines-mono-from-24-channels)
-  - [Lines Mono Traditional Canny](#branch-lines-mono-traditional-canny)
-  - [Lines Sketch](#branch-lines-sketch)
-  - [Refraction Cut Glass](#branch-refraction-cut-glass)
-  - [Refraction Rain Drops](#branch-refraction-rain-drops)
-  - [Refraction Square Lenses](#branch-refraction-square-lenses)
+  - [Seasonal Effects](#seasonal-effects)
+    - [Christmas](#branch-seasons-christmas)
+    - [Winter](#branch-seasons-winter)
+    - [Fall](#branch-seasons-fall)
+    - [Summer](#branch-seasons-summer)
+    - [Spring](#branch-seasons-spring)
+  - [Matrix Effects](#matrix-effects)
+    - [Color](#branch-matrix-color)
+    - [Green](#branch-matrix-green)
+    - [Physics Version](#branch-matrix-old-moving-char-physics-version)
+  - [Line/Edge Effects](#lineedge-effects)
+    - [Canny](#branch-lines-canny)
+    - [Color Dense](#branch-lines-color-dense)
+    - [Color Enhanced](#branch-lines-color-enhanced)
+    - [Mono from 24 Channels](#branch-lines-mono-from-24-channels)
+    - [Mono Traditional Canny](#branch-lines-mono-traditional-canny)
+    - [Sketch](#branch-lines-sketch)
+  - [Refraction/Optical Effects](#refractionoptical-effects)
+    - [Cut Glass](#branch-refraction-cut-glass)
+    - [Rain Drops](#branch-refraction-rain-drops)
+    - [Square Lenses](#branch-refraction-square-lenses)
+  - [Miscellaneous](#miscellaneous)
+    - [Main (FFT Filtering)](#branch-main)
+    - [Frequency Filter](#branch-frequency-filter)
+    - [Signals Ringing](#branch-signals-ringing)
+    - [Stained Glass](#branch-stained-glass)
 - [Common Technical Patterns](#common-technical-patterns)
 - [Key Learnings](#key-learnings)
 - [Git Branch Summary](#git-branch-summary)
@@ -161,6 +166,18 @@ python webcam_filter.py
   - **Edge/Line effects**: color-dense-lines, mono-lines-from-24-channels, mono-traditional-canny-lines
   - **Other effects**: stained-glass, rain-drops, square-lenses
   - **Base**: main
+
+---
+
+## Branch Descriptions
+
+All webcam filter effects available in this repository, organized by category.
+
+---
+
+### Seasonal Effects
+
+Seasonal-themed filters for different times of year.
 
 ---
 
@@ -410,6 +427,12 @@ Signal processing effects with ringing artifacts.
 
 ---
 
+### Miscellaneous
+
+Other effects that don't fit into specific categories.
+
+---
+
 ## Branch Main
 
 ```bash
@@ -532,6 +555,12 @@ for y in range(region_h):
 4. Added gradient overlay (initially too strong: 1.0 → 1/3 down)
 5. Refined gradient (0.5 max strength → halfway down, smoother transition)
 6. **LATEST**: Added thermal heat waves with precomputed refraction
+
+---
+
+### Matrix Effects
+
+Classic Matrix-style rain effects with various color schemes and physics.
 
 ---
 
@@ -717,6 +746,12 @@ for i in range(len(drop['chars'])):
 
 ### Complexity Note
 This is the most sophisticated implementation with realistic physics simulation.
+
+---
+
+### Line/Edge Effects
+
+Edge detection and line-based artistic rendering effects.
 
 ---
 
@@ -965,6 +1000,12 @@ Sketch-style line rendering for artistic hand-drawn effects.
 1. **Sketch Rendering**
    - Hand-drawn appearance
    - Artistic line variation
+
+---
+
+### Refraction/Optical Effects
+
+Optical distortion and refraction-based effects.
 
 ---
 
