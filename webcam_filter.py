@@ -1351,6 +1351,11 @@ class ControlPanel:
             return 0
         return 20.0 * math.log(radius + 1)
 
+    def _open_url(self, url):
+        """Open a URL in the default web browser"""
+        import webbrowser
+        webbrowser.open(url)
+
     def _build_ui(self):
         """Build the tkinter UI"""
         padding = {'padx': 10, 'pady': 3}
@@ -1480,6 +1485,16 @@ class ControlPanel:
         # Controls for Grayscale Composite
         # Radius slider
         ttk.Label(gs_right, text="Filter Radius in pixels", wraplength=250).pack(anchor='w')
+
+        # Second line with hyperlink - pack directly to gs_right like first line
+        second_line_container = ttk.Frame(gs_right)
+        second_line_container.pack(anchor='w')
+        ttk.Label(second_line_container, text='(controls the size of ').pack(side='left', padx=0, ipadx=0, ipady=0)
+        link_label = ttk.Label(second_line_container, text="FFT Ringing", foreground="blue", cursor="hand2")
+        link_label.pack(side='left', padx=0, ipadx=0, ipady=0)
+        link_label.bind("<Button-1>", lambda e: self._open_url("https://en.wikipedia.org/wiki/Ringing_artifacts"))
+        ttk.Label(second_line_container, text=')').pack(side='left', padx=0, ipadx=0, ipady=0)
+
         radius_row = ttk.Frame(gs_right)
         radius_row.pack(fill='x')
         fft_radius_slider = ttk.Scale(radius_row, from_=5, to=200,
@@ -1489,7 +1504,8 @@ class ControlPanel:
         ttk.Label(radius_row, textvariable=self.fft_radius, width=5).pack(side='left', padx=(5, 0))
 
         # Smoothness slider
-        ttk.Label(gs_right, text="Filter Cutoff Smoothness 0-100 pixels (Butterworth offset)", wraplength=250).pack(anchor='w', pady=(5, 0))
+        ttk.Label(gs_right, text="Filter Cutoff Smoothness 0-100 pixels", wraplength=250).pack(anchor='w', pady=(5, 0))
+        ttk.Label(gs_right, text="(Butterworth offset, higher values reduce ringing)").pack(anchor='w')
         smooth_row = ttk.Frame(gs_right)
         smooth_row.pack(fill='x')
         fft_smoothness_slider = ttk.Scale(smooth_row, from_=0, to=100,
@@ -1524,7 +1540,9 @@ class ControlPanel:
         # Header row (row 0)
         ttk.Label(table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='w')  # Empty cell for color labels
         ttk.Label(table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
+
         ttk.Label(table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
+
         ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)  # Value label column
         ttk.Label(table_frame, text="Smoothness (Butterworth offset)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)  # Value label column
