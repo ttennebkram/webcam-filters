@@ -1222,6 +1222,9 @@ class ControlPanel:
         self.resolution_changed = False
         self.new_resolution = None
 
+        # Mirror flip variable (default is "flip" for Flip Left/Right)
+        self.mirror_flip = tk.StringVar(value="flip")
+
         # Effect toggle (shared with main loop) - inverted logic: show_original = effect disabled
         self.show_original = tk.BooleanVar(value=False)
 
@@ -1406,10 +1409,11 @@ class ControlPanel:
         camera_frame = ttk.LabelFrame(container, text="Camera Selection", padding=10)
         camera_frame.pack(fill='x', **padding)
 
-        # Two column layout for camera selection using grid
+        # Three column layout for camera selection using grid
         # Column headers
         ttk.Label(camera_frame, text="Select Camera").grid(row=0, column=0, sticky='w', padx=5, pady=2)
         ttk.Label(camera_frame, text="Resolution (smaller = faster)").grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(camera_frame, text="Mirror Flip").grid(row=0, column=2, sticky='w', padx=5, pady=2)
 
         # Create frame for radio buttons
         cam_buttons_frame = ttk.Frame(camera_frame)
@@ -1427,6 +1431,15 @@ class ControlPanel:
                                                  state='readonly', width=15)
         self.resolution_combobox.grid(row=1, column=1, sticky='nw', padx=5, pady=2)
         self.resolution_combobox.bind('<<ComboboxSelected>>', self._on_resolution_change)
+
+        # Mirror Flip controls
+        mirror_buttons_frame = ttk.Frame(camera_frame)
+        mirror_buttons_frame.grid(row=1, column=2, sticky='nw', padx=5, pady=2)
+
+        ttk.Radiobutton(mirror_buttons_frame, text="Normal View", value="normal",
+                       variable=self.mirror_flip).pack(anchor='w', pady=1)
+        ttk.Radiobutton(mirror_buttons_frame, text="Flip Left/Right", value="flip",
+                       variable=self.mirror_flip).pack(anchor='w', pady=1)
 
         # Populate resolution dropdown for initially selected camera
         self._update_resolution_dropdown()
@@ -1870,7 +1883,8 @@ class ControlPanel:
             'color_bp_selected_tab': self.color_bp_selected_tab.get(),
             # Camera and resolution settings
             'selected_camera': self.selected_camera.get(),
-            'selected_resolution': self.selected_resolution.get()
+            'selected_resolution': self.selected_resolution.get(),
+            'mirror_flip': self.mirror_flip.get()
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -1976,6 +1990,10 @@ class ControlPanel:
             if saved_resolution:
                 self.selected_resolution.set(saved_resolution)
 
+            # Restore mirror flip setting
+            saved_mirror_flip = settings.get('mirror_flip', 'flip')
+            self.mirror_flip.set(saved_mirror_flip)
+
             # Update resolution dropdown for the selected camera
             self._update_resolution_dropdown()
 
@@ -2020,6 +2038,8 @@ class ControlPanel:
         """Expand the bit plane table when radio button is selected"""
         if not self.bitplane_expanded.get():
             self._toggle_bitplane_table()
+        # Immediately update visualization to reflect the mode change
+        self._refresh_visualization()
 
     def _toggle_rgb_table(self):
         """Toggle the visibility of the RGB channels table"""
@@ -2040,6 +2060,8 @@ class ControlPanel:
         """Expand the RGB table when radio button is selected"""
         if not self.rgb_expanded.get():
             self._toggle_rgb_table()
+        # Immediately update visualization to reflect the mode change
+        self._refresh_visualization()
 
     def _toggle_color_bitplane_table(self):
         """Toggle the visibility of the color bit plane notebook"""
@@ -2060,6 +2082,75 @@ class ControlPanel:
         """Expand the color bit plane table when radio button is selected"""
         if not self.color_bitplane_expanded.get():
             self._toggle_color_bitplane_table()
+        # Immediately update visualization to reflect the mode change
+        self._refresh_visualization()
+
+    def _refresh_visualization(self):
+        """Immediately refresh the visualization based on current output mode and settings"""
+        if self.viz_window is None:
+            return
+
+        try:
+            # Create a dummy distance array for visualization purposes
+            dummy_size = 256
+            y, x = np.ogrid[:dummy_size, :dummy_size]
+            center_y, center_x = dummy_size // 2, dummy_size // 2
+            distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+            dummy_mask = np.ones((dummy_size, dummy_size, 2), np.float32)
+
+            output_mode = self.output_mode.get()
+
+            if output_mode == "color_channels":
+                # RGB mode - gather RGB parameters
+                rgb_viz_params = {
+                    'red': {
+                        'enable': self.red_enable.get(),
+                        'radius': self.red_radius.get(),
+                        'smoothness': self.red_smoothness.get()
+                    },
+                    'green': {
+                        'enable': self.green_enable.get(),
+                        'radius': self.green_radius.get(),
+                        'smoothness': self.green_smoothness.get()
+                    },
+                    'blue': {
+                        'enable': self.blue_enable.get(),
+                        'radius': self.blue_radius.get(),
+                        'smoothness': self.blue_smoothness.get()
+                    }
+                }
+                self.update_visualization(dummy_mask, distance, 0, 0, rgb_params=rgb_viz_params)
+
+            elif output_mode == "grayscale_bitplanes":
+                # Grayscale Bit Planes mode - gather bit plane parameters
+                bitplane_params = []
+                for i in range(8):
+                    bitplane_params.append({
+                        'enable': self.bitplane_enable_vars[i].get(),
+                        'radius': self.bitplane_radius_vars[i].get(),
+                        'smoothness': self.bitplane_smoothness_vars[i].get()
+                    })
+                self.update_visualization(dummy_mask, distance, 0, 0, bitplane_params=bitplane_params)
+
+            elif output_mode == "color_bitplanes":
+                # Color Bit Planes mode - gather color bit plane parameters
+                color_bitplane_params = {}
+                for color in ['red', 'green', 'blue']:
+                    color_bitplane_params[color] = []
+                    for i in range(8):
+                        color_bitplane_params[color].append({
+                            'enable': self.color_bitplane_enable_vars[color][i].get(),
+                            'radius': self.color_bitplane_radius_vars[color][i].get(),
+                            'smoothness': self.color_bitplane_smoothness_vars[color][i].get()
+                        })
+                self.update_visualization(dummy_mask, distance, 0, 0, color_bitplane_params=color_bitplane_params)
+
+            # Redraw the canvas
+            if hasattr(self, 'viz_canvas'):
+                self.viz_canvas.draw()
+
+        except Exception as e:
+            print(f"Error refreshing visualization: {e}")
 
     def _switch_color_bp_tab(self, color_key):
         """Switch between Red, Green, Blue tabs in color bit plane section"""
@@ -2545,8 +2636,9 @@ def main():
                 current_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 controls.selected_resolution.set(f"{current_width}x{current_height}")
 
-        # Mirror the image (flip horizontally)
-        frame = cv2.flip(frame, 1)
+        # Mirror the image (flip horizontally) based on user preference
+        if controls.mirror_flip.get() == "flip":
+            frame = cv2.flip(frame, 1)
 
         # Read values from tkinter controls and update parameters
         sketch.fft.radius = controls.fft_radius.get()
