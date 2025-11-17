@@ -1408,8 +1408,8 @@ class ControlPanel:
 
         # Two column layout for camera selection using grid
         # Column headers
-        ttk.Label(camera_frame, text="Select Camera:").grid(row=0, column=0, sticky='w', padx=5, pady=2)
-        ttk.Label(camera_frame, text="Resolution:").grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(camera_frame, text="Select Camera").grid(row=0, column=0, sticky='w', padx=5, pady=2)
+        ttk.Label(camera_frame, text="Resolution (smaller = faster)").grid(row=0, column=1, sticky='w', padx=5, pady=2)
 
         # Create frame for radio buttons
         cam_buttons_frame = ttk.Frame(camera_frame)
@@ -1427,10 +1427,6 @@ class ControlPanel:
                                                  state='readonly', width=15)
         self.resolution_combobox.grid(row=1, column=1, sticky='nw', padx=5, pady=2)
         self.resolution_combobox.bind('<<ComboboxSelected>>', self._on_resolution_change)
-
-        # Add note about performance
-        ttk.Label(camera_frame, text="(smaller = faster)", font=('TkDefaultFont', 12, 'italic'),
-                 foreground='gray50').grid(row=1, column=2, sticky='w', padx=(0, 5), pady=2)
 
         # Populate resolution dropdown for initially selected camera
         self._update_resolution_dropdown()
