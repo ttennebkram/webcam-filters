@@ -687,6 +687,102 @@ class FFTFilter:
                         reconstructed += (binary_plane << bit)
                 return reconstructed
 
+    def _visualize_color_bitplanes_fft(self, frame, color_bitplane_params):
+        """Visualize FFT for color bit planes mode with colored circles for each channel's bit planes
+
+        Args:
+            frame: Input BGR frame
+            color_bitplane_params: Dict with keys 'red', 'green', 'blue'
+                                  Each value is a list of 8 dicts with 'enable', 'radius', 'smoothness'
+
+        Returns:
+            BGR visualization image
+        """
+        # Split into BGR channels
+        b, g, r = cv2.split(frame)
+        channels = {'blue': b, 'green': g, 'red': r}
+        rows, cols = b.shape
+        crow, ccol = rows // 2, cols // 2
+
+        # Process each color channel to determine what to show in FFT
+        fft_channels_bgr = []
+        for color_name in ['blue', 'green', 'red']:
+            channel = channels[color_name]
+            bitplane_params = color_bitplane_params[color_name]
+
+            # Count enabled bit planes for this channel
+            num_enabled = sum(1 for params in bitplane_params if params['enable'])
+
+            if num_enabled == 0:
+                # No bits enabled for this channel - show black
+                fft_channels_bgr.append(np.zeros((rows, cols), dtype=np.uint8))
+            elif num_enabled == 1:
+                # Single bit: show FFT of 0-255 scaled bit plane
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        bit_plane = ((channel >> bit) & 1) * 255
+                        source_image = bit_plane.astype(np.uint8)
+                        break
+
+                # Compute FFT of this binary bit plane
+                dft = cv2.dft(np.float32(source_image), flags=cv2.DFT_COMPLEX_OUTPUT)
+                dft_shift = np.fft.fftshift(dft)
+                magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]) + 1)
+                normalized = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
+                fft_channels_bgr.append(normalized.astype(np.uint8))
+            else:
+                # Multiple bits: show FFT of the masked channel (analog values)
+                bit_mask = 0
+                for ui_index in range(8):
+                    if bitplane_params[ui_index]['enable']:
+                        bit = 7 - ui_index
+                        bit_mask |= (1 << bit)
+                source_image = channel & bit_mask
+
+                # Compute FFT of this masked channel
+                dft = cv2.dft(np.float32(source_image), flags=cv2.DFT_COMPLEX_OUTPUT)
+                dft_shift = np.fft.fftshift(dft)
+                magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]) + 1)
+                normalized = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
+                fft_channels_bgr.append(normalized.astype(np.uint8))
+
+        # Merge the three FFT channels
+        fft_display = cv2.merge(fft_channels_bgr)
+
+        # Draw circles for each color's bit planes
+        # BGR order: Blue, Green, Red
+        color_info = [
+            ('blue', (255, 128, 0)),    # Bright cyan in BGR for visibility
+            ('green', (0, 255, 0)),     # Green in BGR
+            ('red', (128, 0, 255))      # Bright magenta in BGR for visibility
+        ]
+
+        for color_name, color_bgr in color_info:
+            bitplane_params = color_bitplane_params[color_name]
+
+            # Collect all unique radius values from enabled bit planes for this color
+            radius_set = set()
+            for params in bitplane_params:
+                if params['enable'] and params['radius'] > 0:
+                    radius_set.add(params['radius'])
+
+            # Draw dotted circles for each unique radius in this color
+            for radius in sorted(radius_set):
+                # Draw dotted circle using line segments for better visibility
+                num_dashes = 80
+                for i in range(num_dashes):
+                    if i % 2 == 0:  # Draw every other segment for dotted effect
+                        angle1 = (i / num_dashes) * 2 * np.pi
+                        angle2 = ((i + 1) / num_dashes) * 2 * np.pi
+                        x1 = int(ccol + radius * np.cos(angle1))
+                        y1 = int(crow + radius * np.sin(angle1))
+                        x2 = int(ccol + radius * np.cos(angle2))
+                        y2 = int(crow + radius * np.sin(angle2))
+                        cv2.line(fft_display, (x1, y1), (x2, y2), color_bgr, 2)
+
+        return fft_display
+
     def draw_color_bitplanes(self, frame, color_bitplane_params):
         """Apply FFT-based high-pass filter to individual bit planes of each color channel
 
@@ -696,6 +792,10 @@ class FFTFilter:
                                   Each value is a list of 8 dicts with 'enable', 'radius', 'smoothness'
                                   Index 0 = bit 0 (LSB), Index 7 = bit 7 (MSB)
         """
+        # If showing FFT visualization, create and return the visualization
+        if self.show_fft:
+            return self._visualize_color_bitplanes_fft(frame, color_bitplane_params)
+
         # Split into BGR channels
         b, g, r = cv2.split(frame)
 
@@ -1016,6 +1116,10 @@ class ControlPanel:
         if self.output_mode.get() == "grayscale_bitplanes":
             self._toggle_bitplane_table()
 
+        # Auto-expand color bit plane table if color_bitplanes mode is selected
+        if self.output_mode.get() == "color_bitplanes":
+            self._toggle_color_bitplane_table()
+
         # Add traces to auto-select Grayscale Composite when grayscale controls change
         self.fft_radius.trace_add("write", self._on_grayscale_control_change)
         self.fft_smoothness.trace_add("write", self._on_grayscale_control_change)
@@ -1304,7 +1408,7 @@ class ControlPanel:
         self.bitplane_table_frame = bitplane_table_frame  # Store reference for show/hide
 
         # Header row (row 0)
-        ttk.Label(bitplane_table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='e')
+        ttk.Label(bitplane_table_frame, text="Bit").grid(row=0, column=0, padx=5, pady=2, sticky='e')
         ttk.Label(bitplane_table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
@@ -1422,7 +1526,7 @@ class ControlPanel:
 
             # Header row (row 0) - use ttk.Label which blends better with parent frame
 
-            ttk.Label(table_frame, text="").grid(row=0, column=0, padx=5, pady=2, sticky='e')
+            ttk.Label(table_frame, text="Bit", style=style_name).grid(row=0, column=0, padx=5, pady=2, sticky='e')
             ttk.Label(table_frame, text="Enabled", style=style_name).grid(row=0, column=1, padx=5, pady=2)
             ttk.Label(table_frame, text="Filter Radius (pixels)", style=style_name).grid(row=0, column=2, padx=5, pady=2)
             ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
@@ -1523,7 +1627,24 @@ class ControlPanel:
             # Grayscale bit plane settings
             'bitplane_enable': [bp.get() for bp in self.bitplane_enable],
             'bitplane_radius': [bp.get() for bp in self.bitplane_radius],
-            'bitplane_smoothness': [bp.get() for bp in self.bitplane_smoothness]
+            'bitplane_smoothness': [bp.get() for bp in self.bitplane_smoothness],
+            # Color bit plane settings
+            'color_bitplane_enable': {
+                'red': [bp.get() for bp in self.color_bitplane_enable['red']],
+                'green': [bp.get() for bp in self.color_bitplane_enable['green']],
+                'blue': [bp.get() for bp in self.color_bitplane_enable['blue']]
+            },
+            'color_bitplane_radius': {
+                'red': [bp.get() for bp in self.color_bitplane_radius['red']],
+                'green': [bp.get() for bp in self.color_bitplane_radius['green']],
+                'blue': [bp.get() for bp in self.color_bitplane_radius['blue']]
+            },
+            'color_bitplane_smoothness': {
+                'red': [bp.get() for bp in self.color_bitplane_smoothness['red']],
+                'green': [bp.get() for bp in self.color_bitplane_smoothness['green']],
+                'blue': [bp.get() for bp in self.color_bitplane_smoothness['blue']]
+            },
+            'color_bp_selected_tab': self.color_bp_selected_tab.get()
         }
 
         settings_file = os.path.expanduser('~/.webcam_filter_settings.json')
@@ -1579,6 +1700,46 @@ class ControlPanel:
                 self.bitplane_radius_slider[i].set(self._radius_to_slider(radius_val))
 
                 self.bitplane_smoothness[i].set(bitplane_smoothness[i] if i < len(bitplane_smoothness) else DEFAULT_FFT_SMOOTHNESS)
+
+            # Load color bit plane settings
+            color_bitplane_enable = settings.get('color_bitplane_enable', {
+                'red': [True] * 8,
+                'green': [True] * 8,
+                'blue': [True] * 8
+            })
+            color_bitplane_radius = settings.get('color_bitplane_radius', {
+                'red': [DEFAULT_FFT_RADIUS] * 8,
+                'green': [DEFAULT_FFT_RADIUS] * 8,
+                'blue': [DEFAULT_FFT_RADIUS] * 8
+            })
+            color_bitplane_smoothness = settings.get('color_bitplane_smoothness', {
+                'red': [DEFAULT_FFT_SMOOTHNESS] * 8,
+                'green': [DEFAULT_FFT_SMOOTHNESS] * 8,
+                'blue': [DEFAULT_FFT_SMOOTHNESS] * 8
+            })
+
+            for color in ['red', 'green', 'blue']:
+                color_enable = color_bitplane_enable.get(color, [True] * 8)
+                color_radius = color_bitplane_radius.get(color, [DEFAULT_FFT_RADIUS] * 8)
+                color_smoothness = color_bitplane_smoothness.get(color, [DEFAULT_FFT_SMOOTHNESS] * 8)
+
+                for i in range(8):
+                    self.color_bitplane_enable[color][i].set(color_enable[i] if i < len(color_enable) else True)
+
+                    # Set radius and update slider position to match
+                    radius_val = color_radius[i] if i < len(color_radius) else DEFAULT_FFT_RADIUS
+                    self.color_bitplane_radius[color][i].set(radius_val)
+                    self.color_bitplane_radius_slider[color][i].set(self._radius_to_slider(radius_val))
+
+                    self.color_bitplane_smoothness[color][i].set(color_smoothness[i] if i < len(color_smoothness) else DEFAULT_FFT_SMOOTHNESS)
+
+            # Restore selected color tab if color bitplanes mode is selected
+            saved_tab = settings.get('color_bp_selected_tab', 'red')
+            if saved_tab in ['red', 'green', 'blue']:
+                self.color_bp_selected_tab.set(saved_tab)
+                # Only switch tab if color_bitplanes mode is selected
+                if self.output_mode.get() == "color_bitplanes":
+                    self._switch_color_bp_tab(saved_tab)
 
             # print(f"Settings loaded from {settings_file}")
         except Exception as e:
@@ -1794,23 +1955,46 @@ def signal_handler(sig, frame):
 
 def find_available_cameras():
     """Find all available cameras"""
+    import sys
+    import os
+
     available_cameras = []
 
-    # print("Scanning for available cameras...")
-    for camera_id in range(5):  # Check first 5 camera indices
-        cap = cv2.VideoCapture(camera_id, cv2.CAP_AVFOUNDATION)
-        if cap.isOpened():
-            ret, test_frame = cap.read()
-            if ret and test_frame is not None:
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                available_cameras.append({
-                    'id': camera_id,
-                    'width': width,
-                    'height': height
-                })
-                # print(f"  Found camera {camera_id}: {width}x{height}")
-            cap.release()
+    # Suppress OpenCV warnings during camera detection
+    # Save original stderr
+    original_stderr = sys.stderr
+    devnull = None
+
+    try:
+        # Redirect stderr to devnull to suppress OpenCV warnings
+        devnull = open(os.devnull, 'w')
+        sys.stderr = devnull
+
+        print("Scanning cameras: ", end='', flush=True)
+        for camera_id in range(5):  # Check first 5 camera indices
+            cap = cv2.VideoCapture(camera_id, cv2.CAP_AVFOUNDATION)
+            if cap.isOpened():
+                ret, test_frame = cap.read()
+                if ret and test_frame is not None:
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    available_cameras.append({
+                        'id': camera_id,
+                        'width': width,
+                        'height': height
+                    })
+                    print(f"{camera_id}:OK ", end='', flush=True)
+                else:
+                    print(f"{camera_id}:- ", end='', flush=True)
+                cap.release()
+            else:
+                print(f"{camera_id}:- ", end='', flush=True)
+        print()  # New line after scanning
+    finally:
+        # Restore original stderr
+        sys.stderr = original_stderr
+        if devnull:
+            devnull.close()
 
     return available_cameras
 
