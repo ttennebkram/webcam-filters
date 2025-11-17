@@ -91,7 +91,7 @@ class FFTFilter:
             self.viz_ax = None
             self.viz_canvas = None
 
-    def update_visualization(self, mask, distance, radius, smoothness):
+    def update_visualization(self, mask, distance, radius, smoothness, rgb_params=None, bitplane_params=None):
         """Update the filter curve visualization
 
         Args:
@@ -99,6 +99,8 @@ class FFTFilter:
             distance: Distance array from center
             radius: Current filter radius
             smoothness: Current smoothness value
+            rgb_params: Optional dict with 'red', 'green', 'blue' params for RGB mode
+            bitplane_params: Optional list of 8 dicts with 'enable', 'radius', 'smoothness' for bit plane mode
         """
         if self.viz_window is None:
             return
@@ -108,65 +110,167 @@ class FFTFilter:
             rows, cols = distance.shape
             center_y = rows // 2
 
-            # Get distances and mask values along horizontal center line
+            # Get distances along horizontal center line
             distances = distance[center_y, :]
-            mask_values = mask[center_y, :, 0]
-
-            # Calculate Butterworth order from smoothness
-            # Map smoothness (0-100) to order (0.5-10), inverted
-            order = 10.0 - (smoothness / 100.0) * 9.5
-            if order < 0.5:
-                order = 0.5
-
-            # Calculate effective cutoff (shifted D0)
-            target_attenuation = 0.03
-            shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
-            effective_cutoff = radius * shift_factor
 
             # Clear and redraw
             self.viz_ax.clear()
-            self.viz_ax.set_xlabel('Distance from Center (pixels)', fontsize=10)
+            self.viz_ax.set_xlabel('Distance from FFT Center (pixels)', fontsize=10)
             self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)', fontsize=10)
-            self.viz_ax.set_title('Butterworth Highpass Filter Response', fontsize=12, fontweight='bold')
             self.viz_ax.grid(True, alpha=0.3)
             self.viz_ax.set_ylim(-0.1, 1.1)
 
-            # Plot the filter curve in black
-            self.viz_ax.plot(distances, mask_values, 'k-', linewidth=2)
-
-            # Draw vertical line at user's radius (where filter ≈ 0.03) in red
-            self.viz_ax.axvline(x=radius, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='User Radius (H≈0.03)')
-
-            # Draw vertical line at effective D₀ (where filter = 0.5) in blue
-            self.viz_ax.axvline(x=effective_cutoff, color='blue', linestyle='--', linewidth=1.5, alpha=0.7, label='D₀ (H=0.5)')
-
             # Draw horizontal lines at 0, 0.03, 0.5, and 1
             self.viz_ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
-            self.viz_ax.axhline(y=0.03, color='red', linestyle=':', alpha=0.3)
-            self.viz_ax.axhline(y=0.5, color='blue', linestyle=':', alpha=0.3)
+            self.viz_ax.axhline(y=0.03, color='gray', linestyle=':', alpha=0.3)
+            self.viz_ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.3)
             self.viz_ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
 
-            # Add legend
-            self.viz_ax.legend(loc='lower right', fontsize=8)
+            if rgb_params is not None:
+                # RGB mode - plot separate curves for each enabled channel
+                self.viz_ax.set_title('RGB Channel Filter Responses', fontsize=12, fontweight='bold')
 
-            # Add text annotations for parameters
-            self.viz_ax.text(0.02, 0.98, f'User Radius: {radius:.1f}',
-                           transform=self.viz_ax.transAxes,
-                           verticalalignment='top', fontsize=9,
-                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-            self.viz_ax.text(0.02, 0.88, f'D₀: {effective_cutoff:.1f}',
-                           transform=self.viz_ax.transAxes,
-                           verticalalignment='top', fontsize=9,
-                           bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
-            self.viz_ax.text(0.02, 0.78, f'Order (n): {order:.2f}',
-                           transform=self.viz_ax.transAxes,
-                           verticalalignment='top', fontsize=9,
-                           bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
+                # Red channel
+                if rgb_params['red']['enable']:
+                    red_mask = self._compute_filter_curve(distances, rgb_params['red']['radius'], rgb_params['red']['smoothness'])
+                    self.viz_ax.plot(distances, red_mask, 'r--', linewidth=2, label='Red', alpha=0.8)
+
+                # Green channel
+                if rgb_params['green']['enable']:
+                    green_mask = self._compute_filter_curve(distances, rgb_params['green']['radius'], rgb_params['green']['smoothness'])
+                    self.viz_ax.plot(distances, green_mask, 'g-.', linewidth=2, label='Green', alpha=0.8)
+
+                # Blue channel
+                if rgb_params['blue']['enable']:
+                    blue_mask = self._compute_filter_curve(distances, rgb_params['blue']['radius'], rgb_params['blue']['smoothness'])
+                    self.viz_ax.plot(distances, blue_mask, 'b:', linewidth=2.5, label='Blue', alpha=0.8)
+
+                # Add legend
+                self.viz_ax.legend(loc='lower right', fontsize=9)
+            elif bitplane_params is not None:
+                # Bit plane mode - plot curves for each enabled bit plane
+                self.viz_ax.set_title('Bit Plane Filter Responses', fontsize=12, fontweight='bold')
+
+                # Use varying linewidths and line styles to distinguish bit planes
+                # Bits 7-4: Solid lines with decreasing width
+                # Bits 3-0: Dotted lines with same widths as 7-4
+                linewidths = [
+                    2.0,  # Bit 7 (MSB): thickest solid
+                    1.7,  # Bit 6: solid
+                    1.5,  # Bit 5: solid
+                    1.3,  # Bit 4: solid
+                    2.0,  # Bit 3: thickest dotted (same as bit 7)
+                    1.7,  # Bit 2: dotted (same as bit 6)
+                    1.5,  # Bit 1: dotted (same as bit 5)
+                    1.3,  # Bit 0 (LSB): dotted (same as bit 4)
+                ]
+
+                # Line styles: solid for bits 7-4, dotted for bits 3-0
+                linestyles = ['-', '-', '-', '-', ':', ':', ':', ':']
+
+                # Use slightly varying alpha values to help distinguish overlapping lines
+                alphas = [0.95, 0.90, 0.85, 0.80, 0.95, 0.90, 0.85, 0.80]
+
+                # Plot each enabled bit plane
+                for i in range(8):
+                    if bitplane_params[i]['enable']:
+                        bit_mask = self._compute_filter_curve(distances, bitplane_params[i]['radius'], bitplane_params[i]['smoothness'])
+                        bit_label = f"Bit {7-i}" if i == 0 else f"{7-i}"
+                        if i == 0:
+                            bit_label = "Bit 7 (MSB)"
+                        elif i == 7:
+                            bit_label = "Bit 0 (LSB)"
+                        else:
+                            bit_label = f"Bit {7-i}"
+                        # Use varying linewidths and solid vs dotted for distinction
+                        self.viz_ax.plot(distances, bit_mask, color='black',
+                                       linewidth=linewidths[i], linestyle=linestyles[i],
+                                       label=bit_label, alpha=alphas[i], antialiased=True)
+
+                # Add legend
+                self.viz_ax.legend(loc='lower right', fontsize=8, ncol=2)
+            else:
+                # Grayscale mode - single black curve
+                self.viz_ax.set_title('Butterworth Highpass Filter Response', fontsize=12, fontweight='bold')
+
+                # Get mask values along horizontal center line
+                mask_values = mask[center_y, :, 0]
+
+                # Calculate Butterworth order from smoothness
+                # Map smoothness (0-100) to order (0.5-10), inverted
+                order = 10.0 - (smoothness / 100.0) * 9.5
+                if order < 0.5:
+                    order = 0.5
+
+                # Calculate effective cutoff (shifted D0)
+                target_attenuation = 0.03
+                shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
+                effective_cutoff = radius * shift_factor
+
+                # Plot the filter curve in black
+                self.viz_ax.plot(distances, mask_values, 'k-', linewidth=2)
+
+                # Draw vertical line at user's radius (where filter ≈ 0.03) in red
+                self.viz_ax.axvline(x=radius, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='User Radius (H≈0.03)')
+
+                # Draw vertical line at effective D₀ (where filter = 0.5) in blue
+                self.viz_ax.axvline(x=effective_cutoff, color='blue', linestyle='--', linewidth=1.5, alpha=0.7, label='D₀ (H=0.5)')
+
+                # Add legend
+                self.viz_ax.legend(loc='lower right', fontsize=8)
+
+                # Add text annotations for parameters
+                self.viz_ax.text(0.02, 0.98, f'User Radius: {radius:.1f}',
+                               transform=self.viz_ax.transAxes,
+                               verticalalignment='top', fontsize=9,
+                               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                self.viz_ax.text(0.02, 0.88, f'D₀: {effective_cutoff:.1f}',
+                               transform=self.viz_ax.transAxes,
+                               verticalalignment='top', fontsize=9,
+                               bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+                self.viz_ax.text(0.02, 0.78, f'Order (n): {order:.2f}',
+                               transform=self.viz_ax.transAxes,
+                               verticalalignment='top', fontsize=9,
+                               bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
 
             # Force immediate update
             self.viz_canvas.draw()
         except Exception as e:
             print(f"Error updating visualization: {e}")
+
+    def _compute_filter_curve(self, distances, radius, smoothness):
+        """Compute the filter response curve for given parameters
+
+        Args:
+            distances: Array of distances from center
+            radius: Filter radius
+            smoothness: Smoothness parameter (0-100)
+
+        Returns:
+            Array of filter response values
+        """
+        if radius == 0:
+            return np.ones_like(distances)
+
+        if smoothness == 0:
+            # Hard cutoff
+            return (distances > radius).astype(float)
+
+        # Butterworth filter
+        order = 10.0 - (smoothness / 100.0) * 9.5
+        if order < 0.5:
+            order = 0.5
+
+        target_attenuation = 0.03
+        shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
+        effective_cutoff = radius * shift_factor
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            transition = 1.0 / (1.0 + np.power(effective_cutoff / (distances + 1e-10), 2 * order))
+            transition = np.nan_to_num(transition, nan=0.0, posinf=0.0, neginf=0.0)
+            transition = np.clip(transition, 0, 1)
+
+        return transition
 
     def draw_rgb_channels(self, frame, red_params, green_params, blue_params):
         """Apply FFT-based high-pass filter to individual RGB channels
@@ -179,6 +283,22 @@ class FFTFilter:
         """
         # Split into BGR channels
         b, g, r = cv2.split(frame)
+
+        # Get dimensions for distance calculation
+        rows, cols = b.shape
+        crow, ccol = rows // 2, cols // 2
+        y, x = np.ogrid[:rows, :cols]
+        distance = np.sqrt((x - ccol) ** 2 + (y - crow) ** 2)
+
+        # Update visualization with RGB parameters
+        rgb_viz_params = {
+            'red': red_params,
+            'green': green_params,
+            'blue': blue_params
+        }
+        # Use a dummy mask since we're in RGB mode - the visualization will compute curves
+        dummy_mask = np.ones((rows, cols, 2), np.float32)
+        self.update_visualization(dummy_mask, distance, 0, 0, rgb_params=rgb_viz_params)
 
         # Process each channel - params come in as red, green, blue but we process in BGR order
         # Red channel (index 2 in BGR) - uses red_params
@@ -304,9 +424,6 @@ class FFTFilter:
 
             mask[:, :, 0] = transition
             mask[:, :, 1] = transition
-
-        # Update visualization with the mask
-        self.update_visualization(mask, distance, radius, smoothness)
 
         return mask
 
@@ -447,6 +564,17 @@ class FFTFilter:
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+        # Get dimensions for distance calculation
+        rows, cols = gray.shape
+        crow, ccol = rows // 2, cols // 2
+        y, x = np.ogrid[:rows, :cols]
+        distance = np.sqrt((x - ccol) ** 2 + (y - crow) ** 2)
+
+        # Update visualization with bit plane parameters
+        # Use a dummy mask since we're in bitplane mode - the visualization will compute curves
+        dummy_mask = np.ones((rows, cols, 2), np.float32)
+        self.update_visualization(dummy_mask, distance, 0, 0, bitplane_params=bitplane_params)
+
         # If showing FFT visualization, determine which image to use for FFT
         if self.show_fft:
             # Count enabled bit planes
@@ -579,6 +707,9 @@ class FFTFilter:
 
         # Use _create_mask to get the same smooth filtering as other modes
         mask = self._create_mask(distance, self.radius, self.smoothness, rows, cols)
+
+        # Update visualization for grayscale composite mode
+        self.update_visualization(mask, distance, self.radius, self.smoothness)
 
         # Apply mask to FFT
         fshift = dft_shift * mask
@@ -982,7 +1113,7 @@ class ControlPanel:
         ttk.Label(table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)  # Value label column
-        ttk.Label(table_frame, text="Smoothness (Sigmoid/10)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(table_frame, text="Smoothness (Butterworth)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)  # Value label column
 
         # Red channel (row 1)
@@ -1059,7 +1190,7 @@ class ControlPanel:
         ttk.Label(bitplane_table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="Filter Radius (pixels)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
-        ttk.Label(bitplane_table_frame, text="Smoothness (Sigmoid/10)").grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(bitplane_table_frame, text="Smoothness (Butterworth)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
         # Create 8 rows for bit planes (7 MSB down to 0 LSB)
@@ -1109,10 +1240,10 @@ class ControlPanel:
         common_frame.pack(fill='x', pady=(10, 0))
 
         # Gain slider with value on right (log scale: 0.2 to 5, center=1)
-        ttk.Label(common_frame, text="Gain: 1/5x to 1x (no gain) to 5x").pack(anchor='w', pady=(5, 0))
+        ttk.Label(common_frame, text="Gain: 0.1x to 1x (no gain) to 10x").pack(anchor='w', pady=(5, 0))
         gain_row = ttk.Frame(common_frame)
         gain_row.pack(fill='x')
-        gain_slider = ttk.Scale(gain_row, from_=0.2, to=5,
+        gain_slider = ttk.Scale(gain_row, from_=0.1, to=10,
                                variable=self.gain, orient='horizontal',
                                command=lambda v: self.gain_display.set(f"{float(v):.2f}"))
         gain_slider.pack(side='left', fill='x', expand=True)
@@ -1505,7 +1636,7 @@ def main():
 
     # Window dimensions
     gap = 20  # Gap between windows horizontally
-    vertical_gap = 60  # Preferred gap between control panel and graph (can be reduced if needed)
+    vertical_gap = 100  # Preferred gap between control panel and graph (can be reduced if needed)
     video_width = width
     video_height = height
     graph_width = 600
