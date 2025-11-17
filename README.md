@@ -7,28 +7,28 @@
 - [Installation & Setup](#installation--setup)
 - [Repository Structure](#repository-structure)
 - [Branch Descriptions](#branch-descriptions)
-  - [Seasonal Effects](#seasonal-effects)
+  - **Seasonal Effects**
     - [Christmas](#branch-seasons-christmas)
     - [Winter](#branch-seasons-winter)
     - [Fall](#branch-seasons-fall)
     - [Summer](#branch-seasons-summer)
     - [Spring](#branch-seasons-spring)
-  - [Matrix Effects](#matrix-effects)
+  - **Matrix Effects**
     - [Color](#branch-matrix-color)
     - [Green](#branch-matrix-green)
     - [Physics Version](#branch-matrix-old-moving-char-physics-version)
-  - [Line/Edge Effects](#lineedge-effects)
+  - **Line/Edge Effects**
     - [Canny](#branch-lines-canny)
     - [Color Dense](#branch-lines-color-dense)
     - [Color Enhanced](#branch-lines-color-enhanced)
     - [Mono from 24 Channels](#branch-lines-mono-from-24-channels)
     - [Mono Traditional Canny](#branch-lines-mono-traditional-canny)
     - [Sketch](#branch-lines-sketch)
-  - [Refraction/Optical Effects](#refractionoptical-effects)
+  - **Refraction/Optical Effects**
     - [Cut Glass](#branch-refraction-cut-glass)
     - [Rain Drops](#branch-refraction-rain-drops)
     - [Square Lenses](#branch-refraction-square-lenses)
-  - [Miscellaneous](#miscellaneous)
+  - **Miscellaneous**
     - [Main (FFT Filtering)](#branch-main)
     - [Frequency Filter](#branch-frequency-filter)
     - [Signals Ringing](#branch-signals-ringing)
