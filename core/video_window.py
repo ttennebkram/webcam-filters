@@ -80,7 +80,6 @@ class VideoWindow:
             # Update canvas
             if self.canvas_image_id is None:
                 self.canvas_image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-                print(f"Created canvas image, id={self.canvas_image_id}")
             else:
                 self.canvas.itemconfig(self.canvas_image_id, image=photo)
 
@@ -108,3 +107,19 @@ class VideoWindow:
             y: Y coordinate
         """
         self.window.geometry(f"+{x}+{y}")
+
+    def resize(self, width, height):
+        """Resize the window and canvas
+
+        Args:
+            width: New width
+            height: New height
+        """
+        self.canvas.config(width=width, height=height)
+        # Get current position
+        geometry = self.window.geometry()
+        if '+' in geometry:
+            pos = geometry.split('+', 1)[1]
+            self.window.geometry(f"{width}x{height}+{pos}")
+        else:
+            self.window.geometry(f"{width}x{height}")

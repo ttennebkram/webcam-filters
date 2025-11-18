@@ -35,27 +35,20 @@ def get_camera_name(index):
     Returns:
         String description of the camera
     """
-    # On macOS, camera 0 is usually built-in
-    if platform.system() == 'Darwin' and index == 0:
-        return "Built-in Camera"
-    else:
-        return f"Camera {index}"
+    return f"Camera {index}"
 
 
-def open_camera(index, width=None, height=None, warmup_frames=5):
+def open_camera(index, width=None, height=None):
     """Open a camera with optional resolution
 
     Args:
         index: Camera index
         width: Desired width (or None for default)
         height: Desired height (or None for default)
-        warmup_frames: Number of frames to discard for camera warmup (default: 5)
 
     Returns:
         cv2.VideoCapture object or None if failed
     """
-    import time
-
     cap = cv2.VideoCapture(index)
 
     if not cap.isOpened():
@@ -65,13 +58,5 @@ def open_camera(index, width=None, height=None, warmup_frames=5):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     if height is not None:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-    # Give camera time to initialize
-    time.sleep(0.5)
-
-    # Discard initial frames to allow camera to adjust exposure/white balance
-    for _ in range(warmup_frames):
-        cap.read()
-        time.sleep(0.1)
 
     return cap
