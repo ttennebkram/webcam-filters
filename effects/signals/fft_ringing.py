@@ -154,6 +154,12 @@ class SignalsRingingEffect(BaseUIEffect):
         self.viz_ax = None
         self.viz_canvas = None
 
+        # Difference window (shows what the filter removed)
+        self.diff_window = None
+        self.diff_label = None
+        self.input_frame = None
+        self.diff_frame = None
+
         # References for UI elements (will be set in _build_ui)
         self.rgb_table_frame = None
         self.rgb_expanded = None
@@ -248,6 +254,9 @@ class SignalsRingingEffect(BaseUIEffect):
 
         # Update visualization with initial settings
         self._update_visualization()
+
+        # Create the difference window
+        self._create_diff_window()
 
         return self.control_panel
 
@@ -741,6 +750,43 @@ class SignalsRingingEffect(BaseUIEffect):
             self.viz_ax = None
             self.viz_canvas = None
 
+    def _create_diff_window(self):
+        """Create window to display difference between input and filtered output"""
+        if self.diff_window is not None or self.root_window is None:
+            return
+
+        self.diff_window = tk.Toplevel(self.root_window)
+        self.diff_window.title("Difference View (Conservation of Energy)")
+
+        # Create label to hold the image
+        self.diff_label = tk.Label(self.diff_window)
+        self.diff_label.pack()
+
+        self.diff_window.protocol("WM_DELETE_WINDOW", self._close_diff_window)
+
+    def _close_diff_window(self):
+        """Close the difference window"""
+        if self.diff_window:
+            self.diff_window.destroy()
+            self.diff_window = None
+            self.diff_label = None
+
+    def _update_diff_window(self):
+        """Update the difference window with the current diff frame"""
+        if self.diff_window is None or self.diff_label is None or self.diff_frame is None:
+            return
+
+        # Convert BGR to RGB for display
+        import PIL.Image
+        import PIL.ImageTk
+        diff_rgb = cv2.cvtColor(self.diff_frame, cv2.COLOR_BGR2RGB)
+        img = PIL.Image.fromarray(diff_rgb)
+        imgtk = PIL.ImageTk.PhotoImage(image=img)
+
+        # Update label
+        self.diff_label.imgtk = imgtk  # Keep reference to prevent garbage collection
+        self.diff_label.configure(image=imgtk)
+
     def _update_visualization(self):
         """Update the visualization graph based on current mode and settings"""
         if not self.viz_ax or not self.viz_canvas:
@@ -1038,6 +1084,9 @@ class SignalsRingingEffect(BaseUIEffect):
 
     def draw(self, frame, face_mask=None):
         """Apply FFT-based high-pass filter"""
+        # Store input frame for difference calculation
+        self.input_frame = frame.copy()
+
         output_mode = self.output_mode.get()
 
         if output_mode == "grayscale_composite":
@@ -1173,8 +1222,15 @@ class SignalsRingingEffect(BaseUIEffect):
             # Merge channels (BGR order)
             result = cv2.merge([filtered_channels['blue'], filtered_channels['green'], filtered_channels['red']])
 
+        # Calculate absolute difference between input and filtered output
+        self.diff_frame = cv2.absdiff(self.input_frame, result)
+
+        # Update difference window display if it exists
+        self._update_diff_window()
+
         return result
 
     def cleanup(self):
         """Clean up resources"""
         self._close_visualization_window()
+        self._close_diff_window()
