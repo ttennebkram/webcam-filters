@@ -207,9 +207,13 @@ class ChristmasEffect(BaseUIEffect):
         ttk.Checkbutton(panel, text="Pine Garland Border", variable=self.enable_garland).pack(anchor='w', pady=2)
         ttk.Checkbutton(panel, text="Warm Tungsten Lighting", variable=self.enable_warm_lighting).pack(anchor='w', pady=2)
 
-        # Ornament controls grouped together
-        ttk.Checkbutton(panel, text="Ornament Balls", variable=self.enable_ornaments).pack(anchor='w', pady=(5, 2))
-        ttk.Label(panel, text="Number of Ornaments (Total):").pack(anchor='w', pady=(0, 0))
+        ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
+
+        # Ornaments section
+        ttk.Label(panel, text="Ornaments", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        ttk.Checkbutton(panel, text="Ornament Balls", variable=self.enable_ornaments).pack(anchor='w', pady=2)
+        ttk.Label(panel, text="Number of Ornaments (Total):").pack(anchor='w', pady=(5, 0))
         ornament_frame = ttk.Frame(panel)
         ornament_frame.pack(fill='x', pady=2)
         ornament_slider = ttk.Scale(ornament_frame, from_=0, to=100, variable=self.num_ornaments, orient='horizontal',
@@ -220,14 +224,19 @@ class ChristmasEffect(BaseUIEffect):
         # Trace changes to regenerate ornaments
         self.num_ornaments.trace_add('write', lambda *args: self._generate_ornaments())
 
+        ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
+
+        # Snowflakes section
+        ttk.Label(panel, text="Snowflakes", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
+
         # Trace changes to regenerate snowflakes when size changes
         self.snow_size.trace_add('write', lambda *args: self._generate_snowflakes())
 
         # Snow type and size dropdowns
         snow_frame = ttk.Frame(panel)
-        snow_frame.pack(fill='x', pady=(5, 2))
+        snow_frame.pack(fill='x', pady=2)
 
-        ttk.Label(snow_frame, text="Snowflakes:").pack(side='left', padx=(0, 5))
+        ttk.Label(snow_frame, text="Type:").pack(side='left', padx=(0, 5))
         snow_combo = ttk.Combobox(snow_frame, textvariable=self.snow_type, state='readonly', width=10)
         snow_combo['values'] = ('None', 'White', 'Colored')
         snow_combo.pack(side='left', padx=(0, 10))
