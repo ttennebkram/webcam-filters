@@ -523,6 +523,9 @@ class SignalsRingingEffect(BaseUIEffect):
             smooth_slider.grid(row=row, column=4, padx=5, pady=5, sticky='ew')
             tk.Label(bitplane_table_frame, textvariable=self.bitplane_smoothness[i], width=4).grid(row=row, column=5, padx=2, pady=5)
 
+        # Separator line before "All" row
+        ttk.Separator(bitplane_table_frame, orient='horizontal').grid(row=8, column=0, columnspan=6, sticky='ew', pady=(10, 5))
+
         # "All" row at the bottom
         ttk.Label(bitplane_table_frame, text="All", font=('TkDefaultFont', 14, 'bold')).grid(row=9, column=0, padx=5, pady=5, sticky='e')
 
@@ -658,6 +661,9 @@ class SignalsRingingEffect(BaseUIEffect):
 
                 tk.Label(table_frame, textvariable=self.color_bitplane_smoothness[color_key][i],
                         width=4, foreground=color_fg).grid(row=row, column=5, padx=2, pady=5)
+
+            # Separator line before "All" row
+            ttk.Separator(table_frame, orient='horizontal').grid(row=8, column=0, columnspan=6, sticky='ew', pady=(10, 5))
 
             # "All" row at the bottom for this color
             tk.Label(table_frame, text="All", font=('TkDefaultFont', 14, 'bold'), foreground=color_fg).grid(row=9, column=0, padx=5, pady=5, sticky='e')
