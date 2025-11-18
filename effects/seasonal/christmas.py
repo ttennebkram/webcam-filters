@@ -205,11 +205,11 @@ class ChristmasEffect(BaseUIEffect):
         ttk.Label(panel, text="Elements", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
 
         ttk.Checkbutton(panel, text="Pine Garland Border", variable=self.enable_garland).pack(anchor='w', pady=2)
-        ttk.Checkbutton(panel, text="Ornament Balls", variable=self.enable_ornaments).pack(anchor='w', pady=2)
         ttk.Checkbutton(panel, text="Warm Tungsten Lighting", variable=self.enable_warm_lighting).pack(anchor='w', pady=2)
 
-        # Number of ornaments slider
-        ttk.Label(panel, text="Number of Ornaments (Total):").pack(anchor='w', pady=(5, 0))
+        # Ornament controls grouped together
+        ttk.Checkbutton(panel, text="Ornament Balls", variable=self.enable_ornaments).pack(anchor='w', pady=(5, 2))
+        ttk.Label(panel, text="Number of Ornaments (Total):").pack(anchor='w', pady=(0, 0))
         ornament_frame = ttk.Frame(panel)
         ornament_frame.pack(fill='x', pady=2)
         ornament_slider = ttk.Scale(ornament_frame, from_=0, to=100, variable=self.num_ornaments, orient='horizontal',
