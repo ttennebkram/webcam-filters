@@ -316,8 +316,8 @@ class ChristmasEffect(BaseUIEffect):
 
         ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
 
-        # Edge Detection with Gold Edge Glow checkbox
-        ttk.Label(panel, text="Edge Detection", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
+        # Edges section
+        ttk.Label(panel, text="Edges", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
 
         # Gold Edge Glow checkbox
         ttk.Checkbutton(panel, text="Gold Edge Glow", variable=self.enable_gold_edges).pack(anchor='w', pady=2)
@@ -329,10 +329,8 @@ class ChristmasEffect(BaseUIEffect):
         ttk.Scale(threshold_frame, from_=50, to=300, variable=self.edge_threshold, orient='horizontal').pack(side='left', fill='x', expand=True)
         ttk.Label(threshold_frame, textvariable=self.edge_threshold, width=5).pack(side='left', padx=(5, 0))
 
-        ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
-
-        # Gold Color Controls
-        ttk.Label(panel, text="Gold Edge Color (HSV)", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
+        # Gold Color Controls (same section, no separator)
+        ttk.Label(panel, text="Gold Edge Color (HSV):", font=('TkDefaultFont', 10)).pack(anchor='w', pady=(10, 5))
 
         # Hue
         ttk.Label(panel, text="Hue (0-179):").pack(anchor='w', pady=(5, 0))
