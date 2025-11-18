@@ -518,9 +518,10 @@ Examples:
 
     if hasattr(effect, 'diff_window') and effect.diff_window is not None:
         print("DEBUG: Positioning difference window...")
-        effect.diff_window.update_idletasks()
-        diff_width = effect.diff_window.winfo_reqwidth()
-        diff_height = effect.diff_window.winfo_reqheight()
+
+        # Use the actual video dimensions for the diff window size
+        diff_width = video_width
+        diff_height = video_height
 
         # Position to the right of the video window, with slight overlap
         # Start 80% across the video window width

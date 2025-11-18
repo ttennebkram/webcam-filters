@@ -764,9 +764,8 @@ class SignalsRingingEffect(BaseUIEffect):
         self.diff_label = tk.Label(self.diff_window, bg='black')
         self.diff_label.pack()
 
-        # Set a default geometry to ensure window has size
-        # This will be updated with actual frame dimensions
-        self.diff_window.geometry("640x480")
+        # Set geometry to match video dimensions
+        self.diff_window.geometry(f"{self.width}x{self.height}")
 
         # Make sure window is visible
         self.diff_window.deiconify()
