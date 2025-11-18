@@ -135,6 +135,12 @@ class SignalsRingingEffect(BaseUIEffect):
             self.bitplane_radius_slider.append(tk.DoubleVar(value=0))  # Default to 0
             self.bitplane_smoothness.append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
 
+        # "All" controls for grayscale bit planes
+        self.bitplane_all_enable = tk.BooleanVar(value=True)
+        self.bitplane_all_radius = tk.IntVar(value=0)
+        self.bitplane_all_radius_slider = tk.DoubleVar(value=0)
+        self.bitplane_all_smoothness = tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)
+
         # Color bit plane controls (3 colors × 8 bit planes each)
         self.color_bitplane_enable = {'red': [], 'green': [], 'blue': []}
         self.color_bitplane_radius = {'red': [], 'green': [], 'blue': []}
@@ -147,6 +153,20 @@ class SignalsRingingEffect(BaseUIEffect):
                 self.color_bitplane_radius[color].append(tk.IntVar(value=0))
                 self.color_bitplane_radius_slider[color].append(tk.DoubleVar(value=0))
                 self.color_bitplane_smoothness[color].append(tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS))
+
+        # "All" controls for color bit planes
+        self.color_bitplane_all_enable = {'red': tk.BooleanVar(value=True),
+                                           'green': tk.BooleanVar(value=True),
+                                           'blue': tk.BooleanVar(value=True)}
+        self.color_bitplane_all_radius = {'red': tk.IntVar(value=0),
+                                           'green': tk.IntVar(value=0),
+                                           'blue': tk.IntVar(value=0)}
+        self.color_bitplane_all_radius_slider = {'red': tk.DoubleVar(value=0),
+                                                  'green': tk.DoubleVar(value=0),
+                                                  'blue': tk.DoubleVar(value=0)}
+        self.color_bitplane_all_smoothness = {'red': tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS),
+                                               'green': tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS),
+                                               'blue': tk.IntVar(value=DEFAULT_FFT_SMOOTHNESS)}
 
         # Visualization window
         self.viz_window = None
@@ -481,10 +501,44 @@ class SignalsRingingEffect(BaseUIEffect):
         ttk.Label(bitplane_table_frame, text="Smoothness (Butterworth offset)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
+        # "All" row
+        ttk.Label(bitplane_table_frame, text="All", font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+
+        def on_bitplane_all_enable_change(*args):
+            enabled = self.bitplane_all_enable.get()
+            for i in range(8):
+                self.bitplane_enable[i].set(enabled)
+
+        self.bitplane_all_enable.trace_add("write", on_bitplane_all_enable_change)
+        ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_all_enable).grid(row=1, column=1, padx=5, pady=5)
+
+        def update_all_bitplane_radius(slider_val):
+            radius = self._slider_to_radius(float(slider_val))
+            self.bitplane_all_radius.set(radius)
+            for i in range(8):
+                self.bitplane_radius[i].set(radius)
+                self.bitplane_radius_slider[i].set(slider_val)
+
+        all_radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_radius_slider, orient='horizontal',
+                                     command=lambda v: update_all_bitplane_radius(v))
+        all_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_radius, width=4).grid(row=1, column=3, padx=(2, 10), pady=5)
+
+        def update_all_bitplane_smoothness(val):
+            smoothness = int(float(val))
+            self.bitplane_all_smoothness.set(smoothness)
+            for i in range(8):
+                self.bitplane_smoothness[i].set(smoothness)
+
+        all_smooth_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_smoothness, orient='horizontal',
+                                      command=lambda v: update_all_bitplane_smoothness(v))
+        all_smooth_slider.grid(row=1, column=4, padx=5, pady=5, sticky='ew')
+        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_smoothness, width=4).grid(row=1, column=5, padx=2, pady=5)
+
         # Create 8 rows for bit planes
         bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
         for i, label in enumerate(bit_labels):
-            row = i + 1
+            row = i + 2  # Start at row 2 now (after "All" row)
 
             ttk.Label(bitplane_table_frame, text=label).grid(row=row, column=0, padx=5, pady=5, sticky='e')
             ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
@@ -574,11 +628,51 @@ class SignalsRingingEffect(BaseUIEffect):
             ttk.Label(table_frame, text="Smoothness (Butterworth offset)", style=style_name).grid(row=0, column=4, padx=5, pady=2)
             ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
+            # "All" row for this color
+            tk.Label(table_frame, text="All", font=('TkDefaultFont', 9, 'bold'), foreground=color_fg).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+
+            def on_color_all_enable_change(c=color_key, *args):
+                enabled = self.color_bitplane_all_enable[c].get()
+                for i in range(8):
+                    self.color_bitplane_enable[c][i].set(enabled)
+
+            self.color_bitplane_all_enable[color_key].trace_add("write", on_color_all_enable_change)
+            ttk.Checkbutton(table_frame, variable=self.color_bitplane_all_enable[color_key]).grid(row=1, column=1, padx=5, pady=5)
+
+            def update_all_color_bp_radius(slider_val, c=color_key):
+                radius = self._slider_to_radius(float(slider_val))
+                self.color_bitplane_all_radius[c].set(radius)
+                for i in range(8):
+                    self.color_bitplane_radius[c][i].set(radius)
+                    self.color_bitplane_radius_slider[c][i].set(slider_val)
+
+            all_color_radius_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                               variable=self.color_bitplane_all_radius_slider[color_key],
+                                               orient='horizontal',
+                                               command=lambda v, c=color_key: update_all_color_bp_radius(v, c))
+            all_color_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+            tk.Label(table_frame, textvariable=self.color_bitplane_all_radius[color_key],
+                    width=4, foreground=color_fg).grid(row=1, column=3, padx=(2, 10), pady=5)
+
+            def update_all_color_bp_smoothness(val, c=color_key):
+                smoothness = int(float(val))
+                self.color_bitplane_all_smoothness[c].set(smoothness)
+                for i in range(8):
+                    self.color_bitplane_smoothness[c][i].set(smoothness)
+
+            all_color_smooth_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                               variable=self.color_bitplane_all_smoothness[color_key],
+                                               orient='horizontal',
+                                               command=lambda v, c=color_key: update_all_color_bp_smoothness(v, c))
+            all_color_smooth_slider.grid(row=1, column=4, padx=5, pady=5, sticky='ew')
+            tk.Label(table_frame, textvariable=self.color_bitplane_all_smoothness[color_key],
+                    width=4, foreground=color_fg).grid(row=1, column=5, padx=2, pady=5)
+
             # Create 8 rows for bit planes
             bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
 
             for i, label in enumerate(bit_labels):
-                row = i + 1
+                row = i + 2  # Start at row 2 now (after "All" row)
 
                 ttk.Label(table_frame, text=label, style=style_name).grid(row=row, column=0, padx=5, pady=5, sticky='e')
                 ttk.Checkbutton(table_frame, variable=self.color_bitplane_enable[color_key][i]).grid(row=row, column=1, padx=5, pady=5)
