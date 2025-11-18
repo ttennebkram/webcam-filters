@@ -10,10 +10,36 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 import cv2
+import json
+import os
+import math
 
 from effects import discover_effects, list_effects, get_effect_class
 from core.camera import find_cameras, get_camera_name, open_camera
 from core.video_window import VideoWindow
+
+# Settings file path
+SETTINGS_FILE = os.path.expanduser("~/.webcam_filters_settings.json")
+
+
+def load_settings():
+    """Load settings from JSON file"""
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load settings: {e}")
+    return {}
+
+
+def save_settings(settings):
+    """Save settings to JSON file"""
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save settings: {e}")
 
 
 def list_available_effects():
@@ -92,9 +118,18 @@ Examples:
         list_available_cameras()
         return 0
 
+    # Load saved settings early to get the saved effect
+    saved_settings = load_settings()
+
+    # Use saved effect if no effect was specified on command line
+    effect_to_load = args.effect
+    if args.effect == 'misc/passthrough' and 'effect' in saved_settings:
+        effect_to_load = saved_settings['effect']
+        print(f"Loading saved effect: {effect_to_load}")
+
     # Load the effect class (defaults to passthrough if not specified)
     try:
-        effect_class = get_effect_class(args.effect)
+        effect_class = get_effect_class(effect_to_load)
     except KeyError as e:
         print(f"Error: {e}")
         print("\nUse --list to see available effects")
@@ -144,21 +179,33 @@ Examples:
     root = tk.Tk()
     root.withdraw()  # Hide the root window
 
+    # Shared flag to trigger shutdown when any window is closed
+    shutdown_flag = {'should_exit': False}
+
+    def on_any_window_close():
+        """Called when any window is closed - triggers complete shutdown"""
+        shutdown_flag['should_exit'] = True
+
     # Create global controls window
     global_controls = tk.Toplevel(root)
     global_controls.title("Webcam Filters - Global Controls")
+    global_controls.protocol("WM_DELETE_WINDOW", on_any_window_close)
+    global_controls.configure(highlightthickness=0)
 
     global_frame = ttk.Frame(global_controls, padding=10)
     global_frame.pack(fill=tk.BOTH, expand=True)
+    # Disable focus highlight
+    global_frame.configure(takefocus=0)
 
     # Top row with Camera, Resolution, and Flip in a grid layout
     top_row = ttk.Frame(global_frame)
-    top_row.pack(fill='x', pady=(0, 10))
+    top_row.pack(fill='x', pady=(0, 5))
+    top_row.configure(takefocus=0)
 
     # Column headers
-    ttk.Label(top_row, text="Camera").grid(row=0, column=0, sticky='w', padx=5, pady=2)
-    ttk.Label(top_row, text="Resolution").grid(row=0, column=1, sticky='w', padx=5, pady=2)
-    ttk.Label(top_row, text="Mirror Flip").grid(row=0, column=2, sticky='w', padx=5, pady=2)
+    ttk.Label(top_row, text="Camera").grid(row=0, column=0, sticky='w', padx=2, pady=2)
+    ttk.Label(top_row, text="Resolution").grid(row=0, column=1, sticky='w', padx=2, pady=2)
+    ttk.Label(top_row, text="Mirror Flip").grid(row=0, column=2, sticky='w', padx=2, pady=2)
 
     # Shared state for camera/resolution changes
     camera_state = {
@@ -168,12 +215,12 @@ Examples:
         'needs_reopen': False
     }
 
-    # Camera dropdown
+    # Camera dropdown (reduced width)
     camera_var = tk.StringVar(value=f"{camera_index}: {get_camera_name(camera_index)}")
-    camera_combo = ttk.Combobox(top_row, textvariable=camera_var, state='readonly', width=15)
+    camera_combo = ttk.Combobox(top_row, textvariable=camera_var, state='readonly', width=7)
     camera_combo['values'] = [f"{idx}: {get_camera_name(idx)}" for idx in cameras]
     camera_combo.current(cameras.index(camera_index))
-    camera_combo.grid(row=1, column=0, sticky='w', padx=5, pady=2)
+    camera_combo.grid(row=1, column=0, sticky='w', padx=2, pady=2)
 
     def on_camera_change(event):
         new_camera = int(camera_var.get().split(':')[0])
@@ -184,32 +231,28 @@ Examples:
 
     camera_combo.bind('<<ComboboxSelected>>', on_camera_change)
 
-    # Resolution dropdown
+    # Resolution dropdown (shorter labels)
     resolutions = [
-        "640x480 (VGA)",
-        "1024x768 (XGA)",
-        "1280x720 (720p HD)",
-        "1920x1080 (1080p Full HD)"
+        "640x480",
+        "1024x768",
+        "1280x720",
+        "1920x1080"
     ]
 
     current_res = f"{width}x{height}"
     resolution_var = tk.StringVar()
-    found_match = False
-    for res in resolutions:
-        if current_res in res:
-            resolution_var.set(res)
-            found_match = True
-            break
-    if not found_match:
-        resolution_var.set(f"{current_res} (Custom)")
+    if current_res in resolutions:
+        resolution_var.set(current_res)
+    else:
+        resolution_var.set(f"{current_res}")
 
-    resolution_combo = ttk.Combobox(top_row, textvariable=resolution_var, state='readonly', width=20)
+    resolution_combo = ttk.Combobox(top_row, textvariable=resolution_var, state='readonly', width=9)
     resolution_combo['values'] = resolutions
-    resolution_combo.grid(row=1, column=1, sticky='w', padx=5, pady=2)
+    resolution_combo.grid(row=1, column=1, sticky='w', padx=2, pady=2)
 
     def on_resolution_change(event):
         try:
-            res_str = resolution_var.get().split()[0]
+            res_str = resolution_var.get()
             new_width, new_height = int(res_str.split('x')[0]), int(res_str.split('x')[1])
             if new_width != camera_state['current_width'] or new_height != camera_state['current_height']:
                 print(f"Changing resolution from {camera_state['current_width']}x{camera_state['current_height']} to {new_width}x{new_height}")
@@ -224,16 +267,11 @@ Examples:
     resolution_combo.bind('<<ComboboxSelected>>', on_resolution_change)
 
     # Flip checkbox
-    flip_var = tk.BooleanVar(value=True)
-    ttk.Checkbutton(top_row, text="Flip Left/Right", variable=flip_var).grid(row=1, column=2, sticky='w', padx=5, pady=2)
-
-    # Show original checkbox (below the grid)
-    show_original_var = tk.BooleanVar(value=False)
-    ttk.Checkbutton(global_frame, text="Show Original Image (disable all effects)",
-                   variable=show_original_var).pack(anchor='w', pady=(10, 5))
+    flip_var = tk.BooleanVar(value=saved_settings.get('flip', True))
+    ttk.Checkbutton(top_row, text="Flip Left/Right", variable=flip_var).grid(row=1, column=2, sticky='w', padx=2, pady=2)
 
     # Effect selection on its own row
-    ttk.Label(global_frame, text="Effect (restarts program):").pack(anchor='w', pady=(5, 2))
+    ttk.Label(global_frame, text="Effect (RESTARTS program):").pack(anchor='w', pady=(5, 2))
 
     # Shared state for effect restart
     restart_info = {'should_restart': False, 'args': []}
@@ -241,30 +279,149 @@ Examples:
     all_effects = list_effects()
     effect_keys = [key for key, name, desc, category in all_effects]
 
-    effect_var = tk.StringVar(value=args.effect)
-    effect_combo = ttk.Combobox(global_frame, textvariable=effect_var, state='readonly', width=40)
+    # Frame to hold effect dropdown and reload button
+    effect_row = ttk.Frame(global_frame)
+    effect_row.pack(fill='x', pady=(0, 3))
+    effect_row.configure(takefocus=0)
+
+    # Output section header
+    ttk.Label(global_frame, text="Output", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(5, 3))
+
+    # Gain and Invert controls (like FFT ringing)
+    ttk.Label(global_frame, text="Gain: 0.1x to 10x").pack(anchor='w', pady=(3, 0))
+
+    # Container for slider and tick marks
+    gain_container = ttk.Frame(global_frame)
+    gain_container.pack(fill='x', pady=(0, 0))
+    gain_container.configure(takefocus=0)
+
+    gain_frame = ttk.Frame(gain_container)
+    gain_frame.pack(fill='x')
+    gain_frame.configure(takefocus=0)
+
+    # Use logarithmic scale: slider goes from -1 to 1, maps to 10^slider (0.1 to 10)
+    # Convert saved gain to log scale for slider
+    saved_gain = saved_settings.get('gain', 1.0)
+    initial_slider_value = math.log10(saved_gain) if saved_gain > 0 else 0
+
+    gain_slider_var = tk.DoubleVar(value=initial_slider_value)
+    gain_var = tk.DoubleVar(value=saved_gain)  # Actual gain value
+    gain_display_var = tk.StringVar(value=f"{saved_gain:.2f}x")
+
+    def on_gain_slider_change(log_value):
+        """Convert logarithmic slider value to actual gain"""
+        actual_gain = 10 ** float(log_value)
+        gain_var.set(actual_gain)
+        gain_display_var.set(f"{actual_gain:.2f}x")
+
+    # Create slider (back to ttk.Scale for consistent styling)
+    gain_slider = ttk.Scale(gain_frame, from_=-1, to=1, variable=gain_slider_var, orient='horizontal',
+                           command=on_gain_slider_change)
+    gain_slider.pack(side='left', fill='x', expand=True, padx=(0, 5))
+    ttk.Label(gain_frame, textvariable=gain_display_var, width=7).pack(side='left')
+
+    # Add tick marks below the slider
+    # Use system background color for the canvas
+    style = ttk.Style()
+    bg_color = style.lookup('TFrame', 'background')
+    tick_canvas = tk.Canvas(gain_container, height=8, bg=bg_color or 'SystemButtonFace', highlightthickness=0)
+    tick_canvas.pack(fill='x', padx=(0, 52))  # Match slider padding + label width
+
+    def draw_tick_marks():
+        """Draw tick marks at logarithmic positions"""
+        tick_canvas.delete('all')
+        canvas_width = tick_canvas.winfo_width()
+        if canvas_width <= 1:
+            # Not yet rendered, try again later
+            tick_canvas.after(100, draw_tick_marks)
+            return
+
+        # Get the actual slider widget dimensions
+        try:
+            slider_width = gain_slider.winfo_width()
+            # ttk.Scale has internal padding, calculate based on actual slider position
+            # The trough (the draggable area) is slightly inset from the widget edges
+            # For ttk.Scale on macOS, this is typically about 9-10 pixels per side
+            trough_padding = 9
+            trough_width = slider_width - (2 * trough_padding)
+
+            # Tick positions at all integer gain values
+            # Small ticks at 0.1x through 0.9x, 2x through 9x, and 10x
+            # Large tick at 1x (no gain)
+            ticks = []
+
+            # Add ticks for 0.1x to 0.9x
+            for i in range(1, 10):
+                gain = i / 10.0
+                log_pos = math.log10(gain)
+                ticks.append((log_pos, 3))
+
+            # Large tick at 1x
+            ticks.append((0.0, 6))
+
+            # Add ticks for 2x to 10x
+            for i in range(2, 11):
+                gain = float(i)
+                log_pos = math.log10(gain)
+                ticks.append((log_pos, 3))
+
+            for log_pos, height in ticks:
+                # Map from -1..1 to the trough area
+                x = int(trough_padding + (log_pos + 1) / 2 * trough_width)
+                tick_canvas.create_line(x, 0, x, height, fill='gray40', width=1)
+        except:
+            # If we can't get dimensions yet, try again
+            tick_canvas.after(100, draw_tick_marks)
+
+    tick_canvas.bind('<Configure>', lambda e: draw_tick_marks())
+    draw_tick_marks()
+
+    # Invert checkbox
+    invert_var = tk.BooleanVar(value=saved_settings.get('invert', False))
+    ttk.Checkbutton(global_frame, text="Invert", variable=invert_var).pack(anchor='w', pady=(3, 3))
+
+    # Show original checkbox (moved here from top, now in Output section)
+    show_original_var = tk.BooleanVar(value=saved_settings.get('show_original', False))
+    ttk.Checkbutton(global_frame, text="Show Original (no effects)",
+                   variable=show_original_var).pack(anchor='w', pady=(0, 3))
+
+    # Use the loaded effect (width removed to let it expand)
+    effect_var = tk.StringVar(value=effect_to_load)
+    effect_combo = ttk.Combobox(effect_row, textvariable=effect_var, state='readonly')
     effect_combo['values'] = effect_keys
-    if args.effect in effect_keys:
-        effect_combo.current(effect_keys.index(args.effect))
-    effect_combo.pack(fill='x', pady=(0, 5))
+    if effect_to_load in effect_keys:
+        effect_combo.current(effect_keys.index(effect_to_load))
+    effect_combo.pack(side='left', fill='x', expand=True)
 
     def on_effect_change(event):
         new_effect = effect_var.get()
-        if new_effect != args.effect:
+        if new_effect != effect_to_load:
             restart_info['should_restart'] = True
             restart_info['args'] = [sys.executable, sys.argv[0], new_effect,
                                      '--camera', str(camera_state['current_camera']),
                                      '--width', str(camera_state['current_width']),
                                      '--height', str(camera_state['current_height'])]
 
+    def on_reload_click():
+        """Reload the current effect by restarting with same effect"""
+        restart_info['should_restart'] = True
+        restart_info['args'] = [sys.executable, sys.argv[0], effect_to_load,
+                                 '--camera', str(camera_state['current_camera']),
+                                 '--width', str(camera_state['current_width']),
+                                 '--height', str(camera_state['current_height'])]
+
     effect_combo.bind('<<ComboboxSelected>>', on_effect_change)
+
+    # Reload button next to effect dropdown
+    reload_button = ttk.Button(effect_row, text="Reload", command=on_reload_click, width=8)
+    reload_button.pack(side='left', padx=(5, 0))
 
     ttk.Label(global_frame, text="Camera and resolution change instantly",
               font=('TkDefaultFont', 8, 'italic')).pack(anchor='w', pady=(5, 0))
 
     # Create the effect instance
     print(f"Loading effect: {effect_class.get_name()}")
-    if args.effect == 'misc/passthrough':
+    if effect_to_load == 'misc/passthrough' and args.effect == 'misc/passthrough':
         print("(Using default passthrough effect - use --list to see other effects)")
 
     # Check if effect needs the root window (for UI effects)
@@ -275,17 +432,22 @@ Examples:
         # Create control panel window for UI effects
         if hasattr(effect, 'create_control_panel'):
             control_window = tk.Toplevel(root)
-            control_window.title(f"{effect_class.get_name()} - Controls")
-            control_window.geometry("450x600")  # Set larger default size
-            control_window.minsize(400, 500)    # Prevent it from being too small
+            # Use custom title if effect has one, otherwise default
+            if hasattr(effect_class, 'get_control_title'):
+                control_window.title(effect_class.get_control_title())
+            else:
+                control_window.title(f"{effect_class.get_name()} - Controls")
+            control_window.geometry("700x600")  # Set larger default size
+            control_window.minsize(700, 500)    # Prevent it from being too small
+            control_window.protocol("WM_DELETE_WINDOW", on_any_window_close)
             control_panel = effect.create_control_panel(control_window)
-            control_panel.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     else:
         effect = effect_class(width, height)
 
     # Create video window
     video_window = VideoWindow(root, title=f"Webcam Filter - {effect_class.get_name()}",
-                                width=width, height=height)
+                                width=width, height=height, on_close_callback=on_any_window_close)
 
     # Calculate and set window positions
     # Get screen dimensions
@@ -300,13 +462,23 @@ Examples:
     global_height = global_controls.winfo_reqheight()
 
     # Window dimensions
-    gap = 20  # Gap between windows horizontally
-    vertical_gap = 20  # Gap between windows vertically
+    gap = 160  # Gap between windows horizontally
+    vertical_gap = 80  # Gap between windows vertically (increased to prevent overlap)
     video_width = width
     video_height = height
 
-    # Calculate total width needed for global controls + video
-    total_width = global_width + gap + video_width
+    # Determine the width of the left column (global controls or FFT control window)
+    # If there's a control window, it will be below global controls and might be wider
+    left_column_width = global_width
+    if 'control_window' in locals():
+        control_window.update_idletasks()
+        control_width = control_window.winfo_reqwidth()
+        control_height = control_window.winfo_reqheight()
+        # Use the maximum of global controls width and FFT control width
+        left_column_width = max(global_width, control_width)
+
+    # Calculate total width needed for left column + video
+    total_width = left_column_width + gap + video_width
 
     # Center the layout horizontally
     start_x = max(0, (screen_width - total_width) // 2)
@@ -316,20 +488,28 @@ Examples:
     global_y = 0
     global_controls.geometry(f"{global_width}x{global_height}+{global_x}+{global_y}")
 
-    # Position video window to the right of global controls
-    video_x = global_x + global_width + gap
+    # Position video window to the right of the left column (accounting for widest window)
+    video_x = start_x + left_column_width + gap
     video_y = 0
     video_window.window.geometry(f"{video_width}x{video_height}+{video_x}+{video_y}")
 
     # If there's a control window for the effect, position it below global controls
     if 'control_window' in locals():
-        control_window.update_idletasks()
-        control_width = control_window.winfo_reqwidth()
-        control_height = control_window.winfo_reqheight()
-
         control_x = global_x
         control_y = global_y + global_height + vertical_gap
         control_window.geometry(f"{control_width}x{control_height}+{control_x}+{control_y}")
+
+    # If there's a visualization window (for effects like FFT), position it below the video window
+    if hasattr(effect, 'viz_window') and effect.viz_window is not None:
+        effect.viz_window.update_idletasks()
+        viz_width = effect.viz_window.winfo_reqwidth()
+        viz_height = effect.viz_window.winfo_reqheight()
+
+        # Position aligned with video window horizontally, below it vertically
+        viz_x = video_x  # Same left edge as video window
+        viz_y = video_y + video_height + vertical_gap  # Below video window
+
+        effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
 
     # Force window to show and process events
     root.update()
@@ -344,7 +524,7 @@ Examples:
             status = "ON" if effect_enabled else "OFF"
             print(f"Effect: {status}")
         elif key in ['q', 'esc']:
-            video_window.is_open = False
+            shutdown_flag['should_exit'] = True
 
     video_window.set_key_callback(handle_key)
 
@@ -357,10 +537,15 @@ Examples:
     import time
     import subprocess
     try:
-        while video_window.is_open:
+        while video_window.is_open and not shutdown_flag['should_exit']:
             # Check if effect change requested (requires restart)
             if restart_info['should_restart']:
                 print("\nRestarting with new effect...")
+                break
+
+            # Check if shutdown requested
+            if shutdown_flag['should_exit']:
+                print("\nShutting down...")
                 break
 
             # Check if camera/resolution needs to change
@@ -394,6 +579,15 @@ Examples:
                 effect.update()
                 frame = effect.draw(frame)
 
+                # Apply global gain if not 1.0
+                current_gain = gain_var.get()
+                if current_gain != 1.0:
+                    frame = cv2.convertScaleAbs(frame, alpha=current_gain)
+
+                # Apply global invert if enabled
+                if invert_var.get():
+                    frame = 255 - frame
+
             # Display frame
             video_window.update_frame(frame)
 
@@ -408,6 +602,16 @@ Examples:
         print("\nInterrupted by user")
 
     finally:
+        # Save settings before cleanup
+        current_settings = {
+            'effect': effect_var.get(),
+            'flip': flip_var.get(),
+            'show_original': show_original_var.get(),
+            'gain': gain_var.get(),
+            'invert': invert_var.get()
+        }
+        save_settings(current_settings)
+
         # Cleanup
         print("Cleaning up...")
         effect.cleanup()

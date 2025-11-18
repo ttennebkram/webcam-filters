@@ -26,7 +26,7 @@ import math
 # ============================================================================
 
 # FFT Filter Defaults
-DEFAULT_FFT_RADIUS = 30  # Default radius for FFT low-frequency reject circle
+DEFAULT_FFT_RADIUS = 0  # Default radius for FFT low-frequency reject circle
 DEFAULT_FFT_SMOOTHNESS = 0  # Default smoothness (0 = hard circle, 100 = very smooth transition)
 DEFAULT_SHOW_FFT = False  # Default: don't show FFT visualization
 DEFAULT_GAIN = 1  # Default gain (0.2 to 5, 1=no change)
@@ -181,22 +181,26 @@ class SignalsRingingEffect(BaseUIEffect):
     def get_category(cls):
         return "signals"
 
+    @classmethod
+    def get_control_title(cls):
+        return "FFT Filter"
+
     def _slider_to_radius(self, slider_value):
         """Convert linear slider value (0-100) to exponential radius (0-200+)
 
-        Uses formula: radius = floor(e^(slider/20) - 1)
+        Uses formula: radius = floor(e^(slider/25) - 1)
         This gives fine control at low values and larger steps at high values
         """
-        return int(math.exp(slider_value / 20.0) - 1)
+        return int(math.exp(slider_value / 25.0) - 1)
 
     def _radius_to_slider(self, radius):
         """Convert exponential radius value to linear slider position
 
-        Inverse of _slider_to_radius: slider = 20 * ln(radius + 1)
+        Inverse of _slider_to_radius: slider = 25 * ln(radius + 1)
         """
         if radius <= 0:
             return 0
-        return 20.0 * math.log(radius + 1)
+        return 25.0 * math.log(radius + 1)
 
     def _open_url(self, url):
         """Open a URL in the default web browser"""
@@ -239,14 +243,20 @@ class SignalsRingingEffect(BaseUIEffect):
             self.bitplane_radius[i].trace_add("write", self._on_bitplane_control_change)
             self.bitplane_smoothness[i].trace_add("write", self._on_bitplane_control_change)
 
+        # Always create the visualization window
+        self._create_visualization_window()
+
+        # Update visualization with initial settings
+        self._update_visualization()
+
         return self.control_panel
 
     def _build_ui(self):
         """Build the tkinter UI with scrollable canvas and all collapsible sections"""
         padding = {'padx': 10, 'pady': 3}
 
-        # Create a canvas and scrollbar for scrolling
-        canvas = tk.Canvas(self.control_panel, height=700)
+        # Create a canvas and scrollbar for scrolling (no border or highlight)
+        canvas = tk.Canvas(self.control_panel, height=700, bd=0, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.control_panel, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
 
@@ -266,7 +276,7 @@ class SignalsRingingEffect(BaseUIEffect):
         container = scrollable_frame
 
         # Add invisible spacer frame to maintain minimum width
-        spacer = ttk.Frame(container, width=750, height=1)
+        spacer = ttk.Frame(container, width=660, height=1)
         spacer.pack(fill='x')
         spacer.pack_propagate(False)
 
@@ -288,17 +298,17 @@ class SignalsRingingEffect(BaseUIEffect):
             self.root_window.bind_all("<Button-5>", _on_mousewheel)
 
         # FFT Filter Section
-        fft_frame = ttk.LabelFrame(container, text="FFT Filter", padding=10)
-        fft_frame.pack(fill='x', **padding)
+        fft_frame = ttk.Frame(container, padding=0)
+        fft_frame.pack(fill='x', padx=10, pady=0)
 
-        # Show FFT checkbox
+        # Show FFT checkbox (reduced padding)
         ttk.Checkbutton(fft_frame, text="Show FFT (instead of image)",
                        variable=self.show_fft,
-                       command=self._on_show_fft_change).pack(anchor='w', pady=(5, 10))
+                       command=self._on_show_fft_change).pack(anchor='w', pady=(5, 5))
 
         # Row 1: Grayscale Composite with its controls
-        gs_composite_group = ttk.LabelFrame(fft_frame, text="", padding=5)
-        gs_composite_group.pack(fill='x', pady=(5, 10))
+        gs_composite_group = ttk.LabelFrame(fft_frame, text="", padding=(5, 0, 5, 2))
+        gs_composite_group.pack(fill='x', pady=(5, 2))
 
         gs_columns = ttk.Frame(gs_composite_group)
         gs_columns.pack(fill='x')
@@ -309,9 +319,9 @@ class SignalsRingingEffect(BaseUIEffect):
         gs_right = ttk.Frame(gs_columns)
         gs_right.pack(side='left', fill='x', expand=True, anchor='n')
 
-        # Radio button
+        # Radio button (reduced top padding)
         ttk.Radiobutton(gs_left, text="Grayscale Composite", value="grayscale_composite",
-                       variable=self.output_mode).pack(anchor='nw', pady=(20, 0))
+                       variable=self.output_mode).pack(anchor='nw', pady=(5, 0))
 
         # Controls for Grayscale Composite
         ttk.Label(gs_right, text="Filter Radius in pixels", wraplength=250).pack(anchor='w')
@@ -345,12 +355,12 @@ class SignalsRingingEffect(BaseUIEffect):
         ttk.Label(smooth_row, textvariable=self.fft_smoothness, width=5).pack(side='left', padx=(5, 0))
 
         # Row 2: Individual Color Channels - grouped section with table layout
-        color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=5)
-        color_channels_group.pack(fill='x', pady=(0, 10))
+        color_channels_group = ttk.LabelFrame(fft_frame, text="", padding=(5, 0, 5, 2))
+        color_channels_group.pack(fill='x', pady=(0, 2))
 
         # Header with radio button and expand/collapse button
         rgb_header_frame = ttk.Frame(color_channels_group)
-        rgb_header_frame.pack(fill='x', pady=(0, 5))
+        rgb_header_frame.pack(fill='x', pady=(2, 2))
 
         ttk.Radiobutton(rgb_header_frame, text="Individual Color Channels", value="color_channels",
                        variable=self.output_mode, command=self._on_rgb_radio_select).pack(side='left')
@@ -432,11 +442,11 @@ class SignalsRingingEffect(BaseUIEffect):
         table_frame.columnconfigure(4, weight=1)
 
         # Row 3: Grayscale Bit Planes
-        gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
-        gs_bitplanes_group.pack(fill='x', pady=(0, 10))
+        gs_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=(5, 0, 5, 2))
+        gs_bitplanes_group.pack(fill='x', pady=(0, 2))
 
         header_frame = ttk.Frame(gs_bitplanes_group)
-        header_frame.pack(fill='x', pady=(0, 5))
+        header_frame.pack(fill='x', pady=(2, 2))
 
         bitplane_radio = ttk.Radiobutton(header_frame, text="Grayscale Bit Planes",
                                         value="grayscale_bitplanes",
@@ -488,11 +498,11 @@ class SignalsRingingEffect(BaseUIEffect):
         bitplane_table_frame.columnconfigure(4, weight=1)
 
         # Row 4: Color Bit Planes
-        color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=5)
-        color_bitplanes_group.pack(fill='x', pady=(0, 10))
+        color_bitplanes_group = ttk.LabelFrame(fft_frame, text="", padding=(5, 0, 5, 2))
+        color_bitplanes_group.pack(fill='x', pady=(0, 2))
 
         color_bp_header_frame = ttk.Frame(color_bitplanes_group)
-        color_bp_header_frame.pack(fill='x', pady=(0, 5))
+        color_bp_header_frame.pack(fill='x', pady=(2, 2))
 
         color_bp_radio = ttk.Radiobutton(color_bp_header_frame, text="Color Bit Planes",
                                         value="color_bitplanes",
@@ -596,18 +606,7 @@ class SignalsRingingEffect(BaseUIEffect):
         common_frame = ttk.Frame(fft_frame)
         common_frame.pack(fill='x', pady=(10, 0))
 
-        # Gain slider
-        ttk.Label(common_frame, text="Gain: 0.1x to 1x (no gain) to 10x").pack(anchor='w', pady=(5, 0))
-        gain_row = ttk.Frame(common_frame)
-        gain_row.pack(fill='x')
-        gain_slider = ttk.Scale(gain_row, from_=0.1, to=10,
-                               variable=self.gain, orient='horizontal',
-                               command=lambda v: self.gain_display.set(f"{float(v):.2f}"))
-        gain_slider.pack(side='left', fill='x', expand=True)
-        ttk.Label(gain_row, textvariable=self.gain_display, width=6).pack(side='left', padx=(5, 0))
-
-        # Invert checkbox
-        ttk.Checkbutton(common_frame, text="Invert", variable=self.invert).pack(anchor='w', pady=(5, 0))
+        # Note: Gain and Invert are now in the global controls panel
 
         # Separator
         ttk.Separator(container, orient='horizontal').pack(fill='x', pady=5)
@@ -691,23 +690,23 @@ class SignalsRingingEffect(BaseUIEffect):
         self.output_mode.set("color_channels")
         if not self.rgb_expanded.get():
             self._toggle_rgb_table()
+        self._update_visualization()
 
     def _on_grayscale_control_change(self, *args):
         """Auto-select Grayscale Composite radio button when grayscale controls are changed"""
         self.output_mode.set("grayscale_composite")
+        self._update_visualization()
 
     def _on_bitplane_control_change(self, *args):
         """Auto-select Grayscale Bit Planes radio button when bit plane controls are changed"""
         self.output_mode.set("grayscale_bitplanes")
         if not self.bitplane_expanded.get():
             self._toggle_bitplane_table()
+        self._update_visualization()
 
     def _on_show_fft_change(self):
-        """Handle show FFT checkbox change"""
-        if self.show_fft.get() and self.viz_window is None:
-            self._create_visualization_window()
-        elif not self.show_fft.get() and self.viz_window is not None:
-            self._close_visualization_window()
+        """Handle show FFT checkbox change - no longer used as window is always shown"""
+        pass
 
     def _create_visualization_window(self):
         """Create matplotlib window to visualize the filter curve"""
@@ -741,8 +740,111 @@ class SignalsRingingEffect(BaseUIEffect):
             self.viz_fig = None
             self.viz_ax = None
             self.viz_canvas = None
-            if self.show_fft:
-                self.show_fft.set(False)
+
+    def _update_visualization(self):
+        """Update the visualization graph based on current mode and settings"""
+        if not self.viz_ax or not self.viz_canvas:
+            return
+
+        # Clear previous plot
+        self.viz_ax.clear()
+        self.viz_ax.set_xlabel('Distance from Center (pixels)')
+        self.viz_ax.set_ylabel('Mask Value (0=blocked, 1=passed)')
+        self.viz_ax.set_title('FFT Filter Transition Curve')
+        self.viz_ax.grid(True, alpha=VIZ_GRID_ALPHA)
+        self.viz_ax.set_ylim(VIZ_Y_AXIS_MIN, VIZ_Y_AXIS_MAX)
+
+        # Get current mode
+        mode = self.output_mode.get()
+
+        # Generate x-axis (distance from center)
+        max_distance = 200
+        distances = np.linspace(0, max_distance, 1000)
+
+        if mode == "grayscale_composite":
+            # Plot single curve for grayscale
+            radius = self.fft_radius.get()
+            smoothness = self.fft_smoothness.get()
+            curve = self._compute_filter_curve(distances, radius, smoothness)
+            self.viz_ax.plot(distances, curve, 'b-', linewidth=2, label='Grayscale')
+            self.viz_ax.legend()
+
+        elif mode == "color_channels":
+            # Plot curves for each enabled RGB channel
+            if self.red_enable.get():
+                radius = self.red_radius.get()
+                smoothness = self.red_smoothness.get()
+                curve = self._compute_filter_curve(distances, radius, smoothness)
+                self.viz_ax.plot(distances, curve, 'r-', linewidth=2, label='Red')
+
+            if self.green_enable.get():
+                radius = self.green_radius.get()
+                smoothness = self.green_smoothness.get()
+                curve = self._compute_filter_curve(distances, radius, smoothness)
+                self.viz_ax.plot(distances, curve, 'g-', linewidth=2, label='Green')
+
+            if self.blue_enable.get():
+                radius = self.blue_radius.get()
+                smoothness = self.blue_smoothness.get()
+                curve = self._compute_filter_curve(distances, radius, smoothness)
+                self.viz_ax.plot(distances, curve, 'b-', linewidth=2, label='Blue')
+
+            self.viz_ax.legend()
+
+        elif mode == "grayscale_bitplanes":
+            # Plot curves for each enabled bit plane
+            colors = plt.cm.viridis(np.linspace(0, 1, 8))
+            for i in range(8):
+                if self.bitplane_enable[i].get():
+                    radius = self.bitplane_radius[i].get()
+                    smoothness = self.bitplane_smoothness[i].get()
+                    curve = self._compute_filter_curve(distances, radius, smoothness)
+                    self.viz_ax.plot(distances, curve, color=colors[i], linewidth=1.5,
+                                   label=f'Bit {7-i}', alpha=0.8)
+            self.viz_ax.legend(fontsize=8, ncol=2)
+
+        elif mode == "color_bitplanes":
+            # Plot curves for the selected color channel's bit planes
+            color_channel = self.color_bp_selected_tab.get()
+            color_map = {'red': 'Reds', 'green': 'Greens', 'blue': 'Blues'}
+            colors = plt.cm.get_cmap(color_map[color_channel])(np.linspace(0.3, 1, 8))
+
+            for i in range(8):
+                if self.color_bitplane_enable[color_channel][i].get():
+                    radius = self.color_bitplane_radius[color_channel][i].get()
+                    smoothness = self.color_bitplane_smoothness[color_channel][i].get()
+                    curve = self._compute_filter_curve(distances, radius, smoothness)
+                    self.viz_ax.plot(distances, curve, color=colors[i], linewidth=1.5,
+                                   label=f'{color_channel.capitalize()} Bit {7-i}', alpha=0.8)
+            self.viz_ax.legend(fontsize=8, ncol=2)
+
+        # Redraw canvas
+        self.viz_canvas.draw()
+
+    def _compute_filter_curve(self, distances, radius, smoothness):
+        """Compute the filter curve values for given distances"""
+        if radius == 0:
+            return np.ones_like(distances)
+
+        if smoothness == 0:
+            # Hard circle
+            return np.where(distances <= radius, 0, 1)
+        else:
+            # Butterworth highpass filter
+            order = BUTTERWORTH_ORDER_MAX - (smoothness / BUTTERWORTH_SMOOTHNESS_SCALE) * BUTTERWORTH_ORDER_RANGE
+            if order < BUTTERWORTH_ORDER_MIN:
+                order = BUTTERWORTH_ORDER_MIN
+
+            target_attenuation = BUTTERWORTH_TARGET_ATTENUATION
+            shift_factor = np.power(1.0/target_attenuation - 1.0, 1.0 / (2.0 * order))
+            effective_cutoff = radius * shift_factor
+
+            with np.errstate(divide='ignore', invalid='ignore'):
+                curve = 1.0 / (1.0 + np.power(effective_cutoff / (distances + BUTTERWORTH_DIVISION_EPSILON), 2 * order))
+                curve = np.nan_to_num(curve, nan=0.0, posinf=0.0, neginf=0.0)
+                curve = np.clip(curve, 0, 1)
+
+            return curve
 
     def _save_settings(self):
         """Save all settings to a JSON file"""
@@ -750,8 +852,7 @@ class SignalsRingingEffect(BaseUIEffect):
             'fft_radius': self.fft_radius.get(),
             'fft_smoothness': self.fft_smoothness.get(),
             'show_fft': self.show_fft.get(),
-            'gain': self.gain.get(),
-            'invert': self.invert.get(),
+            # Note: gain and invert are now in global settings
             'output_mode': self.output_mode.get(),
             # RGB channel settings
             'red_enable': self.red_enable.get(),
@@ -806,21 +907,24 @@ class SignalsRingingEffect(BaseUIEffect):
             self.fft_radius.set(settings.get('fft_radius', DEFAULT_FFT_RADIUS))
             self.fft_smoothness.set(settings.get('fft_smoothness', DEFAULT_FFT_SMOOTHNESS))
             self.show_fft.set(settings.get('show_fft', DEFAULT_SHOW_FFT))
-            gain_value = settings.get('gain', DEFAULT_GAIN)
-            self.gain.set(gain_value)
-            self.gain_display.set(f"{gain_value:.1f}")
-            self.invert.set(settings.get('invert', DEFAULT_INVERT))
+            # Note: gain and invert are now loaded from global settings
             self.output_mode.set(settings.get('output_mode', DEFAULT_OUTPUT_MODE))
 
             # Load RGB channel settings
             self.red_enable.set(settings.get('red_enable', True))
-            self.red_radius.set(settings.get('red_radius', DEFAULT_FFT_RADIUS))
+            red_radius_val = settings.get('red_radius', DEFAULT_FFT_RADIUS)
+            self.red_radius.set(red_radius_val)
+            self.red_radius_slider.set(self._radius_to_slider(red_radius_val))
             self.red_smoothness.set(settings.get('red_smoothness', DEFAULT_FFT_SMOOTHNESS))
             self.green_enable.set(settings.get('green_enable', True))
-            self.green_radius.set(settings.get('green_radius', DEFAULT_FFT_RADIUS))
+            green_radius_val = settings.get('green_radius', DEFAULT_FFT_RADIUS)
+            self.green_radius.set(green_radius_val)
+            self.green_radius_slider.set(self._radius_to_slider(green_radius_val))
             self.green_smoothness.set(settings.get('green_smoothness', DEFAULT_FFT_SMOOTHNESS))
             self.blue_enable.set(settings.get('blue_enable', True))
-            self.blue_radius.set(settings.get('blue_radius', DEFAULT_FFT_RADIUS))
+            blue_radius_val = settings.get('blue_radius', DEFAULT_FFT_RADIUS)
+            self.blue_radius.set(blue_radius_val)
+            self.blue_radius_slider.set(self._radius_to_slider(blue_radius_val))
             self.blue_smoothness.set(settings.get('blue_smoothness', DEFAULT_FFT_SMOOTHNESS))
 
             # Load grayscale bit plane settings
@@ -941,13 +1045,7 @@ class SignalsRingingEffect(BaseUIEffect):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             filtered = self._apply_fft_to_channel(gray, self.fft_radius.get(), self.fft_smoothness.get())
 
-            # Apply gain
-            if self.gain.get() != 1.0:
-                filtered = cv2.convertScaleAbs(filtered, alpha=self.gain.get())
-
-            # Invert if requested
-            if self.invert.get():
-                filtered = 255 - filtered
+            # Note: Gain and invert are now applied globally in main.py
 
             # Convert back to BGR
             result = cv2.cvtColor(filtered, cv2.COLOR_GRAY2BGR)
@@ -972,17 +1070,7 @@ class SignalsRingingEffect(BaseUIEffect):
             else:
                 b_filtered = np.zeros_like(b)
 
-            # Apply gain
-            if self.gain.get() != 1.0:
-                r_filtered = cv2.convertScaleAbs(r_filtered, alpha=self.gain.get())
-                g_filtered = cv2.convertScaleAbs(g_filtered, alpha=self.gain.get())
-                b_filtered = cv2.convertScaleAbs(b_filtered, alpha=self.gain.get())
-
-            # Invert if requested
-            if self.invert.get():
-                r_filtered = 255 - r_filtered
-                g_filtered = 255 - g_filtered
-                b_filtered = 255 - b_filtered
+            # Note: Gain and invert are now applied globally in main.py
 
             # Merge back
             result = cv2.merge([b_filtered, g_filtered, r_filtered])
@@ -1030,11 +1118,7 @@ class SignalsRingingEffect(BaseUIEffect):
                         reconstructed += (binary_plane << bit)
                 result = reconstructed
 
-            # Apply gain and invert
-            if self.gain.get() != 1.0:
-                result = cv2.convertScaleAbs(result, alpha=self.gain.get())
-            if self.invert.get():
-                result = 255 - result
+            # Note: Gain and invert are now applied globally in main.py
 
             result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
 
@@ -1084,12 +1168,7 @@ class SignalsRingingEffect(BaseUIEffect):
                             reconstructed += (binary_plane << bit)
                     filtered_channels[color_name] = reconstructed
 
-            # Apply gain and invert
-            for color_name in ['red', 'green', 'blue']:
-                if self.gain.get() != 1.0:
-                    filtered_channels[color_name] = cv2.convertScaleAbs(filtered_channels[color_name], alpha=self.gain.get())
-                if self.invert.get():
-                    filtered_channels[color_name] = 255 - filtered_channels[color_name]
+            # Note: Gain and invert are now applied globally in main.py
 
             # Merge channels (BGR order)
             result = cv2.merge([filtered_channels['blue'], filtered_channels['green'], filtered_channels['red']])

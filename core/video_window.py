@@ -12,7 +12,7 @@ import cv2
 class VideoWindow:
     """Tkinter window for displaying video using PIL/ImageTk"""
 
-    def __init__(self, root, title="Video", width=640, height=480):
+    def __init__(self, root, title="Video", width=640, height=480, on_close_callback=None):
         """Create a video display window
 
         Args:
@@ -20,6 +20,7 @@ class VideoWindow:
             title: Window title
             width: Initial window width
             height: Initial window height
+            on_close_callback: Optional callback function to call when window is closed
         """
         self.root = root
         self.window = tk.Toplevel(root)
@@ -39,6 +40,9 @@ class VideoWindow:
         # Keyboard handler callback
         self.on_key_callback = None
 
+        # Close callback
+        self.on_close_callback = on_close_callback
+
         # Bind keyboard events
         self.window.bind('<space>', lambda e: self._handle_key(' '))
         self.window.bind('<q>', lambda e: self._handle_key('q'))
@@ -56,6 +60,8 @@ class VideoWindow:
     def _on_close(self):
         """Handle window close"""
         self.is_open = False
+        if self.on_close_callback:
+            self.on_close_callback()
         self.window.destroy()
 
     def update_frame(self, frame_bgr):
