@@ -170,32 +170,100 @@ class ChristmasEffect(BaseUIEffect):
         size_mode = self.snow_size.get()
         if size_mode == 'Small':
             base_size_range = (1.5, 4.0)  # Current small size
+            num_flakes = 300
         elif size_mode == 'Medium':
             base_size_range = (3.0, 7.0)
+            num_flakes = 200
         else:  # 'Large'
-            base_size_range = (5.0, 10.0)
+            base_size_range = (8.0, 15.0)
+            num_flakes = 100  # Fewer large snowflakes
 
-        for _ in range(300):  # Heavy snow
-            # Create irregular shape for each snowflake
-            num_points = random.randint(3, 5)
-            base_size = random.uniform(*base_size_range)
-            points = []
-            for i in range(num_points):
-                angle = (i / num_points) * 2 * np.pi
-                radius = base_size * random.uniform(0.6, 1.0)
-                px = radius * np.cos(angle)
-                py = radius * np.sin(angle)
-                points.append((px, py))
+        for _ in range(num_flakes):
+            if size_mode == 'Large':
+                # Create cartoon-style faceted snowflakes with 6-fold symmetry
+                points = self._create_faceted_snowflake(random.uniform(*base_size_range))
+            else:
+                # Create irregular shape for small/medium snowflakes
+                num_points = random.randint(3, 5)
+                base_size = random.uniform(*base_size_range)
+                points = []
+                for i in range(num_points):
+                    angle = (i / num_points) * 2 * np.pi
+                    radius = base_size * random.uniform(0.6, 1.0)
+                    px = radius * np.cos(angle)
+                    py = radius * np.sin(angle)
+                    points.append((px, py))
 
             self.snowflakes.append({
                 'x': random.uniform(0, self.width),
                 'y': random.uniform(-self.height, 0),  # Start above screen
                 'speed': random.uniform(2.0, 6.0),
-                'points': points,  # Irregular shape
+                'points': points,  # Irregular shape or faceted snowflake
                 'drift': random.uniform(-0.5, 0.5),  # Horizontal drift
                 'rotation': random.uniform(0, 360),
                 'color': random.choice(self.christmas_colors)  # Random christmas color
             })
+
+    def _create_faceted_snowflake(self, size):
+        """Create a unique cartoon-style faceted snowflake with 6-fold symmetry"""
+        points = []
+
+        # Random variation for uniqueness
+        num_branches = 6
+        branch_variations = random.randint(2, 4)  # 2-4 variations per branch
+
+        for i in range(num_branches):
+            base_angle = (i / num_branches) * 2 * np.pi
+
+            # Main branch
+            branch_length = size * random.uniform(0.8, 1.0)
+
+            # Create points along this branch with facets
+            for j in range(branch_variations):
+                t = (j + 1) / (branch_variations + 1)  # Position along branch
+
+                # Add some randomness to the branch
+                angle_offset = random.uniform(-0.15, 0.15)
+                angle = base_angle + angle_offset
+
+                # Distance from center with some variation
+                distance = branch_length * t * random.uniform(0.9, 1.1)
+
+                # Main point on branch
+                px = distance * np.cos(angle)
+                py = distance * np.sin(angle)
+                points.append((px, py))
+
+                # Add side facets (branches off the main branch)
+                if j > 0 and random.random() > 0.3:  # Not all segments have side facets
+                    facet_length = size * random.uniform(0.15, 0.35) * (1 - t * 0.5)
+                    facet_angle = random.uniform(0.3, 0.7)  # Angle off main branch
+
+                    # Left facet
+                    left_angle = angle + facet_angle
+                    fx1 = px + facet_length * np.cos(left_angle)
+                    fy1 = py + facet_length * np.sin(left_angle)
+                    points.append((fx1, fy1))
+                    points.append((px, py))  # Return to branch
+
+                    # Right facet
+                    right_angle = angle - facet_angle
+                    fx2 = px + facet_length * np.cos(right_angle)
+                    fy2 = py + facet_length * np.sin(right_angle)
+                    points.append((fx2, fy2))
+                    points.append((px, py))  # Return to branch
+
+            # Tip of branch (slightly randomized)
+            tip_angle = base_angle + random.uniform(-0.1, 0.1)
+            tip_distance = branch_length * random.uniform(0.95, 1.05)
+            tip_x = tip_distance * np.cos(tip_angle)
+            tip_y = tip_distance * np.sin(tip_angle)
+            points.append((tip_x, tip_y))
+
+            # Return to center to start next branch
+            points.append((0, 0))
+
+        return points
 
     def create_control_panel(self, parent):
         """Create Tkinter control panel"""
@@ -362,24 +430,31 @@ class ChristmasEffect(BaseUIEffect):
                 flake['speed'] = random.uniform(2.0, 6.0)
                 flake['drift'] = random.uniform(-0.5, 0.5)
 
-                # Regenerate irregular shape and new color based on current size setting
+                # Regenerate shape and new color based on current size setting
                 size_mode = self.snow_size.get()
                 if size_mode == 'Small':
                     base_size_range = (1.5, 4.0)
                 elif size_mode == 'Medium':
                     base_size_range = (3.0, 7.0)
                 else:  # 'Large'
-                    base_size_range = (5.0, 10.0)
+                    base_size_range = (8.0, 15.0)
 
-                num_points = random.randint(3, 5)
                 base_size = random.uniform(*base_size_range)
-                points = []
-                for i in range(num_points):
-                    angle = (i / num_points) * 2 * np.pi
-                    radius = base_size * random.uniform(0.6, 1.0)
-                    px = radius * np.cos(angle)
-                    py = radius * np.sin(angle)
-                    points.append((px, py))
+
+                if size_mode == 'Large':
+                    # Create faceted snowflake for large size
+                    points = self._create_faceted_snowflake(base_size)
+                else:
+                    # Create irregular shape for small/medium
+                    num_points = random.randint(3, 5)
+                    points = []
+                    for i in range(num_points):
+                        angle = (i / num_points) * 2 * np.pi
+                        radius = base_size * random.uniform(0.6, 1.0)
+                        px = radius * np.cos(angle)
+                        py = radius * np.sin(angle)
+                        points.append((px, py))
+
                 flake['points'] = points
                 flake['color'] = random.choice(self.christmas_colors)
 
@@ -583,8 +658,13 @@ class ChristmasEffect(BaseUIEffect):
                     else:  # 'Colored'
                         snow_color = flake['color']  # Christmas colors
 
-                    # Draw filled polygon
+                    # Draw differently based on size
                     pts = np.array(rotated_points, dtype=np.int32)
-                    cv2.fillPoly(result, [pts], snow_color, cv2.LINE_AA)
+                    if self.snow_size.get() == 'Large':
+                        # Draw as line art for faceted snowflake effect
+                        cv2.polylines(result, [pts], isClosed=False, color=snow_color, thickness=2, lineType=cv2.LINE_AA)
+                    else:
+                        # Draw filled polygon for small/medium
+                        cv2.fillPoly(result, [pts], snow_color, cv2.LINE_AA)
 
         return result
