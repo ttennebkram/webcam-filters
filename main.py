@@ -512,7 +512,12 @@ Examples:
         effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
 
     # If there's a difference window (for FFT effect), position it to the right of video window
+    print(f"DEBUG: Checking for diff_window - hasattr={hasattr(effect, 'diff_window')}")
+    if hasattr(effect, 'diff_window'):
+        print(f"DEBUG: diff_window value = {effect.diff_window}")
+
     if hasattr(effect, 'diff_window') and effect.diff_window is not None:
+        print("DEBUG: Positioning difference window...")
         effect.diff_window.update_idletasks()
         diff_width = effect.diff_window.winfo_reqwidth()
         diff_height = effect.diff_window.winfo_reqheight()
@@ -522,7 +527,10 @@ Examples:
         diff_x = video_x + int(video_width * 0.8)
         diff_y = video_y  # Same vertical position as video window
 
+        print(f"DEBUG: Positioning diff window at {diff_x},{diff_y} size {diff_width}x{diff_height}")
         effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
+    else:
+        print("DEBUG: No diff_window to position")
 
     # Force window to show and process events
     root.update()

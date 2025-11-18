@@ -753,8 +753,10 @@ class SignalsRingingEffect(BaseUIEffect):
     def _create_diff_window(self):
         """Create window to display difference between input and filtered output"""
         if self.diff_window is not None or self.root_window is None:
+            print(f"DEBUG: Not creating diff window - diff_window={self.diff_window}, root_window={self.root_window}")
             return
 
+        print("DEBUG: Creating difference window...")
         self.diff_window = tk.Toplevel(self.root_window)
         self.diff_window.title("Difference View (Conservation of Energy)")
 
@@ -766,7 +768,15 @@ class SignalsRingingEffect(BaseUIEffect):
         # This will be updated with actual frame dimensions
         self.diff_window.geometry("640x480")
 
+        # Make sure window is visible
+        self.diff_window.deiconify()
+        self.diff_window.lift()
+        self.diff_window.attributes('-topmost', True)
+        self.diff_window.after(100, lambda: self.diff_window.attributes('-topmost', False))
+
+        # Don't let closing this window close the app
         self.diff_window.protocol("WM_DELETE_WINDOW", self._close_diff_window)
+        print(f"DEBUG: Difference window created: {self.diff_window}")
 
     def _close_diff_window(self):
         """Close the difference window"""
