@@ -19,6 +19,7 @@ import json
 import os
 import webbrowser
 import math
+import time
 
 
 # ============================================================================
@@ -195,6 +196,11 @@ class SignalsRingingEffect(BaseUIEffect):
         self.color_bp_tab_buttons = {}
         self._scrollable_canvas = None
 
+        # Performance optimization: frame caching
+        self.last_result = None
+        self.last_frame_time = 0
+        self.min_frame_interval = 0.033  # ~30 FPS max when processing is slow
+
     @classmethod
     def get_name(cls):
         return "Signals Ringing"
@@ -240,13 +246,19 @@ class SignalsRingingEffect(BaseUIEffect):
         # Load saved settings BEFORE adding traces
         self._load_settings()
 
-        # Auto-expand tables based on selected mode
-        if self.output_mode.get() == "color_channels":
-            self._toggle_rgb_table()
-        if self.output_mode.get() == "grayscale_bitplanes":
-            self._toggle_bitplane_table()
-        if self.output_mode.get() == "color_bitplanes":
-            self._toggle_color_bitplane_table()
+        # Auto-expand tables based on selected mode (without changing the mode)
+        if self.output_mode.get() == "color_channels" and not self.rgb_expanded.get():
+            self.rgb_table_frame.pack(fill='x', padx=10)
+            self.rgb_toggle_btn.config(text="▼")
+            self.rgb_expanded.set(True)
+        if self.output_mode.get() == "grayscale_bitplanes" and not self.bitplane_expanded.get():
+            self.bitplane_table_frame.pack(fill='x', padx=10)
+            self.bitplane_toggle_btn.config(text="▼")
+            self.bitplane_expanded.set(True)
+        if self.output_mode.get() == "color_bitplanes" and not self.color_bitplane_expanded.get():
+            self.color_bitplane_notebook_frame.pack(fill='both', expand=True, padx=10, pady=5)
+            self.color_bitplane_toggle_btn.config(text="▼")
+            self.color_bitplane_expanded.set(True)
 
         # Add traces to auto-select modes when controls change
         self.fft_radius.trace_add("write", self._on_grayscale_control_change)
@@ -325,6 +337,15 @@ class SignalsRingingEffect(BaseUIEffect):
             self.root_window.bind_all("<MouseWheel>", _on_mousewheel)
             self.root_window.bind_all("<Button-4>", _on_mousewheel)
             self.root_window.bind_all("<Button-5>", _on_mousewheel)
+
+        # Warning message at the top
+        warning_frame = ttk.Frame(container)
+        warning_frame.pack(fill='x', padx=10, pady=(5, 0))
+        warning_label = ttk.Label(warning_frame,
+                                  text="⚠️  Note: These values are not persisted unless you click Save Settings",
+                                  foreground='red',
+                                  font=('TkDefaultFont', 10, 'italic'))
+        warning_label.pack(anchor='w')
 
         # FFT Filter Section
         fft_frame = ttk.Frame(container, padding=0)
@@ -501,10 +522,48 @@ class SignalsRingingEffect(BaseUIEffect):
         ttk.Label(bitplane_table_frame, text="Smoothness (Butterworth offset)").grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(bitplane_table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
+        # "All" row at the top
+        ttk.Label(bitplane_table_frame, text="All", font=('TkDefaultFont', 14, 'bold')).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+
+        def on_bitplane_all_enable_change(*args):
+            enabled = self.bitplane_all_enable.get()
+            for i in range(8):
+                self.bitplane_enable[i].set(enabled)
+
+        self.bitplane_all_enable.trace_add("write", on_bitplane_all_enable_change)
+        ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_all_enable).grid(row=1, column=1, padx=5, pady=5)
+
+        def update_all_bitplane_radius(slider_val):
+            radius = self._slider_to_radius(float(slider_val))
+            self.bitplane_all_radius.set(radius)
+            for i in range(8):
+                self.bitplane_radius[i].set(radius)
+                self.bitplane_radius_slider[i].set(slider_val)
+
+        all_radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_radius_slider, orient='horizontal',
+                                     command=lambda v: update_all_bitplane_radius(v))
+        all_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_radius, width=4).grid(row=1, column=3, padx=(2, 10), pady=5)
+
+        def update_all_bitplane_smoothness(val):
+            smoothness = int(float(val))
+            self.bitplane_all_smoothness.set(smoothness)
+            for i in range(8):
+                self.bitplane_smoothness[i].set(smoothness)
+
+        all_smooth_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_smoothness, orient='horizontal',
+                                      command=lambda v: update_all_bitplane_smoothness(v))
+        all_smooth_slider.grid(row=1, column=4, padx=5, pady=5, sticky='ew')
+        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_smoothness, width=4).grid(row=1, column=5, padx=2, pady=5)
+
+        # Separator line after "All" row
+        sep_frame = ttk.Frame(bitplane_table_frame, height=2, relief='sunken')
+        sep_frame.grid(row=2, column=0, columnspan=6, sticky='ew', pady=(10, 10))
+
         # Create 8 rows for bit planes
         bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
         for i, label in enumerate(bit_labels):
-            row = i + 1
+            row = i + 3  # Start at row 3 (after header, All row, and separator)
 
             ttk.Label(bitplane_table_frame, text=label).grid(row=row, column=0, padx=5, pady=5, sticky='e')
             ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
@@ -522,43 +581,6 @@ class SignalsRingingEffect(BaseUIEffect):
                                       command=lambda v, idx=i: self.bitplane_smoothness[idx].set(int(float(v))))
             smooth_slider.grid(row=row, column=4, padx=5, pady=5, sticky='ew')
             tk.Label(bitplane_table_frame, textvariable=self.bitplane_smoothness[i], width=4).grid(row=row, column=5, padx=2, pady=5)
-
-        # Separator line before "All" row
-        ttk.Separator(bitplane_table_frame, orient='horizontal').grid(row=8, column=0, columnspan=6, sticky='ew', pady=(10, 5))
-
-        # "All" row at the bottom
-        ttk.Label(bitplane_table_frame, text="All", font=('TkDefaultFont', 14, 'bold')).grid(row=9, column=0, padx=5, pady=5, sticky='e')
-
-        def on_bitplane_all_enable_change(*args):
-            enabled = self.bitplane_all_enable.get()
-            for i in range(8):
-                self.bitplane_enable[i].set(enabled)
-
-        self.bitplane_all_enable.trace_add("write", on_bitplane_all_enable_change)
-        ttk.Checkbutton(bitplane_table_frame, variable=self.bitplane_all_enable).grid(row=9, column=1, padx=5, pady=5)
-
-        def update_all_bitplane_radius(slider_val):
-            radius = self._slider_to_radius(float(slider_val))
-            self.bitplane_all_radius.set(radius)
-            for i in range(8):
-                self.bitplane_radius[i].set(radius)
-                self.bitplane_radius_slider[i].set(slider_val)
-
-        all_radius_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_radius_slider, orient='horizontal',
-                                     command=lambda v: update_all_bitplane_radius(v))
-        all_radius_slider.grid(row=9, column=2, padx=5, pady=5, sticky='ew')
-        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_radius, width=4).grid(row=9, column=3, padx=(2, 10), pady=5)
-
-        def update_all_bitplane_smoothness(val):
-            smoothness = int(float(val))
-            self.bitplane_all_smoothness.set(smoothness)
-            for i in range(8):
-                self.bitplane_smoothness[i].set(smoothness)
-
-        all_smooth_slider = ttk.Scale(bitplane_table_frame, from_=0, to=100, variable=self.bitplane_all_smoothness, orient='horizontal',
-                                      command=lambda v: update_all_bitplane_smoothness(v))
-        all_smooth_slider.grid(row=9, column=4, padx=5, pady=5, sticky='ew')
-        tk.Label(bitplane_table_frame, textvariable=self.bitplane_all_smoothness, width=4).grid(row=9, column=5, padx=2, pady=5)
 
         bitplane_table_frame.columnconfigure(2, weight=1)
         bitplane_table_frame.columnconfigure(4, weight=1)
@@ -631,11 +653,58 @@ class SignalsRingingEffect(BaseUIEffect):
             ttk.Label(table_frame, text="Smoothness (Butterworth offset)", style=style_name).grid(row=0, column=4, padx=5, pady=2)
             ttk.Label(table_frame, text="").grid(row=0, column=5, padx=2, pady=2)
 
+            # "All" row at the top for this color
+            # Create a bold style for the "All" label
+            all_style_name = f"{color_key}_all_label.TLabel"
+            style.configure(all_style_name, foreground=color_fg, font=('TkDefaultFont', 14, 'bold'))
+            ttk.Label(table_frame, text="All", style=all_style_name).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+
+            ttk.Checkbutton(table_frame, variable=self.color_bitplane_all_enable[color_key]).grid(row=1, column=1, padx=5, pady=5)
+
+            # Store the callback for later (after all bit plane checkboxes are created)
+            def on_color_all_enable_change(var_name, index, mode, c=color_key):
+                enabled = self.color_bitplane_all_enable[c].get()
+                for i in range(8):
+                    self.color_bitplane_enable[c][i].set(enabled)
+
+            def update_all_color_bp_radius(slider_val, c=color_key):
+                radius = self._slider_to_radius(float(slider_val))
+                self.color_bitplane_all_radius[c].set(radius)
+                for i in range(8):
+                    self.color_bitplane_radius[c][i].set(radius)
+                    self.color_bitplane_radius_slider[c][i].set(slider_val)
+
+            all_color_radius_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                               variable=self.color_bitplane_all_radius_slider[color_key],
+                                               orient='horizontal',
+                                               command=lambda v, c=color_key: update_all_color_bp_radius(v, c))
+            all_color_radius_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+            tk.Label(table_frame, textvariable=self.color_bitplane_all_radius[color_key],
+                    width=4).grid(row=1, column=3, padx=(2, 10), pady=5)
+
+            def update_all_color_bp_smoothness(val, c=color_key):
+                smoothness = int(float(val))
+                self.color_bitplane_all_smoothness[c].set(smoothness)
+                for i in range(8):
+                    self.color_bitplane_smoothness[c][i].set(smoothness)
+
+            all_color_smooth_slider = ttk.Scale(table_frame, from_=0, to=100,
+                                               variable=self.color_bitplane_all_smoothness[color_key],
+                                               orient='horizontal',
+                                               command=lambda v, c=color_key: update_all_color_bp_smoothness(v, c))
+            all_color_smooth_slider.grid(row=1, column=4, padx=5, pady=5, sticky='ew')
+            tk.Label(table_frame, textvariable=self.color_bitplane_all_smoothness[color_key],
+                    width=4).grid(row=1, column=5, padx=2, pady=5)
+
+            # Separator line after "All" row
+            sep_frame = ttk.Frame(table_frame, height=2, relief='sunken')
+            sep_frame.grid(row=2, column=0, columnspan=6, sticky='ew', pady=(10, 10))
+
             # Create 8 rows for bit planes
             bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
 
             for i, label in enumerate(bit_labels):
-                row = i + 1
+                row = i + 3  # Start at row 3 (after header, All row, and separator)
 
                 ttk.Label(table_frame, text=label, style=style_name).grid(row=row, column=0, padx=5, pady=5, sticky='e')
                 ttk.Checkbutton(table_frame, variable=self.color_bitplane_enable[color_key][i]).grid(row=row, column=1, padx=5, pady=5)
@@ -651,7 +720,7 @@ class SignalsRingingEffect(BaseUIEffect):
                 radius_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
 
                 tk.Label(table_frame, textvariable=self.color_bitplane_radius[color_key][i],
-                        width=4, foreground=color_fg).grid(row=row, column=3, padx=(2, 10), pady=5)
+                        width=4).grid(row=row, column=3, padx=(2, 10), pady=5)
 
                 smooth_slider = ttk.Scale(table_frame, from_=0, to=100,
                                           variable=self.color_bitplane_smoothness[color_key][i],
@@ -660,56 +729,16 @@ class SignalsRingingEffect(BaseUIEffect):
                 smooth_slider.grid(row=row, column=4, padx=5, pady=5, sticky='ew')
 
                 tk.Label(table_frame, textvariable=self.color_bitplane_smoothness[color_key][i],
-                        width=4, foreground=color_fg).grid(row=row, column=5, padx=2, pady=5)
+                        width=4).grid(row=row, column=5, padx=2, pady=5)
 
-            # Separator line before "All" row
-            ttk.Separator(table_frame, orient='horizontal').grid(row=8, column=0, columnspan=6, sticky='ew', pady=(10, 5))
-
-            # "All" row at the bottom for this color
-            tk.Label(table_frame, text="All", font=('TkDefaultFont', 14, 'bold'), foreground=color_fg).grid(row=9, column=0, padx=5, pady=5, sticky='e')
-
-            def on_color_all_enable_change(c=color_key, *args):
-                enabled = self.color_bitplane_all_enable[c].get()
-                for i in range(8):
-                    self.color_bitplane_enable[c][i].set(enabled)
-
+            # Now that all individual checkboxes are created, add the trace for the "All" checkbox
             self.color_bitplane_all_enable[color_key].trace_add("write", on_color_all_enable_change)
-            ttk.Checkbutton(table_frame, variable=self.color_bitplane_all_enable[color_key]).grid(row=9, column=1, padx=5, pady=5)
-
-            def update_all_color_bp_radius(slider_val, c=color_key):
-                radius = self._slider_to_radius(float(slider_val))
-                self.color_bitplane_all_radius[c].set(radius)
-                for i in range(8):
-                    self.color_bitplane_radius[c][i].set(radius)
-                    self.color_bitplane_radius_slider[c][i].set(slider_val)
-
-            all_color_radius_slider = ttk.Scale(table_frame, from_=0, to=100,
-                                               variable=self.color_bitplane_all_radius_slider[color_key],
-                                               orient='horizontal',
-                                               command=lambda v, c=color_key: update_all_color_bp_radius(v, c))
-            all_color_radius_slider.grid(row=9, column=2, padx=5, pady=5, sticky='ew')
-            tk.Label(table_frame, textvariable=self.color_bitplane_all_radius[color_key],
-                    width=4, foreground=color_fg).grid(row=9, column=3, padx=(2, 10), pady=5)
-
-            def update_all_color_bp_smoothness(val, c=color_key):
-                smoothness = int(float(val))
-                self.color_bitplane_all_smoothness[c].set(smoothness)
-                for i in range(8):
-                    self.color_bitplane_smoothness[c][i].set(smoothness)
-
-            all_color_smooth_slider = ttk.Scale(table_frame, from_=0, to=100,
-                                               variable=self.color_bitplane_all_smoothness[color_key],
-                                               orient='horizontal',
-                                               command=lambda v, c=color_key: update_all_color_bp_smoothness(v, c))
-            all_color_smooth_slider.grid(row=9, column=4, padx=5, pady=5, sticky='ew')
-            tk.Label(table_frame, textvariable=self.color_bitplane_all_smoothness[color_key],
-                    width=4, foreground=color_fg).grid(row=9, column=5, padx=2, pady=5)
 
             table_frame.columnconfigure(2, weight=1)
             table_frame.columnconfigure(4, weight=1)
 
-        # Show the red tab by default
-        self._switch_color_bp_tab('red')
+        # Show the red tab by default (without auto-selecting radio button during init)
+        self._switch_color_bp_tab('red', auto_select=False)
 
         # Common controls at bottom
         common_frame = ttk.Frame(fft_frame)
@@ -776,8 +805,13 @@ class SignalsRingingEffect(BaseUIEffect):
         if not self.color_bitplane_expanded.get():
             self._toggle_color_bitplane_table()
 
-    def _switch_color_bp_tab(self, color_key):
-        """Switch between Red, Green, Blue tabs in color bit plane section"""
+    def _switch_color_bp_tab(self, color_key, auto_select=True):
+        """Switch between Red, Green, Blue tabs in color bit plane section
+
+        Args:
+            color_key: The color tab to switch to ('red', 'green', 'blue')
+            auto_select: If True, auto-select the radio button and expand. If False, just switch tabs.
+        """
         for key, btn in self.color_bp_tab_buttons.items():
             if key == color_key:
                 btn.config(relief='sunken', bg='white')
@@ -793,6 +827,12 @@ class SignalsRingingEffect(BaseUIEffect):
             self.root_window.update_idletasks()
 
         self.color_bp_selected_tab.set(color_key)
+
+        # Auto-select the Color Bit Planes radio button when switching tabs (only if not initializing)
+        if auto_select:
+            self.output_mode.set("color_bitplanes")
+            if not self.color_bitplane_expanded.get():
+                self._toggle_color_bitplane_table()
 
     def _on_rgb_control_change(self, *args):
         """Auto-select Individual Color Channels radio button when RGB controls are changed"""
@@ -814,7 +854,8 @@ class SignalsRingingEffect(BaseUIEffect):
         self._update_visualization()
 
     def _on_show_fft_change(self):
-        """Handle show FFT checkbox change - no longer used as window is always shown"""
+        """Handle show FFT checkbox change - toggle between showing filtered image and FFT visualization in main window"""
+        # The actual toggling happens in the draw() function based on self.show_fft.get()
         pass
 
     def _create_visualization_window(self):
@@ -1167,8 +1208,17 @@ class SignalsRingingEffect(BaseUIEffect):
 
         return mask
 
-    def _apply_fft_to_channel(self, channel, radius, smoothness):
-        """Apply FFT filter to a single channel"""
+    def _apply_fft_to_channel(self, channel, radius, smoothness, return_fft=False, return_blocked=False, draw_circle=False):
+        """Apply FFT filter to a single channel
+
+        Args:
+            channel: Input channel
+            radius: Filter radius
+            smoothness: Filter smoothness
+            return_fft: If True, return FFT magnitude spectrum instead of filtered result
+            return_blocked: If True, return FFT magnitude spectrum of BLOCKED frequencies
+            draw_circle: If True and return_fft/return_blocked, draw circle on grayscale spectrum (returns BGR)
+        """
         # Compute FFT
         dft = cv2.dft(np.float32(channel), flags=cv2.DFT_COMPLEX_OUTPUT)
         dft_shift = np.fft.fftshift(dft)
@@ -1181,6 +1231,43 @@ class SignalsRingingEffect(BaseUIEffect):
         y, x = np.ogrid[:rows, :cols]
         distance = np.sqrt((x - ccol) ** 2 + (y - crow) ** 2)
         mask = self._create_mask(distance, radius, smoothness, rows, cols)
+
+        # If showing FFT, return the magnitude spectrum
+        if return_fft:
+            # Apply mask to show what passes through
+            fshift_masked = dft_shift * mask
+            magnitude = cv2.magnitude(fshift_masked[:, :, 0], fshift_masked[:, :, 1])
+            magnitude = np.log(magnitude + 1)  # Log scale for better visualization
+            magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+            magnitude_uint8 = magnitude.astype(np.uint8)
+
+            if draw_circle:
+                # Convert to BGR for circle drawing
+                magnitude_bgr = cv2.cvtColor(magnitude_uint8, cv2.COLOR_GRAY2BGR)
+                # Draw circle showing the filter radius
+                cv2.circle(magnitude_bgr, (ccol, crow), int(radius), (0, 255, 0), 2)
+                return magnitude_bgr
+            else:
+                return magnitude_uint8
+
+        # If showing blocked frequencies, return spectrum of what was removed
+        if return_blocked:
+            # Invert the mask to get what was blocked
+            inverse_mask = np.ones_like(mask) - mask
+            blocked_fshift = dft_shift * inverse_mask
+            magnitude = cv2.magnitude(blocked_fshift[:, :, 0], blocked_fshift[:, :, 1])
+            magnitude = np.log(magnitude + 1)  # Log scale for better visualization
+            magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+            magnitude_uint8 = magnitude.astype(np.uint8)
+
+            if draw_circle:
+                # Convert to BGR for circle drawing
+                magnitude_bgr = cv2.cvtColor(magnitude_uint8, cv2.COLOR_GRAY2BGR)
+                # Draw circle showing the filter radius (inverse mask)
+                cv2.circle(magnitude_bgr, (ccol, crow), int(radius), (0, 255, 0), 2)
+                return magnitude_bgr
+            else:
+                return magnitude_uint8
 
         # Apply mask
         fshift = dft_shift * mask
@@ -1197,45 +1284,96 @@ class SignalsRingingEffect(BaseUIEffect):
 
     def draw(self, frame, face_mask=None):
         """Apply FFT-based high-pass filter"""
+        # Performance optimization: Skip processing if we're going too fast
+        # This keeps UI responsive when processing is expensive
+        current_time = time.time()
+        time_since_last_frame = current_time - self.last_frame_time
+
+        # If we processed a frame recently and it was expensive, reuse last result
+        if self.last_result is not None and time_since_last_frame < self.min_frame_interval:
+            return self.last_result.copy()
+
+        self.last_frame_time = current_time
+
         # Store input frame for difference calculation
         self.input_frame = frame.copy()
 
         output_mode = self.output_mode.get()
+        show_fft = self.show_fft.get()
+
+        # Will hold the blocked spectrum if show_fft is True
+        diff_result = None
 
         if output_mode == "grayscale_composite":
             # Convert to grayscale and apply FFT
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            filtered = self._apply_fft_to_channel(gray, self.fft_radius.get(), self.fft_smoothness.get())
+            filtered = self._apply_fft_to_channel(gray, self.fft_radius.get(), self.fft_smoothness.get(), return_fft=show_fft, draw_circle=show_fft)
+
+            # If showing FFT, also calculate the blocked spectrum for diff window
+            if show_fft:
+                blocked = self._apply_fft_to_channel(gray, self.fft_radius.get(), self.fft_smoothness.get(), return_blocked=True, draw_circle=True)
+                diff_result = blocked  # Already BGR with circle from _apply_fft_to_channel
+                result = filtered  # Already BGR with circle from _apply_fft_to_channel
+            else:
+                diff_result = None  # Will be calculated later as image difference
+                # Convert back to BGR
+                result = cv2.cvtColor(filtered, cv2.COLOR_GRAY2BGR)
 
             # Note: Gain and invert are now applied globally in main.py
-
-            # Convert back to BGR
-            result = cv2.cvtColor(filtered, cv2.COLOR_GRAY2BGR)
 
         elif output_mode == "color_channels":
             # Split into BGR channels
             b, g, r = cv2.split(frame)
 
-            # Apply FFT to each enabled channel
+            # Apply FFT to each enabled channel (don't draw circles yet for multi-channel)
             if self.red_enable.get():
-                r_filtered = self._apply_fft_to_channel(r, self.red_radius.get(), self.red_smoothness.get())
+                r_filtered = self._apply_fft_to_channel(r, self.red_radius.get(), self.red_smoothness.get(), return_fft=show_fft, draw_circle=False)
             else:
                 r_filtered = np.zeros_like(r)
 
             if self.green_enable.get():
-                g_filtered = self._apply_fft_to_channel(g, self.green_radius.get(), self.green_smoothness.get())
+                g_filtered = self._apply_fft_to_channel(g, self.green_radius.get(), self.green_smoothness.get(), return_fft=show_fft, draw_circle=False)
             else:
                 g_filtered = np.zeros_like(g)
 
             if self.blue_enable.get():
-                b_filtered = self._apply_fft_to_channel(b, self.blue_radius.get(), self.blue_smoothness.get())
+                b_filtered = self._apply_fft_to_channel(b, self.blue_radius.get(), self.blue_smoothness.get(), return_fft=show_fft, draw_circle=False)
             else:
                 b_filtered = np.zeros_like(b)
 
-            # Note: Gain and invert are now applied globally in main.py
-
-            # Merge back
+            # Merge the channels
             result = cv2.merge([b_filtered, g_filtered, r_filtered])
+
+            # If showing FFT, also calculate the blocked spectrum for diff window and draw circles
+            if show_fft:
+                r_blocked = self._apply_fft_to_channel(r, self.red_radius.get(), self.red_smoothness.get(), return_blocked=True, draw_circle=False) if self.red_enable.get() else np.zeros_like(r)
+                g_blocked = self._apply_fft_to_channel(g, self.green_radius.get(), self.green_smoothness.get(), return_blocked=True, draw_circle=False) if self.green_enable.get() else np.zeros_like(g)
+                b_blocked = self._apply_fft_to_channel(b, self.blue_radius.get(), self.blue_smoothness.get(), return_blocked=True, draw_circle=False) if self.blue_enable.get() else np.zeros_like(b)
+                diff_result = cv2.merge([b_blocked, g_blocked, r_blocked])
+
+                # Draw circles on separate overlays and blend additively
+                rows, cols = r.shape
+                crow, ccol = rows // 2, cols // 2
+
+                # Create overlay for circles
+                overlay_result = np.zeros_like(result, dtype=np.uint8)
+                overlay_diff = np.zeros_like(diff_result, dtype=np.uint8)
+
+                if self.red_enable.get():
+                    cv2.circle(overlay_result, (ccol, crow), int(self.red_radius.get()), (0, 0, 255), 2)
+                    cv2.circle(overlay_diff, (ccol, crow), int(self.red_radius.get()), (0, 0, 255), 2)
+                if self.green_enable.get():
+                    cv2.circle(overlay_result, (ccol, crow), int(self.green_radius.get()), (0, 255, 0), 2)
+                    cv2.circle(overlay_diff, (ccol, crow), int(self.green_radius.get()), (0, 255, 0), 2)
+                if self.blue_enable.get():
+                    cv2.circle(overlay_result, (ccol, crow), int(self.blue_radius.get()), (255, 0, 0), 2)
+                    cv2.circle(overlay_diff, (ccol, crow), int(self.blue_radius.get()), (255, 0, 0), 2)
+
+                # Blend overlays with additive composition (saturate at 255)
+                result = cv2.add(result, overlay_result)
+                diff_result = cv2.add(diff_result, overlay_diff)
+
+            # Note: Gain and invert are now applied globally in main.py
 
         elif output_mode == "grayscale_bitplanes":
             # Convert to grayscale
@@ -1254,41 +1392,129 @@ class SignalsRingingEffect(BaseUIEffect):
                 if self.bitplane_enable[ui_index].get():
                     filtered = self._apply_fft_to_channel(bit_planes[bit],
                                                           self.bitplane_radius[ui_index].get(),
-                                                          self.bitplane_smoothness[ui_index].get())
+                                                          self.bitplane_smoothness[ui_index].get(),
+                                                          return_fft=show_fft)
                     filtered_bit_planes.append(filtered)
                 else:
                     filtered_bit_planes.append(bit_planes[bit])
 
-            # Reconstruct grayscale image
-            num_enabled = sum(1 for i in range(8) if self.bitplane_enable[i].get())
-
-            if num_enabled == 0:
-                result = np.zeros_like(gray, dtype=np.uint8)
-            elif num_enabled == 1:
-                for ui_index in range(8):
-                    if self.bitplane_enable[ui_index].get():
-                        bit = 7 - ui_index
-                        binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
-                        result = binary_plane * 255
-                        break
-            else:
-                reconstructed = np.zeros_like(gray, dtype=np.uint8)
+            # If showing FFT, also calculate the blocked spectrum for diff window
+            if show_fft:
+                blocked_bit_planes = []
                 for bit in range(8):
                     ui_index = 7 - bit
                     if self.bitplane_enable[ui_index].get():
-                        binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
-                        reconstructed += (binary_plane << bit)
-                result = reconstructed
+                        blocked = self._apply_fft_to_channel(bit_planes[bit],
+                                                            self.bitplane_radius[ui_index].get(),
+                                                            self.bitplane_smoothness[ui_index].get(),
+                                                            return_blocked=True)
+                        blocked_bit_planes.append(blocked)
+                    else:
+                        blocked_bit_planes.append(np.zeros_like(bit_planes[bit]))
+
+                # Reconstruct blocked spectrum (same logic as filtered)
+                num_enabled = sum(1 for i in range(8) if self.bitplane_enable[i].get())
+                if num_enabled == 0:
+                    blocked_result = np.zeros_like(gray, dtype=np.uint8)
+                elif num_enabled == 1:
+                    for ui_index in range(8):
+                        if self.bitplane_enable[ui_index].get():
+                            bit = 7 - ui_index
+                            blocked_result = blocked_bit_planes[bit]
+                            break
+                else:
+                    # For FFT spectrum, just average the enabled bit planes
+                    blocked_result = np.zeros_like(gray, dtype=np.float32)
+                    count = 0
+                    for bit in range(8):
+                        ui_index = 7 - bit
+                        if self.bitplane_enable[ui_index].get():
+                            blocked_result += blocked_bit_planes[bit].astype(np.float32)
+                            count += 1
+                    if count > 0:
+                        blocked_result = (blocked_result / count).astype(np.uint8)
+                    else:
+                        blocked_result = blocked_result.astype(np.uint8)
+
+                diff_result = cv2.cvtColor(blocked_result, cv2.COLOR_GRAY2BGR)
+
+            # Reconstruct grayscale image
+            num_enabled = sum(1 for i in range(8) if self.bitplane_enable[i].get())
+
+            if show_fft:
+                # For FFT display, average the enabled bit plane spectra
+                if num_enabled == 0:
+                    result = np.zeros_like(gray, dtype=np.uint8)
+                elif num_enabled == 1:
+                    for ui_index in range(8):
+                        if self.bitplane_enable[ui_index].get():
+                            bit = 7 - ui_index
+                            result = filtered_bit_planes[bit]
+                            break
+                else:
+                    # Average the enabled bit planes
+                    result = np.zeros_like(gray, dtype=np.float32)
+                    count = 0
+                    for bit in range(8):
+                        ui_index = 7 - bit
+                        if self.bitplane_enable[ui_index].get():
+                            result += filtered_bit_planes[bit].astype(np.float32)
+                            count += 1
+                    if count > 0:
+                        result = (result / count).astype(np.uint8)
+                    else:
+                        result = result.astype(np.uint8)
+
+                # Convert to BGR and draw circles
+                result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+                rows, cols = gray.shape
+                crow, ccol = rows // 2, cols // 2
+
+                # Draw circles on separate overlay and blend additively
+                overlay_result = np.zeros_like(result, dtype=np.uint8)
+                for ui_index in range(8):
+                    if self.bitplane_enable[ui_index].get():
+                        cv2.circle(overlay_result, (ccol, crow), int(self.bitplane_radius[ui_index].get()), (0, 255, 0), 2)
+                result = cv2.add(result, overlay_result)
+
+                # Also draw circles on diff_result if it exists
+                if diff_result is not None:
+                    overlay_diff = np.zeros_like(diff_result, dtype=np.uint8)
+                    for ui_index in range(8):
+                        if self.bitplane_enable[ui_index].get():
+                            cv2.circle(overlay_diff, (ccol, crow), int(self.bitplane_radius[ui_index].get()), (0, 255, 0), 2)
+                    diff_result = cv2.add(diff_result, overlay_diff)
+            else:
+                # Normal mode: reconstruct from bit planes
+                if num_enabled == 0:
+                    result = np.zeros_like(gray, dtype=np.uint8)
+                elif num_enabled == 1:
+                    for ui_index in range(8):
+                        if self.bitplane_enable[ui_index].get():
+                            bit = 7 - ui_index
+                            binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                            result = binary_plane * 255
+                            break
+                else:
+                    reconstructed = np.zeros_like(gray, dtype=np.uint8)
+                    for bit in range(8):
+                        ui_index = 7 - bit
+                        if self.bitplane_enable[ui_index].get():
+                            binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                            reconstructed += (binary_plane << bit)
+                    result = reconstructed
+
+                # Convert to BGR
+                result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
 
             # Note: Gain and invert are now applied globally in main.py
-
-            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
 
         else:  # color_bitplanes
             # Split into BGR channels
             b, g, r = cv2.split(frame)
             channels = {'blue': b, 'green': g, 'red': r}
             filtered_channels = {}
+            blocked_channels = {}
 
             for color_name, channel in channels.items():
                 # Decompose into bit planes
@@ -1304,42 +1530,138 @@ class SignalsRingingEffect(BaseUIEffect):
                     if self.color_bitplane_enable[color_name][ui_index].get():
                         filtered = self._apply_fft_to_channel(bit_planes[bit],
                                                               self.color_bitplane_radius[color_name][ui_index].get(),
-                                                              self.color_bitplane_smoothness[color_name][ui_index].get())
+                                                              self.color_bitplane_smoothness[color_name][ui_index].get(),
+                                                              return_fft=show_fft)
                         filtered_bit_planes.append(filtered)
                     else:
                         filtered_bit_planes.append(bit_planes[bit])
 
-                # Reconstruct channel
-                num_enabled = sum(1 for i in range(8) if self.color_bitplane_enable[color_name][i].get())
-
-                if num_enabled == 0:
-                    filtered_channels[color_name] = np.zeros_like(channel, dtype=np.uint8)
-                elif num_enabled == 1:
-                    for ui_index in range(8):
-                        if self.color_bitplane_enable[color_name][ui_index].get():
-                            bit = 7 - ui_index
-                            binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
-                            filtered_channels[color_name] = binary_plane * 255
-                            break
-                else:
-                    reconstructed = np.zeros_like(channel, dtype=np.uint8)
+                # If showing FFT, also calculate blocked spectrum for this channel
+                if show_fft:
+                    blocked_bit_planes = []
                     for bit in range(8):
                         ui_index = 7 - bit
                         if self.color_bitplane_enable[color_name][ui_index].get():
-                            binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
-                            reconstructed += (binary_plane << bit)
-                    filtered_channels[color_name] = reconstructed
+                            blocked = self._apply_fft_to_channel(bit_planes[bit],
+                                                                self.color_bitplane_radius[color_name][ui_index].get(),
+                                                                self.color_bitplane_smoothness[color_name][ui_index].get(),
+                                                                return_blocked=True)
+                            blocked_bit_planes.append(blocked)
+                        else:
+                            blocked_bit_planes.append(np.zeros_like(bit_planes[bit]))
 
-            # Note: Gain and invert are now applied globally in main.py
+                    # Reconstruct blocked spectrum (average enabled bit planes)
+                    num_enabled = sum(1 for i in range(8) if self.color_bitplane_enable[color_name][i].get())
+                    if num_enabled == 0:
+                        blocked_channels[color_name] = np.zeros_like(channel, dtype=np.uint8)
+                    elif num_enabled == 1:
+                        for ui_index in range(8):
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                bit = 7 - ui_index
+                                blocked_channels[color_name] = blocked_bit_planes[bit]
+                                break
+                    else:
+                        # For FFT spectrum, average the enabled bit planes
+                        blocked_result = np.zeros_like(channel, dtype=np.float32)
+                        count = 0
+                        for bit in range(8):
+                            ui_index = 7 - bit
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                blocked_result += blocked_bit_planes[bit].astype(np.float32)
+                                count += 1
+                        if count > 0:
+                            blocked_channels[color_name] = (blocked_result / count).astype(np.uint8)
+                        else:
+                            blocked_channels[color_name] = blocked_result.astype(np.uint8)
+
+                # Reconstruct channel
+                num_enabled = sum(1 for i in range(8) if self.color_bitplane_enable[color_name][i].get())
+
+                if show_fft:
+                    # For FFT display, average the enabled bit plane spectra
+                    if num_enabled == 0:
+                        filtered_channels[color_name] = np.zeros_like(channel, dtype=np.uint8)
+                    elif num_enabled == 1:
+                        for ui_index in range(8):
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                bit = 7 - ui_index
+                                filtered_channels[color_name] = filtered_bit_planes[bit]
+                                break
+                    else:
+                        # Average the enabled bit planes
+                        result_channel = np.zeros_like(channel, dtype=np.float32)
+                        count = 0
+                        for bit in range(8):
+                            ui_index = 7 - bit
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                result_channel += filtered_bit_planes[bit].astype(np.float32)
+                                count += 1
+                        if count > 0:
+                            filtered_channels[color_name] = (result_channel / count).astype(np.uint8)
+                        else:
+                            filtered_channels[color_name] = result_channel.astype(np.uint8)
+                else:
+                    # Normal mode: reconstruct from bit planes
+                    if num_enabled == 0:
+                        filtered_channels[color_name] = np.zeros_like(channel, dtype=np.uint8)
+                    elif num_enabled == 1:
+                        for ui_index in range(8):
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                bit = 7 - ui_index
+                                binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                                filtered_channels[color_name] = binary_plane * 255
+                                break
+                    else:
+                        reconstructed = np.zeros_like(channel, dtype=np.uint8)
+                        for bit in range(8):
+                            ui_index = 7 - bit
+                            if self.color_bitplane_enable[color_name][ui_index].get():
+                                binary_plane = (filtered_bit_planes[bit] > 128).astype(np.uint8)
+                                reconstructed += (binary_plane << bit)
+                        filtered_channels[color_name] = reconstructed
 
             # Merge channels (BGR order)
             result = cv2.merge([filtered_channels['blue'], filtered_channels['green'], filtered_channels['red']])
 
-        # Calculate absolute difference between input and filtered output
-        self.diff_frame = cv2.absdiff(self.input_frame, result)
+            # If showing FFT, set diff_result to blocked spectrum and draw circles
+            if show_fft:
+                diff_result = cv2.merge([blocked_channels['blue'], blocked_channels['green'], blocked_channels['red']])
+
+                # Draw circles on separate overlays and blend additively
+                rows, cols = b.shape
+                crow, ccol = rows // 2, cols // 2
+
+                # Create overlays for circles
+                overlay_result = np.zeros_like(result, dtype=np.uint8)
+                overlay_diff = np.zeros_like(diff_result, dtype=np.uint8)
+
+                # Draw circles for each color channel's bit planes
+                for color_name, color_bgr in [('red', (0, 0, 255)), ('green', (0, 255, 0)), ('blue', (255, 0, 0))]:
+                    for ui_index in range(8):
+                        if self.color_bitplane_enable[color_name][ui_index].get():
+                            radius = int(self.color_bitplane_radius[color_name][ui_index].get())
+                            cv2.circle(overlay_result, (ccol, crow), radius, color_bgr, 2)
+                            cv2.circle(overlay_diff, (ccol, crow), radius, color_bgr, 2)
+
+                # Blend overlays with additive composition (saturate at 255)
+                result = cv2.add(result, overlay_result)
+                diff_result = cv2.add(diff_result, overlay_diff)
+
+            # Note: Gain and invert are now applied globally in main.py
+
+        # Calculate difference frame
+        if diff_result is not None:
+            # When showing FFT, diff shows the blocked spectrum
+            self.diff_frame = diff_result
+        else:
+            # Normal mode: show image difference
+            self.diff_frame = cv2.absdiff(self.input_frame, result)
 
         # Update difference window display if it exists
         self._update_diff_window()
+
+        # Cache the result for frame skipping
+        self.last_result = result.copy()
 
         return result
 
