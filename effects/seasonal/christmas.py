@@ -67,6 +67,10 @@ class ChristmasEffect(BaseUIEffect):
         self.snow_type = tk.StringVar(value='Colored')
         self.defaults['snow_type'] = 'Colored'
 
+        # Snow size: Small, Medium, or Large
+        self.snow_size = tk.StringVar(value='Small')
+        self.defaults['snow_size'] = 'Small'
+
         # Christmas light colors - fully saturated
         self.christmas_colors = [
             (0, 0, 255),      # Pure red
@@ -161,10 +165,20 @@ class ChristmasEffect(BaseUIEffect):
     def _generate_snowflakes(self):
         """Generate snowflakes with random colors"""
         self.snowflakes = []
+
+        # Determine size range based on snow_size setting
+        size_mode = self.snow_size.get()
+        if size_mode == 'Small':
+            base_size_range = (1.5, 4.0)  # Current small size
+        elif size_mode == 'Medium':
+            base_size_range = (3.0, 7.0)
+        else:  # 'Large'
+            base_size_range = (5.0, 10.0)
+
         for _ in range(300):  # Heavy snow
-            # Create small irregular shape for each snowflake
+            # Create irregular shape for each snowflake
             num_points = random.randint(3, 5)
-            base_size = random.uniform(1.5, 4.0)
+            base_size = random.uniform(*base_size_range)
             points = []
             for i in range(num_points):
                 angle = (i / num_points) * 2 * np.pi
@@ -207,11 +221,22 @@ class ChristmasEffect(BaseUIEffect):
         # Trace changes to regenerate ornaments
         self.num_ornaments.trace_add('write', lambda *args: self._generate_ornaments())
 
-        # Snow type dropdown
-        ttk.Label(panel, text="Snowflakes:").pack(anchor='w', pady=(5, 0))
-        snow_combo = ttk.Combobox(panel, textvariable=self.snow_type, state='readonly', width=15)
+        # Trace changes to regenerate snowflakes when size changes
+        self.snow_size.trace_add('write', lambda *args: self._generate_snowflakes())
+
+        # Snow type and size dropdowns
+        snow_frame = ttk.Frame(panel)
+        snow_frame.pack(fill='x', pady=(5, 2))
+
+        ttk.Label(snow_frame, text="Snowflakes:").pack(side='left', padx=(0, 5))
+        snow_combo = ttk.Combobox(snow_frame, textvariable=self.snow_type, state='readonly', width=10)
         snow_combo['values'] = ('None', 'White', 'Colored')
-        snow_combo.pack(anchor='w', pady=2)
+        snow_combo.pack(side='left', padx=(0, 10))
+
+        ttk.Label(snow_frame, text="Size:").pack(side='left', padx=(0, 5))
+        size_combo = ttk.Combobox(snow_frame, textvariable=self.snow_size, state='readonly', width=8)
+        size_combo['values'] = ('Small', 'Medium', 'Large')
+        size_combo.pack(side='left')
 
         ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
 
@@ -293,6 +318,7 @@ class ChristmasEffect(BaseUIEffect):
         self.gold_value.set(self.defaults['gold_value'])
         self.num_ornaments.set(self.defaults['num_ornaments'])
         self.snow_type.set(self.defaults['snow_type'])
+        self.snow_size.set(self.defaults['snow_size'])
 
     def _save_settings(self):
         """Save current settings (placeholder - could save to file)"""
@@ -324,9 +350,17 @@ class ChristmasEffect(BaseUIEffect):
                 flake['speed'] = random.uniform(2.0, 6.0)
                 flake['drift'] = random.uniform(-0.5, 0.5)
 
-                # Regenerate irregular shape and new color
+                # Regenerate irregular shape and new color based on current size setting
+                size_mode = self.snow_size.get()
+                if size_mode == 'Small':
+                    base_size_range = (1.5, 4.0)
+                elif size_mode == 'Medium':
+                    base_size_range = (3.0, 7.0)
+                else:  # 'Large'
+                    base_size_range = (5.0, 10.0)
+
                 num_points = random.randint(3, 5)
-                base_size = random.uniform(1.5, 4.0)
+                base_size = random.uniform(*base_size_range)
                 points = []
                 for i in range(num_points):
                     angle = (i / num_points) * 2 * np.pi
