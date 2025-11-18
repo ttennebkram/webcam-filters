@@ -759,8 +759,12 @@ class SignalsRingingEffect(BaseUIEffect):
         self.diff_window.title("Difference View (Conservation of Energy)")
 
         # Create label to hold the image
-        self.diff_label = tk.Label(self.diff_window)
+        self.diff_label = tk.Label(self.diff_window, bg='black')
         self.diff_label.pack()
+
+        # Set a default geometry to ensure window has size
+        # This will be updated with actual frame dimensions
+        self.diff_window.geometry("640x480")
 
         self.diff_window.protocol("WM_DELETE_WINDOW", self._close_diff_window)
 

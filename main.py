@@ -511,21 +511,16 @@ Examples:
 
         effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
 
-    # If there's a difference window (for FFT effect), position it below the viz window
+    # If there's a difference window (for FFT effect), position it to the right of video window
     if hasattr(effect, 'diff_window') and effect.diff_window is not None:
         effect.diff_window.update_idletasks()
         diff_width = effect.diff_window.winfo_reqwidth()
         diff_height = effect.diff_window.winfo_reqheight()
 
-        # Position below the viz window if it exists, otherwise below the video window
-        if hasattr(effect, 'viz_window') and effect.viz_window is not None:
-            # Below viz window
-            diff_x = viz_x
-            diff_y = viz_y + viz_height + vertical_gap
-        else:
-            # Below video window
-            diff_x = video_x
-            diff_y = video_y + video_height + vertical_gap
+        # Position to the right of the video window, with slight overlap
+        # Start 80% across the video window width
+        diff_x = video_x + int(video_width * 0.8)
+        diff_y = video_y  # Same vertical position as video window
 
         effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
 
