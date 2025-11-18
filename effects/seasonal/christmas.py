@@ -207,7 +207,6 @@ class ChristmasEffect(BaseUIEffect):
         ttk.Checkbutton(panel, text="Pine Garland Border", variable=self.enable_garland).pack(anchor='w', pady=2)
         ttk.Checkbutton(panel, text="Ornament Balls", variable=self.enable_ornaments).pack(anchor='w', pady=2)
         ttk.Checkbutton(panel, text="Warm Tungsten Lighting", variable=self.enable_warm_lighting).pack(anchor='w', pady=2)
-        ttk.Checkbutton(panel, text="Gold Edge Glow", variable=self.enable_gold_edges).pack(anchor='w', pady=2)
 
         # Number of ornaments slider
         ttk.Label(panel, text="Number of Ornaments (Total):").pack(anchor='w', pady=(5, 0))
@@ -240,9 +239,13 @@ class ChristmasEffect(BaseUIEffect):
 
         ttk.Separator(panel, orient='horizontal').pack(fill='x', pady=10)
 
-        # Edge Detection
+        # Edge Detection with Gold Edge Glow checkbox
         ttk.Label(panel, text="Edge Detection", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 5))
 
+        # Gold Edge Glow checkbox
+        ttk.Checkbutton(panel, text="Gold Edge Glow", variable=self.enable_gold_edges).pack(anchor='w', pady=2)
+
+        # Edge Sensitivity slider
         ttk.Label(panel, text="Edge Sensitivity (Upper Threshold):").pack(anchor='w', pady=(5, 0))
         threshold_frame = ttk.Frame(panel)
         threshold_frame.pack(fill='x', pady=2)
