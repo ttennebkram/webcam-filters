@@ -437,8 +437,23 @@ Examples:
                 control_window.title(effect_class.get_control_title())
             else:
                 control_window.title(f"{effect_class.get_name()} - Controls")
-            control_window.geometry("700x600")  # Set larger default size
-            control_window.minsize(700, 500)    # Prevent it from being too small
+            # Calculate available height based on screen size
+            temp_screen_height = root.winfo_screenheight()
+            # Leave room for menu bar and global controls (roughly 200px)
+            max_control_height = min(temp_screen_height - 200, 1000)
+
+            # Check if effect has a preferred height from config
+            preferred_height = 800  # Default
+            if hasattr(effect, 'get_preferred_window_height'):
+                preferred_height = effect.get_preferred_window_height()
+                print(f"DEBUG: Effect preferred height: {preferred_height}")
+
+            # Use preferred height but cap at screen max
+            control_height = min(preferred_height, max_control_height)
+            print(f"DEBUG: Using control height: {control_height} (max: {max_control_height})")
+
+            control_window.geometry(f"700x{control_height}")
+            control_window.minsize(700, 400)    # Prevent it from being too small
             control_window.protocol("WM_DELETE_WINDOW", on_any_window_close)
             control_panel = effect.create_control_panel(control_window)
             control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -473,7 +488,7 @@ Examples:
     if 'control_window' in locals():
         control_window.update_idletasks()
         control_width = control_window.winfo_reqwidth()
-        control_height = control_window.winfo_reqheight()
+        # Keep the control_height we set earlier (preferred height), don't override with reqheight
         # Use the maximum of global controls width and FFT control width
         left_column_width = max(global_width, control_width)
 

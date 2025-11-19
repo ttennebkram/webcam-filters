@@ -1,0 +1,20 @@
+{
+  "grayscale": {
+    "conversion_index": 0,
+    "enabled": false
+  },
+  "blur": {
+    "enabled": true,
+    "kernel_size_x": 7,
+    "kernel_size_y": 7,
+    "sigma_x": 0.0
+  },
+  "threshold_simple": {
+    "enabled": true,
+    "max_value": 255,
+    "thresh_modifier_index": 1,
+    "thresh_type_index": 0,
+    "thresh_value": 200
+  },
+  "_window_height": 723
+}
