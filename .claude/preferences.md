@@ -1,10 +1,31 @@
 # Claude Code Preferences for Webcam Filters Project
 
-## Git Workflow
-- NEVER actually commit to git unless explicitly requested by the user
-- DO suggest commits occasionally when it makes sense (e.g., after completing a significant feature)
-- But DO NOT suggest commits after every small change
-- Only actually execute git commit when user explicitly says "commit" or "create a commit"
+## ⚠️ CRITICAL: Git Workflow Rules ⚠️
+
+**NEVER EVER run `git commit` or `git push` unless the user EXPLICITLY asks you to commit.**
+
+### Examples of explicit requests:
+- ✓ "commit this"
+- ✓ "create a commit"
+- ✓ "commit these changes"
+- ✓ "push this commit"
+
+### Examples that are NOT explicit requests to commit:
+- ✗ "add a license"
+- ✗ "create a new file"
+- ✗ "fix this bug"
+- ✗ "push to github" (when setting up remote)
+
+### What TO do:
+- Use `git add` to stage files (this is OK)
+- Suggest commits when appropriate (after significant features)
+- Ask "Would you like me to commit this?" if unclear
+
+### What NOT to do:
+- DO NOT run `git commit` just because files changed
+- DO NOT run `git commit` after creating files like LICENSE, README, etc.
+- DO NOT assume the user wants to commit
+- DO NOT commit without being explicitly told to commit
 
 ## Documentation
 - NEVER create documentation files (*.md, README, etc.) unless explicitly requested
