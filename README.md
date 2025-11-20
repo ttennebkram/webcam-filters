@@ -58,6 +58,7 @@ webcam-filters/
     ├── lines/                # Edge detection effects
     ├── refraction/           # Optical distortion
     ├── signals/              # Signal processing (FFT)
+    ├── opencv/               # OpenCV operations
     └── misc/                 # Other effects
 ```
 
@@ -115,6 +116,57 @@ Effects are **automatically discovered** at runtime. Each effect:
 |--------|-------------|
 | **fft_ringing** | Advanced FFT frequency filtering with 4 output modes:<br>• Grayscale composite<br>• Individual RGB channels<br>• Grayscale bit planes (8 layers)<br>• Color bit planes (24 layers)<br>Includes real-time filter visualization |
 | **frequency_filter** | High-pass frequency filter |
+
+### OpenCV Operations (`opencv/`)
+
+A comprehensive collection of OpenCV image processing operations with interactive UI controls.
+
+#### Edge Detection
+| Effect | Description |
+|--------|-------------|
+| **edges_canny** | Classic Canny edge detection |
+| **edges_scharr** | Scharr gradient (optimized 3x3, X/Y/Both directions) |
+| **edges_laplacian** | Laplacian second derivative edge detection |
+
+#### Morphological Operations
+| Effect | Description |
+|--------|-------------|
+| **morph_erode** | Shrink bright regions |
+| **morph_dilate** | Expand bright regions |
+| **morph_open** | Erosion then dilation (remove small bright spots) |
+| **morph_close** | Dilation then erosion (fill small dark holes) |
+
+#### Feature Detection
+| Effect | Description |
+|--------|-------------|
+| **detect_lines** | Hough line detection (standard and probabilistic) |
+| **detect_circles** | Hough circle detection |
+| **detect_corners_harris** | Harris corner detection |
+| **detect_corners_shi_tomasi** | Shi-Tomasi corner detection |
+| **contours** | Contour detection with 15 sorting options and 7 drawing modes |
+
+#### Filters & Smoothing
+| Effect | Description |
+|--------|-------------|
+| **bilateral_filter** | Edge-preserving smoothing |
+| **median_blur** | Noise reduction with median filter |
+| **mean_shift_filter** | Color segmentation (posterization-like effect) |
+
+#### Color & Segmentation
+| Effect | Description |
+|--------|-------------|
+| **color_inrange** | Filter colors by HSV/BGR range (mask, masked, inverse output) |
+| **connected_components** | Blob labeling with psychedelic color visualization |
+
+#### Transforms
+| Effect | Description |
+|--------|-------------|
+| **scale_and_warp** | Translate, rotate, scale with border modes |
+
+#### Other
+| Effect | Description |
+|--------|-------------|
+| **blobs** | Blob detection with SimpleBlobDetector |
 
 ### Miscellaneous (`misc/`)
 
@@ -449,6 +501,6 @@ This project is a personal development exploration of computer vision and signal
 
 ---
 
-*Last updated: 2025-01-18*
+*Last updated: 2025-11-19*
 *Architecture: Unified Plugin System*
-*Total Effects: 20+*
+*Total Effects: 40+*
