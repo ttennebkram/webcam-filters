@@ -415,6 +415,10 @@ class PipelineBuilderEffect(BaseUIEffect):
 
         print(f"Pipeline saved: '{name}' -> {pipeline_file}")
 
+        # Generate event to notify main.py to refresh the effect list
+        if self.root_window:
+            self.root_window.event_generate('<<PipelineSaved>>', when='tail')
+
     def _show_load_dialog(self):
         """Show dialog to load a saved pipeline"""
         # Get pipelines directory

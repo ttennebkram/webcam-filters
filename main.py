@@ -393,7 +393,7 @@ Examples:
     ttk.Checkbutton(flip_row, text="Mirror Flip (Left/Right)", variable=flip_var).pack(side='left')
 
     # Effect selection on its own row
-    ttk.Label(global_frame, text="Effect (RESTARTS program):").pack(anchor='w', pady=(5, 2))
+    ttk.Label(global_frame, text="Effect:").pack(anchor='w', pady=(5, 2))
 
     # Shared state for effect restart
     restart_info = {'should_restart': False, 'args': []}
@@ -537,23 +537,16 @@ Examples:
                                      '--height', str(camera_state['current_height'])]
             return
 
-        if new_effect != effect_to_load:
-            restart_info['should_restart'] = True
-            restart_info['args'] = [sys.executable, sys.argv[0], new_effect,
-                                     '--camera', str(camera_state['current_camera']),
-                                     '--width', str(camera_state['current_width']),
-                                     '--height', str(camera_state['current_height'])]
+        # Hot-swap to new effect if different from current
+        if new_effect != effect_state['effect_key']:
+            switch_effect(new_effect)
 
     def on_reload_click():
-        """Reload the current effect by restarting with same effect"""
-        restart_info['should_restart'] = True
-        restart_info['args'] = [sys.executable, sys.argv[0], effect_to_load,
-                                 '--camera', str(camera_state['current_camera']),
-                                 '--width', str(camera_state['current_width']),
-                                 '--height', str(camera_state['current_height'])]
-        # Preserve --edit-pipeline argument if present
-        if args.edit_pipeline:
-            restart_info['args'].extend(['--edit-pipeline', args.edit_pipeline])
+        """Reload the current effect by hot-swapping to the same effect"""
+        current_key = effect_state['effect_key']
+        # Force a reload by temporarily setting a different key
+        effect_state['effect_key'] = None
+        switch_effect(current_key)
 
     effect_combo.bind('<<ComboboxSelected>>', on_effect_change)
 
@@ -564,79 +557,210 @@ Examples:
     ttk.Label(global_frame, text="Camera and resolution change instantly",
               font=('TkDefaultFont', 8, 'italic')).pack(anchor='w', pady=(5, 0))
 
-    # Create the effect instance
+    # Import base class for type checking
+    from core.base_effect import BaseUIEffect
+
+    # Mutable state for hot-swapping effects
+    effect_state = {
+        'effect': None,
+        'effect_key': effect_to_load,
+        'control_window': None,
+        'canvas': None,
+        'scrollbar': None,
+        'scrollable_frame': None,
+        'canvas_window': None
+    }
+
+    def create_effect_instance(effect_key, effect_cls, w, h):
+        """Create an effect instance with proper initialization"""
+        if issubclass(effect_cls, BaseUIEffect):
+            eff = effect_cls(w, h, root)
+            # Pass edit-pipeline argument to Pipeline Builder
+            if args.edit_pipeline and hasattr(eff, '_pipeline_to_load'):
+                eff._pipeline_to_load = args.edit_pipeline
+        else:
+            eff = effect_cls(w, h)
+        return eff
+
+    def create_control_window_for_effect(eff, effect_cls):
+        """Create a control panel window for a UI effect"""
+        if not hasattr(eff, 'create_control_panel'):
+            return None, None, None, None, None
+
+        ctrl_window = tk.Toplevel(root)
+        # Use custom title if effect has one, otherwise default
+        if hasattr(effect_cls, 'get_control_title'):
+            ctrl_window.title(effect_cls.get_control_title())
+        else:
+            ctrl_window.title(f"{effect_cls.get_name()} - Controls")
+
+        # Calculate available height based on screen size
+        temp_screen_height = root.winfo_screenheight()
+        # Leave room for menu bar and global controls (roughly 200px)
+        max_control_height = min(temp_screen_height - 200, 1000)
+
+        # Check if effect has a preferred height from config
+        preferred_height = 800  # Default
+        if hasattr(eff, 'get_preferred_window_height'):
+            preferred_height = eff.get_preferred_window_height()
+
+        # Use preferred height but cap at screen max
+        ctrl_height = min(preferred_height, max_control_height)
+
+        ctrl_window.geometry(f"700x{ctrl_height}")
+        ctrl_window.minsize(700, 400)
+        ctrl_window.protocol("WM_DELETE_WINDOW", on_any_window_close)
+
+        # Create scrollable container for control panel
+        canvas = tk.Canvas(ctrl_window, bd=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(ctrl_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Make the scrollable frame expand to canvas width
+        def _configure_canvas_width(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", _configure_canvas_width)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        control_panel = eff.create_control_panel(scrollable_frame)
+        control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        return ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window
+
+    def switch_effect(new_effect_key):
+        """Hot-swap to a new effect without restarting the application"""
+        nonlocal video_window
+
+        print(f"\nSwitching to effect: {new_effect_key}")
+
+        # Get the new effect class
+        try:
+            new_effect_class = get_effect_class(new_effect_key)
+        except KeyError as e:
+            print(f"Error: Could not load effect '{new_effect_key}': {e}")
+            return False
+
+        # Cleanup old effect
+        if effect_state['effect'] is not None:
+            print("Cleaning up old effect...")
+            effect_state['effect'].cleanup()
+
+        # Destroy old control window if it exists
+        if effect_state['control_window'] is not None:
+            effect_state['control_window'].destroy()
+            effect_state['control_window'] = None
+            effect_state['canvas'] = None
+            effect_state['scrollbar'] = None
+            effect_state['scrollable_frame'] = None
+            effect_state['canvas_window'] = None
+
+        # Get current frame dimensions
+        current_width = camera_state['current_width']
+        current_height = camera_state['current_height']
+
+        # Create new effect instance
+        print(f"Loading effect: {new_effect_class.get_name()}")
+        new_effect = create_effect_instance(new_effect_key, new_effect_class, current_width, current_height)
+
+        # Create control window if needed
+        if issubclass(new_effect_class, BaseUIEffect):
+            ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window = \
+                create_control_window_for_effect(new_effect, new_effect_class)
+            effect_state['control_window'] = ctrl_window
+            effect_state['canvas'] = canvas
+            effect_state['scrollbar'] = scrollbar
+            effect_state['scrollable_frame'] = scrollable_frame
+            effect_state['canvas_window'] = canvas_window
+
+            # Position control window if it was created
+            if ctrl_window is not None:
+                root.update_idletasks()
+                ctrl_window.update_idletasks()
+
+                # Get global controls position for reference
+                global_x = global_controls.winfo_x()
+                global_y = global_controls.winfo_y()
+                global_height = global_controls.winfo_height()
+
+                # Position below global controls
+                ctrl_width = ctrl_window.winfo_reqwidth()
+                ctrl_height_actual = ctrl_window.winfo_height()
+                ctrl_x = global_x
+                ctrl_y = global_y + global_height + 80  # vertical gap
+                ctrl_window.geometry(f"{ctrl_width}x{ctrl_height_actual}+{ctrl_x}+{ctrl_y}")
+
+        # Update state
+        effect_state['effect'] = new_effect
+        effect_state['effect_key'] = new_effect_key
+
+        # Update video window title
+        video_window.window.title(f"Webcam Filter - {new_effect_class.get_name()}")
+
+        # Position visualization windows if they exist
+        if hasattr(new_effect, 'viz_window') and new_effect.viz_window is not None:
+            root.update_idletasks()
+            new_effect.viz_window.update_idletasks()
+            viz_width = new_effect.viz_window.winfo_reqwidth()
+            viz_height = new_effect.viz_window.winfo_reqheight()
+
+            video_x = video_window.window.winfo_x()
+            video_y = video_window.window.winfo_y()
+            video_height = video_window.window.winfo_height()
+
+            viz_x = video_x
+            viz_y = video_y + video_height + 80
+            new_effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
+
+        # Position difference window if it exists
+        if hasattr(new_effect, 'diff_window') and new_effect.diff_window is not None:
+            video_x = video_window.window.winfo_x()
+            video_y = video_window.window.winfo_y()
+            video_width_actual = video_window.window.winfo_width()
+
+            diff_width = current_width
+            diff_height = current_height
+            diff_x = video_x + int(video_width_actual * 0.8)
+            diff_y = video_y
+            new_effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
+
+        print(f"Effect switched to: {new_effect_class.get_name()}")
+        return True
+
+    # Create the initial effect instance
     print(f"Loading effect: {effect_class.get_name()}")
     if effect_to_load == 'misc/passthrough' and args.effect == 'misc/passthrough':
         print("(Using default passthrough effect - use --list to see other effects)")
 
-    # Check if effect needs the root window (for UI effects)
-    from core.base_effect import BaseUIEffect
+    effect = create_effect_instance(effect_to_load, effect_class, width, height)
+    effect_state['effect'] = effect
+    effect_state['effect_key'] = effect_to_load
+
+    # Create control panel window for UI effects
     if issubclass(effect_class, BaseUIEffect):
-        effect = effect_class(width, height, root)
-
-        # Pass edit-pipeline argument to Pipeline Builder
-        if args.edit_pipeline and hasattr(effect, '_pipeline_to_load'):
-            effect._pipeline_to_load = args.edit_pipeline
-
-        # Create control panel window for UI effects
-        if hasattr(effect, 'create_control_panel'):
-            control_window = tk.Toplevel(root)
-            # Use custom title if effect has one, otherwise default
-            if hasattr(effect_class, 'get_control_title'):
-                control_window.title(effect_class.get_control_title())
-            else:
-                control_window.title(f"{effect_class.get_name()} - Controls")
-            # Calculate available height based on screen size
-            temp_screen_height = root.winfo_screenheight()
-            # Leave room for menu bar and global controls (roughly 200px)
-            max_control_height = min(temp_screen_height - 200, 1000)
-
-            # Check if effect has a preferred height from config
-            preferred_height = 800  # Default
-            if hasattr(effect, 'get_preferred_window_height'):
-                preferred_height = effect.get_preferred_window_height()
-                print(f"DEBUG: Effect preferred height: {preferred_height}")
-
-            # Use preferred height but cap at screen max
-            control_height = min(preferred_height, max_control_height)
-            print(f"DEBUG: Using control height: {control_height} (max: {max_control_height})")
-
-            control_window.geometry(f"700x{control_height}")
-            control_window.minsize(700, 400)    # Prevent it from being too small
-            control_window.protocol("WM_DELETE_WINDOW", on_any_window_close)
-
-            # Create scrollable container for control panel
-            canvas = tk.Canvas(control_window, bd=0, highlightthickness=0)
-            scrollbar = ttk.Scrollbar(control_window, orient="vertical", command=canvas.yview)
-            scrollable_frame = ttk.Frame(canvas)
-
-            scrollable_frame.bind(
-                "<Configure>",
-                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-            )
-
-            canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-            canvas.configure(yscrollcommand=scrollbar.set)
-
-            # Make the scrollable frame expand to canvas width
-            def _configure_canvas_width(event):
-                canvas.itemconfig(canvas_window, width=event.width)
-
-            canvas.bind("<Configure>", _configure_canvas_width)
-
-            # Mouse wheel scrolling
-            def _on_mousewheel(event):
-                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-            canvas.pack(side="left", fill="both", expand=True)
-            scrollbar.pack(side="right", fill="y")
-
-            control_panel = effect.create_control_panel(scrollable_frame)
-            control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-    else:
-        effect = effect_class(width, height)
+        ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window = \
+            create_control_window_for_effect(effect, effect_class)
+        effect_state['control_window'] = ctrl_window
+        effect_state['canvas'] = canvas
+        effect_state['scrollbar'] = scrollbar
+        effect_state['scrollable_frame'] = scrollable_frame
+        effect_state['canvas_window'] = canvas_window
 
     # Create video window
     video_window = VideoWindow(root, title=f"Webcam Filter - {effect_class.get_name()}",
@@ -663,11 +787,10 @@ Examples:
     # Determine the width of the left column (global controls or FFT control window)
     # If there's a control window, it will be below global controls and might be wider
     left_column_width = global_width
-    if 'control_window' in locals():
-        control_window.update_idletasks()
-        control_width = control_window.winfo_reqwidth()
-        # Keep the control_height we set earlier (preferred height), don't override with reqheight
-        # Use the maximum of global controls width and FFT control width
+    if effect_state['control_window'] is not None:
+        effect_state['control_window'].update_idletasks()
+        control_width = effect_state['control_window'].winfo_reqwidth()
+        # Use the maximum of global controls width and effect control width
         left_column_width = max(global_width, control_width)
 
     # Calculate total width needed for left column + video
@@ -687,31 +810,30 @@ Examples:
     video_window.window.geometry(f"{video_width}x{video_height}+{video_x}+{video_y}")
 
     # If there's a control window for the effect, position it below global controls
-    if 'control_window' in locals():
+    if effect_state['control_window'] is not None:
+        ctrl_win = effect_state['control_window']
+        ctrl_win.update_idletasks()
+        ctrl_width = ctrl_win.winfo_reqwidth()
+        ctrl_height = ctrl_win.winfo_height()
         control_x = global_x
         control_y = global_y + global_height + vertical_gap
-        control_window.geometry(f"{control_width}x{control_height}+{control_x}+{control_y}")
+        ctrl_win.geometry(f"{ctrl_width}x{ctrl_height}+{control_x}+{control_y}")
 
     # If there's a visualization window (for effects like FFT), position it below the video window
-    if hasattr(effect, 'viz_window') and effect.viz_window is not None:
-        effect.viz_window.update_idletasks()
-        viz_width = effect.viz_window.winfo_reqwidth()
-        viz_height = effect.viz_window.winfo_reqheight()
+    initial_effect = effect_state['effect']
+    if hasattr(initial_effect, 'viz_window') and initial_effect.viz_window is not None:
+        initial_effect.viz_window.update_idletasks()
+        viz_width = initial_effect.viz_window.winfo_reqwidth()
+        viz_height = initial_effect.viz_window.winfo_reqheight()
 
         # Position aligned with video window horizontally, below it vertically
         viz_x = video_x  # Same left edge as video window
         viz_y = video_y + video_height + vertical_gap  # Below video window
 
-        effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
+        initial_effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
 
     # If there's a difference window (for FFT effect), position it to the right of video window
-    print(f"DEBUG: Checking for diff_window - hasattr={hasattr(effect, 'diff_window')}")
-    if hasattr(effect, 'diff_window'):
-        print(f"DEBUG: diff_window value = {effect.diff_window}")
-
-    if hasattr(effect, 'diff_window') and effect.diff_window is not None:
-        print("DEBUG: Positioning difference window...")
-
+    if hasattr(initial_effect, 'diff_window') and initial_effect.diff_window is not None:
         # Use the actual video dimensions for the diff window size
         diff_width = video_width
         diff_height = video_height
@@ -721,10 +843,7 @@ Examples:
         diff_x = video_x + int(video_width * 0.8)
         diff_y = video_y  # Same vertical position as video window
 
-        print(f"DEBUG: Positioning diff window at {diff_x},{diff_y} size {diff_width}x{diff_height}")
-        effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
-    else:
-        print("DEBUG: No diff_window to position")
+        initial_effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
 
     # Force window to show and process events
     root.update()
@@ -746,7 +865,8 @@ Examples:
     # Handle edit pipeline event from user pipelines
     def on_edit_pipeline(event):
         # Get pipeline key from the effect
-        pipeline_key = getattr(effect, '_pipeline_key', None)
+        current_effect = effect_state['effect']
+        pipeline_key = getattr(current_effect, '_pipeline_key', None)
         if pipeline_key:
             print(f"\nRestarting to edit pipeline '{pipeline_key}'...")
             restart_info['should_restart'] = True
@@ -757,6 +877,25 @@ Examples:
                                      '--edit-pipeline', pipeline_key]
 
     root.bind('<<EditPipeline>>', on_edit_pipeline)
+
+    # Handle pipeline saved event - refresh the effect dropdown
+    def on_pipeline_saved(event):
+        # Re-discover all effects including new pipelines
+        updated_effects = list_effects()
+        updated_keys = [key for key, name, desc, category in updated_effects]
+
+        # Add special entry for creating new user pipeline
+        opencv_end_idx = 0
+        for i, key in enumerate(updated_keys):
+            if key.startswith('opencv/'):
+                opencv_end_idx = i + 1
+        updated_keys.insert(opencv_end_idx, new_pipeline_entry)
+
+        # Update the combobox values
+        effect_combo['values'] = updated_keys
+        print("Effect list refreshed with new pipeline")
+
+    root.bind('<<PipelineSaved>>', on_pipeline_saved)
 
     print(f"\nRunning {effect_class.get_name()}...")
     print("Controls:")
@@ -849,8 +988,9 @@ Examples:
 
             # Apply effect if enabled (both effect_enabled from spacebar AND not showing original)
             if effect_enabled and not show_original_var.get():
-                effect.update()
-                frame = effect.draw(frame)
+                current_effect = effect_state['effect']
+                current_effect.update()
+                frame = current_effect.draw(frame)
 
                 # Apply global gain if not 1.0
                 current_gain = gain_var.get()
@@ -889,7 +1029,8 @@ Examples:
 
         # Cleanup
         print("Cleaning up...")
-        effect.cleanup()
+        if effect_state['effect'] is not None:
+            effect_state['effect'].cleanup()
         if cap is not None:
             cap.release()
         root.quit()
