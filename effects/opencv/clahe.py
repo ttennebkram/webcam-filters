@@ -32,6 +32,10 @@ class CLAHEEffect(BaseUIEffect):
         return "CLAHE: Contrast Limited Adaptive Histogram Equalization"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.createCLAHE(clipLimit, tileGridSize)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

@@ -36,6 +36,10 @@ class SIFTEffect(BaseUIEffect):
         return "Scale and rotation invariant keypoint detection"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.SIFT_create(nfeatures, ...)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

@@ -44,6 +44,10 @@ class ErodeEffect(BaseUIEffect):
         return "Morphological erosion - shrinks bright regions"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.erode(src, kernel, iterations)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

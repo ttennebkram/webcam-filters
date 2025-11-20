@@ -34,6 +34,10 @@ class MeanShiftFilterEffect(BaseUIEffect):
         return "Color segmentation via pyramid mean shift"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.pyrMeanShiftFiltering(src, sp, sr)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

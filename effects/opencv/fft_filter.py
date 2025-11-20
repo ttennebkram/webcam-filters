@@ -81,6 +81,10 @@ class FFTFilterEffect(BaseUIEffect):
         return "FFT-based high-pass filter with spectrum visualization"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "np.fft.fft2() / np.fft.ifft2()"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 
@@ -500,13 +504,6 @@ class FFTFilterEffect(BaseUIEffect):
         radius = self.fft_radius.get()
         smoothness = self.fft_smoothness.get()
         show_fft = self.show_fft.get()
-
-        # Debug: print radius value on first few frames
-        if not hasattr(self, '_debug_counter'):
-            self._debug_counter = 0
-        self._debug_counter += 1
-        if self._debug_counter <= 5:
-            print(f"DEBUG FFT: radius={radius}, smoothness={smoothness}, show_fft={show_fft}")
 
         # Split into BGR channels
         b, g, r = cv2.split(frame)

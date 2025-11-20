@@ -42,6 +42,10 @@ class GrayscaleEffect(BaseUIEffect):
         return "Convert image between different color spaces"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.cvtColor(src, code)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

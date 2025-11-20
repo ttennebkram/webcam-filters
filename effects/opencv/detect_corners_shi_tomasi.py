@@ -50,6 +50,10 @@ class ShiTomasiCornersEffect(BaseUIEffect):
         return "Detect corners using Shi-Tomasi (goodFeaturesToTrack)"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

@@ -108,6 +108,15 @@ class PipelineBuilderEffect(BaseUIEffect):
         )
         title_label.pack(anchor='w')
 
+        # Warning message
+        warning_label = ttk.Label(
+            header_frame,
+            text="⚠️  Changes are not persisted until you click Save",
+            foreground='red',
+            font=('TkDefaultFont', 10, 'italic')
+        )
+        warning_label.pack(anchor='w', pady=(5, 0))
+
         # Pipeline name and save controls
         save_frame = ttk.Frame(self.control_panel)
         save_frame.pack(fill='x', **padding)
@@ -128,12 +137,12 @@ class PipelineBuilderEffect(BaseUIEffect):
         )
         save_btn.pack(side='left', padx=5)
 
-        load_btn = ttk.Button(
+        done_btn = ttk.Button(
             save_frame,
-            text="Load",
-            command=self._show_load_dialog
+            text="Done Editing",
+            command=self._run_pipeline
         )
-        load_btn.pack(side='left', padx=5)
+        done_btn.pack(side='left', padx=5)
 
         # Separator
         ttk.Separator(self.control_panel, orient='horizontal').pack(fill='x', pady=5)
@@ -419,85 +428,25 @@ class PipelineBuilderEffect(BaseUIEffect):
         if self.root_window:
             self.root_window.event_generate('<<PipelineSaved>>', when='tail')
 
-    def _show_load_dialog(self):
-        """Show dialog to load a saved pipeline"""
-        # Get pipelines directory
+    def _run_pipeline(self):
+        """Switch to running the current pipeline (exit edit mode)"""
+        name = self.pipeline_name.get().strip()
+        if not name:
+            messagebox.showwarning("Run Pipeline", "Please enter a pipeline name and save first")
+            return
+
+        # Check if pipeline exists
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         pipelines_dir = os.path.join(project_root, 'pipelines')
+        pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
 
-        if not os.path.exists(pipelines_dir):
-            messagebox.showinfo("Load Pipeline", "No saved pipelines found")
+        if not os.path.exists(pipeline_file):
+            messagebox.showwarning("Run Pipeline", "Please save the pipeline first")
             return
 
-        # Find all pipeline files
-        pipeline_files = [f for f in os.listdir(pipelines_dir) if f.endswith('.json')]
-
-        if not pipeline_files:
-            messagebox.showinfo("Load Pipeline", "No saved pipelines found")
-            return
-
-        # Load all pipelines
-        pipelines = {}
-        for filename in pipeline_files:
-            name = filename[:-5]  # Remove .json extension
-            filepath = os.path.join(pipelines_dir, filename)
-            try:
-                with open(filepath, 'r') as f:
-                    pipelines[name] = json.load(f)
-            except:
-                pass
-
-        if not pipelines:
-            messagebox.showinfo("Load Pipeline", "No valid pipelines found")
-            return
-
-        # Create dialog
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Load Pipeline")
-        dialog.geometry("300x200")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text="Select Pipeline:").pack(pady=10)
-
-        pipeline_var = tk.StringVar()
-        pipeline_names = list(pipelines.keys())
-
-        combo = ttk.Combobox(
-            dialog,
-            textvariable=pipeline_var,
-            values=pipeline_names,
-            state='readonly',
-            width=30
-        )
-        combo.pack(pady=5)
-
-        def on_load():
-            name = pipeline_var.get()
-            if name:
-                self._load_pipeline(pipelines[name])
-                self.pipeline_name.set(name)
-                pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
-                print(f"Pipeline loaded: '{name}' <- {pipeline_file}")
-            dialog.destroy()
-
-        def on_delete():
-            name = pipeline_var.get()
-            if name:
-                if messagebox.askyesno("Delete Pipeline", f"Delete '{name}'?"):
-                    pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
-                    os.remove(pipeline_file)
-                    del pipelines[name]
-                    combo['values'] = list(pipelines.keys())
-                    pipeline_var.set('')
-                    print(f"Pipeline deleted: '{name}' from {pipeline_file}")
-
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(pady=10)
-
-        ttk.Button(btn_frame, text="Load", command=on_load).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Delete", command=on_delete).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side='left', padx=5)
+        # Generate event to switch to the user pipeline
+        if self.root_window:
+            self.root_window.event_generate('<<RunPipeline>>')
 
     def _load_pipeline_by_key(self, pipeline_key):
         """Load a pipeline by its key (e.g., 'test1')"""

@@ -34,6 +34,10 @@ class BilateralFilterEffect(BaseUIEffect):
         return "Edge-preserving smoothing filter"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.bilateralFilter(src, d, sigmaColor, sigmaSpace)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

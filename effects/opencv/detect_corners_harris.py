@@ -52,6 +52,10 @@ class HarrisCornersEffect(BaseUIEffect):
         return "Detect corners using Harris corner detection"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.cornerHarris(src, blockSize, ksize, k)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

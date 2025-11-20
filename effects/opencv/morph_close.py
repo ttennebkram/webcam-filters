@@ -44,6 +44,10 @@ class CloseEffect(BaseUIEffect):
         return "Morphological closing - fills small dark holes"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.morphologyEx(src, cv2.MORPH_CLOSE, kernel)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

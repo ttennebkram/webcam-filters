@@ -39,6 +39,10 @@ class LaplacianEffect(BaseUIEffect):
         return "Laplacian edge detection (second derivative)"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.Laplacian(src, ddepth)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

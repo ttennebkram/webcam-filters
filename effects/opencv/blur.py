@@ -32,6 +32,10 @@ class BlurEffect(BaseUIEffect):
         return "Apply Gaussian blur effect to soften the image"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.GaussianBlur(src, ksize, sigmaX)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

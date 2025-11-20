@@ -44,6 +44,10 @@ class DilateEffect(BaseUIEffect):
         return "Morphological dilation - expands bright regions"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.dilate(src, kernel, iterations)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

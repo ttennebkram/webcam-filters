@@ -197,19 +197,140 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
             )
             edit_btn.pack(side='right')
 
-            edit_note = ttk.Label(
-                header_frame,
-                text="(restarts app)",
-                font=('TkDefaultFont', 8, 'italic')
-            )
-            edit_note.pack(side='right', padx=(0, 5))
+            # Column header for Enabled and Effect
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
 
-            # Add each effect's control panel
-            for effect in self.effects:
-                if hasattr(effect, 'create_control_panel'):
-                    effect_panel = effect.create_control_panel(self.control_panel)
-                    if effect_panel:
-                        effect_panel.pack(fill='x', padx=5, pady=5)
+            # Fixed width for Enabled column
+            ttk.Label(
+                header_frame,
+                text="Enabled",
+                font=('TkDefaultFont', 9)
+            ).pack(side='left', padx=(0, 10))
+
+            ttk.Label(
+                header_frame,
+                text="Effect",
+                font=('TkDefaultFont', 9)
+            ).pack(side='left')
+
+            # Show effects with enable checkboxes and read-only parameters
+            for i, effect in enumerate(self.effects):
+                effect_frame = ttk.Frame(self.control_panel)
+                effect_frame.pack(fill='x', **padding)
+
+                # Effect header with enabled checkbox
+                effect_name = effect.__class__.__name__
+                if hasattr(effect, 'get_name'):
+                    effect_name = effect.get_name()
+
+                header_row = ttk.Frame(effect_frame)
+                header_row.pack(fill='x')
+
+                # Enabled checkbox on the left
+                if hasattr(effect, 'enabled'):
+                    ttk.Checkbutton(
+                        header_row,
+                        text="",
+                        variable=effect.enabled
+                    ).pack(side='left', padx=(10, 10))
+
+                # Effect name and details in the Effect column
+                effect_col = ttk.Frame(header_row)
+                effect_col.pack(side='left', fill='x', expand=True)
+
+                ttk.Label(
+                    effect_col,
+                    text=f"{i+1}. {effect_name}",
+                    font=('TkDefaultFont', 12, 'bold')
+                ).pack(anchor='w')
+
+                # Description
+                if hasattr(effect, 'get_description'):
+                    desc = effect.get_description()
+                    if desc:
+                        ttk.Label(
+                            effect_col,
+                            text=desc,
+                            font=('TkDefaultFont', 9)
+                        ).pack(anchor='w', padx=(15, 0))
+
+                # Method signature (if available)
+                if hasattr(effect, 'get_method_signature'):
+                    sig = effect.get_method_signature()
+                    if sig:
+                        ttk.Label(
+                            effect_col,
+                            text=sig,
+                            font=('TkFixedFont', 9)
+                        ).pack(anchor='w', padx=(15, 0))
+
+                # Read-only parameter values (in effect column)
+                params_frame = ttk.Frame(effect_col)
+                params_frame.pack(fill='x', padx=(15, 0))
+
+                param_count = 0
+                for attr_name in sorted(dir(effect)):
+                    # Skip private and internal variables
+                    if attr_name.startswith('_'):
+                        continue
+                    if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
+                        continue
+
+                    attr = getattr(effect, attr_name)
+                    if isinstance(attr, tk.Variable):
+                        try:
+                            value = attr.get()
+
+                            # Handle index variables - try to get display value
+                            if attr_name.endswith('_index'):
+                                # Look for corresponding list to get display name
+                                # e.g., conversion_index -> COLOR_CONVERSIONS
+                                base_name = attr_name[:-6].upper()  # Remove '_index'
+                                lookup_names = [
+                                    f'{base_name}S',  # e.g., CONVERSIONS
+                                    f'COLOR_{base_name}S',  # e.g., COLOR_CONVERSIONS
+                                    f'{base_name}_OPTIONS',
+                                ]
+                                found = False
+                                for lookup in lookup_names:
+                                    if hasattr(effect, lookup):
+                                        options = getattr(effect, lookup)
+                                        if isinstance(options, list) and 0 <= value < len(options):
+                                            # Get display name from tuple (code, name)
+                                            if isinstance(options[value], tuple):
+                                                value_str = options[value][1]
+                                            else:
+                                                value_str = str(options[value])
+                                            display_name = base_name.replace('_', ' ').title()
+                                            found = True
+                                            break
+                                if not found:
+                                    continue  # Skip if we can't resolve
+                            else:
+                                # Format the value nicely
+                                if isinstance(value, float):
+                                    value_str = f"{value:.2f}"
+                                elif isinstance(value, bool):
+                                    value_str = "Yes" if value else "No"
+                                else:
+                                    value_str = str(value)
+
+                                # Make parameter name more readable
+                                display_name = attr_name.replace('_', ' ').title()
+
+                            ttk.Label(
+                                params_frame,
+                                text=f"{display_name}: {value_str}",
+                                font=('TkDefaultFont', 9)
+                            ).pack(anchor='w')
+                            param_count += 1
+                        except:
+                            pass
+
+                # Add separator between effects
+                if i < len(self.effects) - 1:
+                    ttk.Separator(self.control_panel, orient='horizontal').pack(fill='x', pady=5)
 
             return self.control_panel
 

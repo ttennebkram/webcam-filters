@@ -48,6 +48,10 @@ class GradientSobelEffect(BaseUIEffect):
         return "Compute image gradients using Sobel operator for edge detection"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.Sobel(src, ddepth, dx, dy, ksize)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

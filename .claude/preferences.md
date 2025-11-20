@@ -44,3 +44,10 @@
 - Focus on code implementation over documentation
 - Ask before making structural changes
 - Prioritize working code over perfect documentation
+
+## Testing Before Commits
+- ALWAYS let the user test changes before committing
+- After implementing a feature or fix, wait for user confirmation that it works
+- Do NOT commit immediately after writing code
+- Ask "Would you like to test this before I commit?" or similar
+- Only commit when user explicitly says to commit AND has had a chance to test

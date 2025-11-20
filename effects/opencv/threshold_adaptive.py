@@ -46,6 +46,10 @@ class ThresholdAdaptiveEffect(BaseUIEffect):
         return "Apply adaptive thresholding with local region calculation"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.adaptiveThreshold(src, maxValue, adaptiveMethod, thresholdType, blockSize, C)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

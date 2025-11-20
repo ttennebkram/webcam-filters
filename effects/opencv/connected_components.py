@@ -47,6 +47,10 @@ class ConnectedComponentsEffect(BaseUIEffect):
         return "Label connected regions with different colors"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.connectedComponentsWithStats(image)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

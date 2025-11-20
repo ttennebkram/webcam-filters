@@ -33,6 +33,10 @@ class MedianBlurEffect(BaseUIEffect):
         return "Noise reduction using median filter"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.medianBlur(src, ksize)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

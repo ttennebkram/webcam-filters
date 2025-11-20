@@ -103,6 +103,10 @@ class ContoursEffect(BaseUIEffect):
         return "Find and draw contours on images"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.findContours(image, mode, method)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

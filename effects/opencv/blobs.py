@@ -30,5 +30,9 @@ class BlobsEffect(BasePipelineEffect):
         return "Blob detection pipeline: blur → grayscale → threshold"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.SimpleBlobDetector_create(params)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"

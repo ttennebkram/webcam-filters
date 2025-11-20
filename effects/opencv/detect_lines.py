@@ -63,6 +63,10 @@ class HoughLinesEffect(BaseUIEffect):
         return "Detect straight lines using Hough Transform"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.HoughLinesP(image, rho, theta, threshold)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

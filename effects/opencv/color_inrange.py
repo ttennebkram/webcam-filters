@@ -43,6 +43,10 @@ class InRangeEffect(BaseUIEffect):
         return "Filter colors within a specified range"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.inRange(src, lowerb, upperb)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

@@ -33,6 +33,10 @@ class CannyEffect(BaseUIEffect):
         return "Apply Canny edge detection algorithm"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.Canny(image, threshold1, threshold2)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

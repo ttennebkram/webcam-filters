@@ -53,6 +53,10 @@ class HoughCirclesEffect(BaseUIEffect):
         return "Detect circles using Hough Transform"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.HoughCircles(image, method, dp, minDist)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

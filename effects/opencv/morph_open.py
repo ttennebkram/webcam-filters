@@ -44,6 +44,10 @@ class OpenEffect(BaseUIEffect):
         return "Morphological opening - removes small bright spots"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.morphologyEx(src, cv2.MORPH_OPEN, kernel)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

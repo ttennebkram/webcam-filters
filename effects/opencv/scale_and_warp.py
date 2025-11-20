@@ -55,6 +55,10 @@ class ScaleAndWarpEffect(BaseUIEffect):
         return "Apply translation, rotation, and scaling via affine transform"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.warpAffine(src, M, dsize)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

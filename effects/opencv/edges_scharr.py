@@ -39,6 +39,10 @@ class ScharrEffect(BaseUIEffect):
         return "Scharr edge detection (optimized 3x3 gradient)"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.Scharr(src, ddepth, dx, dy)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 

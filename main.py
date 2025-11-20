@@ -538,11 +538,20 @@ Examples:
             switch_effect(new_effect)
 
     def on_reload_click():
-        """Reload the current effect by hot-swapping to the same effect"""
-        current_key = effect_state['effect_key']
-        # Force a reload by temporarily setting a different key
-        effect_state['effect_key'] = None
-        switch_effect(current_key)
+        """Reload the current effect by restarting the application"""
+        restart_info['should_restart'] = True
+        restart_info['args'] = [sys.executable, sys.argv[0], effect_state['effect_key'],
+                                 '--camera', str(camera_state['current_camera']),
+                                 '--width', str(camera_state['current_width']),
+                                 '--height', str(camera_state['current_height'])]
+
+        # If in Pipeline Builder with a loaded pipeline, reload as the user pipeline (view mode)
+        current_effect = effect_state['effect']
+        if effect_state['effect_key'] == 'opencv/pipeline_builder' and hasattr(current_effect, 'pipeline_name'):
+            pipeline_name = current_effect.pipeline_name.get().strip()
+            if pipeline_name:
+                # Replace effect key with user pipeline to reload in view mode
+                restart_info['args'][2] = f'opencv/user_{pipeline_name}'
 
     effect_combo.bind('<<ComboboxSelected>>', on_effect_change)
 
@@ -895,6 +904,18 @@ Examples:
         print("Effect list refreshed with new pipeline")
 
     root.bind('<<PipelineSaved>>', on_pipeline_saved)
+
+    # Handle run pipeline event - switch from Pipeline Builder to the saved pipeline
+    def on_run_pipeline(event):
+        current_effect = effect_state['effect']
+        if hasattr(current_effect, 'pipeline_name'):
+            name = current_effect.pipeline_name.get().strip()
+            if name:
+                pipeline_key = f"opencv/user_{name}"
+                print(f"\nSwitching to run pipeline '{name}'...")
+                switch_effect(pipeline_key)
+
+    root.bind('<<RunPipeline>>', on_run_pipeline)
 
     print(f"\nRunning {effect_class.get_name()}...")
     print("Controls:")

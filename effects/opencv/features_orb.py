@@ -39,6 +39,10 @@ class ORBEffect(BaseUIEffect):
         return "Fast, free keypoint detection for real-time use"
 
     @classmethod
+    def get_method_signature(cls) -> str:
+        return "cv2.ORB_create(nfeatures, scaleFactor, nlevels, ...)"
+
+    @classmethod
     def get_category(cls) -> str:
         return "opencv"
 
