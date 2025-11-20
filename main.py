@@ -151,23 +151,62 @@ Examples:
         print(f"Available cameras: {cameras}")
         print(f"Using camera {camera_index} (specified)")
 
-    # Open camera with specified or default resolution
-    print(f"Opening camera {camera_index} at {args.width}x{args.height}...")
-    cap = open_camera(camera_index, width=args.width, height=args.height)
-    if cap is None:
-        print(f"Error: Could not open camera {args.camera}")
-        print("\nUse --list-cameras to see available cameras")
-        return 1
+    # Check if we should load a file instead of camera
+    initial_static_image = None
+    if saved_settings.get('input_source') == 'file' and saved_settings.get('file_path'):
+        file_path = saved_settings['file_path']
+        ext = file_path.lower().split('.')[-1]
 
-    # Get frame dimensions
-    ret, frame = cap.read()
-    if not ret:
-        print("Error: Could not read from camera")
-        cap.release()
-        return 1
+        if ext in ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff']:
+            # Static image
+            print(f"Loading static image: {file_path}")
+            img = cv2.imread(file_path)
+            if img is not None:
+                initial_static_image = img
+                frame = img.copy()  # For validation
+                height, width = img.shape[:2]
+                # Still open camera as fallback but we won't use it initially
+                cap = open_camera(camera_index, width=args.width, height=args.height)
+                print(f"Static image resolution: {width}x{height}")
+            else:
+                print(f"Error: Could not load image {file_path}, falling back to camera")
+                saved_settings['input_source'] = 'camera'
+        else:
+            # Video file
+            print(f"Loading video file: {file_path}")
+            cap = cv2.VideoCapture(file_path)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    height, width = frame.shape[:2]
+                    print(f"Video resolution: {width}x{height}")
+                else:
+                    print(f"Error: Could not read from video, falling back to camera")
+                    cap.release()
+                    saved_settings['input_source'] = 'camera'
+            else:
+                print(f"Error: Could not open video {file_path}, falling back to camera")
+                saved_settings['input_source'] = 'camera'
 
-    height, width = frame.shape[:2]
-    print(f"Camera resolution: {width}x{height}")
+    # Open camera if not using file input (or as fallback)
+    if saved_settings.get('input_source') != 'file':
+        # Open camera with specified or default resolution
+        print(f"Opening camera {camera_index} at {args.width}x{args.height}...")
+        cap = open_camera(camera_index, width=args.width, height=args.height)
+        if cap is None:
+            print(f"Error: Could not open camera {args.camera}")
+            print("\nUse --list-cameras to see available cameras")
+            return 1
+
+        # Get frame dimensions
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not read from camera")
+            cap.release()
+            return 1
+
+        height, width = frame.shape[:2]
+        print(f"Camera resolution: {width}x{height}")
 
     # Debug: Check if frame is valid
     if frame is None or frame.size == 0:
@@ -203,8 +242,9 @@ Examples:
         'current_width': width,
         'current_height': height,
         'needs_reopen': False,
-        'input_source': 'camera',  # 'camera' or 'file'
-        'file_path': ''
+        'input_source': saved_settings.get('input_source', 'camera'),
+        'file_path': saved_settings.get('file_path', ''),
+        '_static_image': initial_static_image
     }
 
     # Input section header
