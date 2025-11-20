@@ -197,30 +197,42 @@ Examples:
     # Disable focus highlight
     global_frame.configure(takefocus=0)
 
-    # Top row with Camera, Resolution, and Flip in a grid layout
-    top_row = ttk.Frame(global_frame)
-    top_row.pack(fill='x', pady=(0, 5))
-    top_row.configure(takefocus=0)
-
-    # Column headers
-    ttk.Label(top_row, text="Camera").grid(row=0, column=0, sticky='w', padx=2, pady=2)
-    ttk.Label(top_row, text="Resolution").grid(row=0, column=1, sticky='w', padx=2, pady=2)
-    ttk.Label(top_row, text="Mirror Flip").grid(row=0, column=2, sticky='w', padx=2, pady=2)
-
     # Shared state for camera/resolution changes
     camera_state = {
         'current_camera': camera_index,
         'current_width': width,
         'current_height': height,
-        'needs_reopen': False
+        'needs_reopen': False,
+        'input_source': 'camera',  # 'camera' or 'file'
+        'file_path': ''
     }
 
-    # Camera dropdown (reduced width)
+    # Input section header
+    ttk.Label(global_frame, text="Input", font=('TkDefaultFont', 12, 'bold')).pack(anchor='w', pady=(0, 3))
+
+    # Input source selection (radio buttons)
+    input_source_var = tk.StringVar(value=saved_settings.get('input_source', 'camera'))
+    camera_state['input_source'] = input_source_var.get()
+
+    # Load saved file path
+    saved_file_path = saved_settings.get('file_path', '')
+    camera_state['file_path'] = saved_file_path
+
+    # === Camera input row ===
+    camera_row = ttk.Frame(global_frame)
+    camera_row.pack(fill='x', pady=(0, 3))
+    camera_row.configure(takefocus=0)
+
+    # Radio button for camera
+    camera_radio = ttk.Radiobutton(camera_row, text="Camera:", variable=input_source_var, value='camera')
+    camera_radio.pack(side='left', padx=(0, 5))
+
+    # Camera dropdown
     camera_var = tk.StringVar(value=f"{camera_index}: {get_camera_name(camera_index)}")
-    camera_combo = ttk.Combobox(top_row, textvariable=camera_var, state='readonly', width=7)
+    camera_combo = ttk.Combobox(camera_row, textvariable=camera_var, state='readonly', width=12)
     camera_combo['values'] = [f"{idx}: {get_camera_name(idx)}" for idx in cameras]
     camera_combo.current(cameras.index(camera_index))
-    camera_combo.grid(row=1, column=0, sticky='w', padx=2, pady=2)
+    camera_combo.pack(side='left', padx=(0, 10))
 
     def on_camera_change(event):
         new_camera = int(camera_var.get().split(':')[0])
@@ -228,10 +240,12 @@ Examples:
             print(f"Switching camera from {camera_state['current_camera']} to {new_camera}")
             camera_state['current_camera'] = new_camera
             camera_state['needs_reopen'] = True
+        # Auto-select camera radio button
+        input_source_var.set('camera')
 
     camera_combo.bind('<<ComboboxSelected>>', on_camera_change)
 
-    # Resolution dropdown (shorter labels)
+    # Resolution dropdown
     resolutions = [
         "640x480",
         "1024x768",
@@ -246,9 +260,10 @@ Examples:
     else:
         resolution_var.set(f"{current_res}")
 
-    resolution_combo = ttk.Combobox(top_row, textvariable=resolution_var, state='readonly', width=9)
+    ttk.Label(camera_row, text="Resolution:").pack(side='left', padx=(0, 5))
+    resolution_combo = ttk.Combobox(camera_row, textvariable=resolution_var, state='readonly', width=10)
     resolution_combo['values'] = resolutions
-    resolution_combo.grid(row=1, column=1, sticky='w', padx=2, pady=2)
+    resolution_combo.pack(side='left')
 
     def on_resolution_change(event):
         try:
@@ -266,9 +281,60 @@ Examples:
 
     resolution_combo.bind('<<ComboboxSelected>>', on_resolution_change)
 
-    # Flip checkbox
+    # === File input row ===
+    file_row = ttk.Frame(global_frame)
+    file_row.pack(fill='x', pady=(0, 3))
+    file_row.configure(takefocus=0)
+
+    # Radio button for file
+    file_radio = ttk.Radiobutton(file_row, text="File:", variable=input_source_var, value='file')
+    file_radio.pack(side='left', padx=(0, 5))
+
+    # File path entry
+    file_path_var = tk.StringVar(value=saved_file_path)
+    file_entry = ttk.Entry(file_row, textvariable=file_path_var, width=30)
+    file_entry.pack(side='left', padx=(0, 5), fill='x', expand=True)
+
+    def on_file_path_change(*args):
+        path = file_path_var.get()
+        if path:
+            camera_state['file_path'] = path
+            camera_state['needs_reopen'] = True
+            # Auto-select file radio button
+            input_source_var.set('file')
+
+    file_path_var.trace_add('write', on_file_path_change)
+
+    # Browse button
+    def browse_file():
+        from tkinter import filedialog
+        filetypes = [
+            ("Image/Video files", "*.png *.jpg *.jpeg *.bmp *.gif *.mp4 *.avi *.mov *.mkv"),
+            ("Images", "*.png *.jpg *.jpeg *.bmp *.gif"),
+            ("Videos", "*.mp4 *.avi *.mov *.mkv"),
+            ("All files", "*.*")
+        ]
+        filepath = filedialog.askopenfilename(filetypes=filetypes)
+        if filepath:
+            file_path_var.set(filepath)
+
+    browse_btn = ttk.Button(file_row, text="...", width=3, command=browse_file)
+    browse_btn.pack(side='left')
+
+    # Track input source changes
+    def on_input_source_change(*args):
+        camera_state['input_source'] = input_source_var.get()
+        camera_state['needs_reopen'] = True
+
+    input_source_var.trace_add('write', on_input_source_change)
+
+    # === Mirror flip row ===
+    flip_row = ttk.Frame(global_frame)
+    flip_row.pack(fill='x', pady=(0, 5))
+    flip_row.configure(takefocus=0)
+
     flip_var = tk.BooleanVar(value=saved_settings.get('flip', True))
-    ttk.Checkbutton(top_row, text="Flip Left/Right", variable=flip_var).grid(row=1, column=2, sticky='w', padx=2, pady=2)
+    ttk.Checkbutton(flip_row, text="Mirror Flip (Left/Right)", variable=flip_var).pack(side='left')
 
     # Effect selection on its own row
     ttk.Label(global_frame, text="Effect (RESTARTS program):").pack(anchor='w', pady=(5, 2))
@@ -587,25 +653,68 @@ Examples:
 
             # Check if camera/resolution needs to change
             if camera_state['needs_reopen']:
-                print("Reopening camera with new settings...")
-                cap.release()
-                cap = open_camera(camera_state['current_camera'],
-                                width=camera_state['current_width'],
-                                height=camera_state['current_height'])
-                if cap is None:
-                    print(f"Error: Could not open camera {camera_state['current_camera']}")
-                    break
+                if camera_state['input_source'] == 'camera':
+                    print("Reopening camera with new settings...")
+                    cap.release()
+                    cap = open_camera(camera_state['current_camera'],
+                                    width=camera_state['current_width'],
+                                    height=camera_state['current_height'])
+                    if cap is None:
+                        print(f"Error: Could not open camera {camera_state['current_camera']}")
+                        break
 
-                # Resize video window to match new resolution
-                video_window.resize(camera_state['current_width'], camera_state['current_height'])
+                    # Resize video window to match new resolution
+                    video_window.resize(camera_state['current_width'], camera_state['current_height'])
+                    camera_state['needs_reopen'] = False
+                    camera_state['_static_image'] = None
+                    print(f"Camera reopened: {camera_state['current_camera']} at {camera_state['current_width']}x{camera_state['current_height']}")
 
-                camera_state['needs_reopen'] = False
-                print(f"Camera reopened: {camera_state['current_camera']} at {camera_state['current_width']}x{camera_state['current_height']}")
+                elif camera_state['input_source'] == 'file' and camera_state['file_path']:
+                    file_path = camera_state['file_path']
+                    print(f"Opening file: {file_path}")
 
-            ret, frame = cap.read()
-            if not ret:
-                print("Error: Lost camera connection")
-                break
+                    # Check if it's an image or video
+                    ext = file_path.lower().split('.')[-1]
+                    if ext in ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff']:
+                        # Static image
+                        img = cv2.imread(file_path)
+                        if img is not None:
+                            camera_state['_static_image'] = img
+                            h, w = img.shape[:2]
+                            video_window.resize(w, h)
+                            print(f"Loaded static image: {w}x{h}")
+                        else:
+                            print(f"Error: Could not load image {file_path}")
+                    else:
+                        # Video file
+                        cap.release()
+                        cap = cv2.VideoCapture(file_path)
+                        if cap.isOpened():
+                            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            video_window.resize(w, h)
+                            camera_state['_static_image'] = None
+                            print(f"Loaded video: {w}x{h}")
+                        else:
+                            print(f"Error: Could not open video {file_path}")
+
+                    camera_state['needs_reopen'] = False
+
+            # Read frame from appropriate source
+            if camera_state.get('_static_image') is not None:
+                # Use static image
+                frame = camera_state['_static_image'].copy()
+                ret = True
+            else:
+                ret, frame = cap.read()
+                if not ret:
+                    # For video files, loop back to start
+                    if camera_state['input_source'] == 'file':
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = cap.read()
+                    if not ret:
+                        print("Error: Lost camera/video connection")
+                        break
 
             # Mirror the frame horizontally if enabled
             if flip_var.get():
@@ -645,7 +754,9 @@ Examples:
             'flip': flip_var.get(),
             'show_original': show_original_var.get(),
             'gain': gain_var.get(),
-            'invert': invert_var.get()
+            'invert': invert_var.get(),
+            'input_source': input_source_var.get(),
+            'file_path': file_path_var.get()
         }
         save_settings(current_settings)
 
