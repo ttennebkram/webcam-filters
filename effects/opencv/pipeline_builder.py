@@ -269,6 +269,12 @@ class PipelineBuilderEffect(BaseUIEffect):
                 # The left_column contains the Enabled checkbox
                 self._add_buttons_to_left_column(effect_panel, effect_frame)
 
+            # Show any visualization windows created by the effect (e.g., FFT)
+            if hasattr(effect, 'viz_window') and effect.viz_window is not None:
+                effect.viz_window.deiconify()
+            if hasattr(effect, 'diff_window') and effect.diff_window is not None:
+                effect.diff_window.deiconify()
+
         return effect_frame
 
     def _add_buttons_to_left_column(self, effect_panel, effect_frame):

@@ -25,6 +25,7 @@ class VideoWindow:
         """
         self.root = root
         self.window = tk.Toplevel(root)
+        self.window.withdraw()  # Hide until positioned
         self.window.title(title)
 
         # Store image dimensions

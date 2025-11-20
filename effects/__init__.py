@@ -166,6 +166,15 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
         def get_category(cls) -> str:
             return "opencv"
 
+        def get_preferred_window_height(self):
+            """Calculate preferred height based on number of effects"""
+            num_effects = len(self.effects)
+            # Base height for header + some padding, plus height per effect
+            # Keep similar to edit mode height
+            base_height = 150
+            per_effect_height = 130  # Each effect in view mode
+            return base_height + (num_effects * per_effect_height)
+
         def create_control_panel(self, parent):
             """Create control panel showing all effect controls"""
             self.control_panel = ttk.Frame(parent)
@@ -402,6 +411,21 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                 # Add separator between effects
                 if i < len(self.effects) - 1:
                     ttk.Separator(self.control_panel, orient='horizontal').pack(fill='x', pady=5)
+
+            # Create visualization windows for effects that have them (e.g., FFT filter)
+            for effect in self.effects:
+                if hasattr(effect, '_create_visualization_window'):
+                    effect._create_visualization_window()
+                    if hasattr(effect, '_update_visualization'):
+                        effect._update_visualization()
+                    # Show the window (main.py won't know about sub-effect windows)
+                    if hasattr(effect, 'viz_window') and effect.viz_window is not None:
+                        effect.viz_window.deiconify()
+                if hasattr(effect, '_create_diff_window'):
+                    effect._create_diff_window()
+                    # Show the window
+                    if hasattr(effect, 'diff_window') and effect.diff_window is not None:
+                        effect.diff_window.deiconify()
 
             return self.control_panel
 

@@ -198,11 +198,9 @@ class FFTFilterEffect(BaseUIEffect):
         )
         show_fft_cb.pack(side='left')
 
-        # Create visualization window
+        # Create visualization and difference windows
         self._create_visualization_window()
         self._update_visualization()
-
-        # Create difference window
         self._create_diff_window()
 
         return self.control_panel
@@ -213,6 +211,7 @@ class FFTFilterEffect(BaseUIEffect):
             return
 
         self.viz_window = tk.Toplevel(self.root_window)
+        self.viz_window.withdraw()  # Hide until positioned by main.py
         self.viz_window.title("Filter Curve Visualization")
 
         # Position to the right of pipeline UI, below video windows
@@ -257,6 +256,7 @@ class FFTFilterEffect(BaseUIEffect):
             return
 
         self.diff_window = tk.Toplevel(self.root_window)
+        self.diff_window.withdraw()  # Hide until positioned by main.py
         self.diff_window.title("Difference View (Blocked Frequencies)")
 
         # Create label to hold the image
@@ -277,12 +277,6 @@ class FFTFilterEffect(BaseUIEffect):
         diff_y = 50
 
         self.diff_window.geometry(f"{self.width}x{self.height}+{diff_x}+{diff_y}")
-
-        # Make sure window is visible
-        self.diff_window.deiconify()
-        self.diff_window.lift()
-        self.diff_window.attributes('-topmost', True)
-        self.diff_window.after(100, lambda: self.diff_window.attributes('-topmost', False))
 
         # Don't let closing this window close the app
         self.diff_window.protocol("WM_DELETE_WINDOW", self._close_diff_window)

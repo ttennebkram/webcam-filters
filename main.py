@@ -243,6 +243,7 @@ Examples:
 
     # Create global controls window
     global_controls = tk.Toplevel(root)
+    global_controls.withdraw()  # Hide until positioned
     global_controls.title("Webcam Filters - Global Controls")
     global_controls.protocol("WM_DELETE_WINDOW", on_any_window_close)
     global_controls.configure(highlightthickness=0)
@@ -588,11 +589,16 @@ Examples:
         return eff
 
     def create_control_window_for_effect(eff, effect_cls):
-        """Create a control panel window for a UI effect"""
+        """Create a control panel window for a UI effect
+
+        Returns:
+            Tuple of (ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window, ctrl_height)
+        """
         if not hasattr(eff, 'create_control_panel'):
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         ctrl_window = tk.Toplevel(root)
+        ctrl_window.withdraw()  # Hide until positioned
         # Use custom title if effect has one, otherwise default
         if hasattr(effect_cls, 'get_control_title'):
             ctrl_window.title(effect_cls.get_control_title())
@@ -601,16 +607,18 @@ Examples:
 
         # Calculate available height based on screen size
         temp_screen_height = root.winfo_screenheight()
-        # Leave room for menu bar and global controls (roughly 200px)
-        max_control_height = min(temp_screen_height - 200, 1000)
+        # Leave room for menu bar and dock (roughly 150px)
+        max_control_height = temp_screen_height - 150
 
         # Check if effect has a preferred height from config
         preferred_height = 800  # Default
         if hasattr(eff, 'get_preferred_window_height'):
             preferred_height = eff.get_preferred_window_height()
+            print(f"DEBUG: Effect preferred height: {preferred_height}")
 
         # Use preferred height but cap at screen max
         ctrl_height = min(preferred_height, max_control_height)
+        print(f"DEBUG: Control window height: {ctrl_height} (max: {max_control_height})")
 
         ctrl_window.geometry(f"700x{ctrl_height}")
         ctrl_window.minsize(700, 400)
@@ -647,7 +655,7 @@ Examples:
         control_panel = eff.create_control_panel(scrollable_frame)
         control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        return ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window
+        return ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window, ctrl_height
 
     def switch_effect(new_effect_key):
         """Hot-swap to a new effect without restarting the application"""
@@ -686,7 +694,7 @@ Examples:
 
         # Create control window if needed
         if issubclass(new_effect_class, BaseUIEffect):
-            ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window = \
+            ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window, ctrl_height = \
                 create_control_window_for_effect(new_effect, new_effect_class)
             effect_state['control_window'] = ctrl_window
             effect_state['canvas'] = canvas
@@ -705,11 +713,12 @@ Examples:
                 global_height = global_controls.winfo_height()
 
                 # Position below global controls
+                # Use reqwidth for width, but use the height that was set in geometry
                 ctrl_width = ctrl_window.winfo_reqwidth()
-                ctrl_height_actual = ctrl_window.winfo_height()
                 ctrl_x = global_x
                 ctrl_y = global_y + global_height + 80  # vertical gap
-                ctrl_window.geometry(f"{ctrl_width}x{ctrl_height_actual}+{ctrl_x}+{ctrl_y}")
+                ctrl_window.geometry(f"{ctrl_width}x{ctrl_height}+{ctrl_x}+{ctrl_y}")
+                ctrl_window.deiconify()  # Show now that it's positioned
 
         # Update state
         effect_state['effect'] = new_effect
@@ -732,6 +741,7 @@ Examples:
             viz_x = video_x
             viz_y = video_y + video_height + 80
             new_effect.viz_window.geometry(f"{viz_width}x{viz_height}+{viz_x}+{viz_y}")
+            new_effect.viz_window.deiconify()  # Show now that it's positioned
 
         # Position difference window if it exists
         if hasattr(new_effect, 'diff_window') and new_effect.diff_window is not None:
@@ -744,6 +754,7 @@ Examples:
             diff_x = video_x + int(video_width_actual * 0.8)
             diff_y = video_y
             new_effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
+            new_effect.diff_window.deiconify()  # Show now that it's positioned
 
         print(f"Effect switched to: {new_effect_class.get_name()}")
         return True
@@ -758,8 +769,9 @@ Examples:
     effect_state['effect_key'] = effect_to_load
 
     # Create control panel window for UI effects
+    initial_ctrl_height = None
     if issubclass(effect_class, BaseUIEffect):
-        ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window = \
+        ctrl_window, canvas, scrollbar, scrollable_frame, canvas_window, initial_ctrl_height = \
             create_control_window_for_effect(effect, effect_class)
         effect_state['control_window'] = ctrl_window
         effect_state['canvas'] = canvas
@@ -819,7 +831,8 @@ Examples:
         ctrl_win = effect_state['control_window']
         ctrl_win.update_idletasks()
         ctrl_width = ctrl_win.winfo_reqwidth()
-        ctrl_height = ctrl_win.winfo_height()
+        # Use the height that was set when creating the window
+        ctrl_height = initial_ctrl_height if initial_ctrl_height else ctrl_win.winfo_height()
         control_x = global_x
         control_y = global_y + global_height + vertical_gap
         ctrl_win.geometry(f"{ctrl_width}x{ctrl_height}+{control_x}+{control_y}")
@@ -849,6 +862,16 @@ Examples:
         diff_y = video_y  # Same vertical position as video window
 
         initial_effect.diff_window.geometry(f"{diff_width}x{diff_height}+{diff_x}+{diff_y}")
+
+    # Show all windows now that they're positioned correctly
+    global_controls.deiconify()
+    video_window.window.deiconify()
+    if effect_state['control_window'] is not None:
+        effect_state['control_window'].deiconify()
+    if hasattr(initial_effect, 'viz_window') and initial_effect.viz_window is not None:
+        initial_effect.viz_window.deiconify()
+    if hasattr(initial_effect, 'diff_window') and initial_effect.diff_window is not None:
+        initial_effect.diff_window.deiconify()
 
     # Force window to show and process events
     root.update()
