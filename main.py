@@ -106,6 +106,8 @@ Examples:
                         help='Camera width (default: 1280)')
     parser.add_argument('--height', type=int, default=720,
                         help='Camera height (default: 720)')
+    parser.add_argument('--edit-pipeline', type=str, default=None,
+                        help='Pipeline key to load in Pipeline Builder (e.g., user_test1)')
 
     args = parser.parse_args()
 
@@ -135,24 +137,22 @@ Examples:
         print("\nUse --list to see available effects")
         return 1
 
-    # Discover all available cameras
+    # Discover all available cameras (needed for UI even if loading from file)
     cameras = find_cameras()
     if not cameras:
-        print("Error: No cameras found!")
-        return 1
+        cameras = [0]  # Fallback so UI doesn't break
 
-    # Auto-detect camera if not specified (use highest index)
-    camera_index = args.camera
-    if camera_index is None:
-        camera_index = max(cameras)  # Use highest index
-        print(f"Auto-detected cameras: {cameras}")
-        print(f"Using camera {camera_index} (highest index)")
+    # Auto-detect camera index
+    if args.camera is not None:
+        camera_index = args.camera
     else:
-        print(f"Available cameras: {cameras}")
-        print(f"Using camera {camera_index} (specified)")
+        camera_index = max(cameras)
 
     # Check if we should load a file instead of camera
     initial_static_image = None
+    cap = None
+    file_loaded = False
+
     if saved_settings.get('input_source') == 'file' and saved_settings.get('file_path'):
         file_path = saved_settings['file_path']
         ext = file_path.lower().split('.')[-1]
@@ -165,8 +165,7 @@ Examples:
                 initial_static_image = img
                 frame = img.copy()  # For validation
                 height, width = img.shape[:2]
-                # Still open camera as fallback but we won't use it initially
-                cap = open_camera(camera_index, width=args.width, height=args.height)
+                file_loaded = True
                 print(f"Static image resolution: {width}x{height}")
             else:
                 print(f"Error: Could not load image {file_path}, falling back to camera")
@@ -179,22 +178,32 @@ Examples:
                 ret, frame = cap.read()
                 if ret:
                     height, width = frame.shape[:2]
+                    file_loaded = True
                     print(f"Video resolution: {width}x{height}")
                 else:
                     print(f"Error: Could not read from video, falling back to camera")
                     cap.release()
+                    cap = None
                     saved_settings['input_source'] = 'camera'
             else:
                 print(f"Error: Could not open video {file_path}, falling back to camera")
                 saved_settings['input_source'] = 'camera'
 
     # Open camera if not using file input (or as fallback)
-    if saved_settings.get('input_source') != 'file':
+    if not file_loaded:
+        # Print camera info
+        if args.camera is None:
+            print(f"Auto-detected cameras: {cameras}")
+            print(f"Using camera {camera_index} (highest index)")
+        else:
+            print(f"Available cameras: {cameras}")
+            print(f"Using camera {camera_index} (specified)")
+
         # Open camera with specified or default resolution
         print(f"Opening camera {camera_index} at {args.width}x{args.height}...")
         cap = open_camera(camera_index, width=args.width, height=args.height)
         if cap is None:
-            print(f"Error: Could not open camera {args.camera}")
+            print(f"Error: Could not open camera {camera_index}")
             print("\nUse --list-cameras to see available cameras")
             return 1
 
@@ -210,8 +219,9 @@ Examples:
 
     # Debug: Check if frame is valid
     if frame is None or frame.size == 0:
-        print("Error: Invalid frame from camera")
-        cap.release()
+        print("Error: Invalid frame from source")
+        if cap is not None:
+            cap.release()
         return 1
 
     # Create Tkinter root window (needed for UI effects)
@@ -385,6 +395,15 @@ Examples:
     all_effects = list_effects()
     effect_keys = [key for key, name, desc, category in all_effects]
 
+    # Add special entry for creating new user pipeline at end of opencv section
+    # Find where opencv effects end
+    new_pipeline_entry = "opencv/(new user pipeline)"
+    opencv_end_idx = 0
+    for i, key in enumerate(effect_keys):
+        if key.startswith('opencv/'):
+            opencv_end_idx = i + 1
+    effect_keys.insert(opencv_end_idx, new_pipeline_entry)
+
     # Frame to hold effect dropdown and reload button
     effect_row = ttk.Frame(global_frame)
     effect_row.pack(fill='x', pady=(0, 3))
@@ -501,6 +520,17 @@ Examples:
 
     def on_effect_change(event):
         new_effect = effect_var.get()
+
+        # Handle special "(new user pipeline)" entry
+        if new_effect == new_pipeline_entry:
+            # Just launch the pipeline builder - user can name it there
+            restart_info['should_restart'] = True
+            restart_info['args'] = [sys.executable, sys.argv[0], 'opencv/pipeline_builder',
+                                     '--camera', str(camera_state['current_camera']),
+                                     '--width', str(camera_state['current_width']),
+                                     '--height', str(camera_state['current_height'])]
+            return
+
         if new_effect != effect_to_load:
             restart_info['should_restart'] = True
             restart_info['args'] = [sys.executable, sys.argv[0], new_effect,
@@ -515,6 +545,9 @@ Examples:
                                  '--camera', str(camera_state['current_camera']),
                                  '--width', str(camera_state['current_width']),
                                  '--height', str(camera_state['current_height'])]
+        # Preserve --edit-pipeline argument if present
+        if args.edit_pipeline:
+            restart_info['args'].extend(['--edit-pipeline', args.edit_pipeline])
 
     effect_combo.bind('<<ComboboxSelected>>', on_effect_change)
 
@@ -534,6 +567,10 @@ Examples:
     from core.base_effect import BaseUIEffect
     if issubclass(effect_class, BaseUIEffect):
         effect = effect_class(width, height, root)
+
+        # Pass edit-pipeline argument to Pipeline Builder
+        if args.edit_pipeline and hasattr(effect, '_pipeline_to_load'):
+            effect._pipeline_to_load = args.edit_pipeline
 
         # Create control panel window for UI effects
         if hasattr(effect, 'create_control_panel'):
@@ -671,6 +708,21 @@ Examples:
 
     video_window.set_key_callback(handle_key)
 
+    # Handle edit pipeline event from user pipelines
+    def on_edit_pipeline(event):
+        # Get pipeline key from the effect
+        pipeline_key = getattr(effect, '_pipeline_key', None)
+        if pipeline_key:
+            print(f"\nRestarting to edit pipeline '{pipeline_key}'...")
+            restart_info['should_restart'] = True
+            restart_info['args'] = [sys.executable, sys.argv[0], 'opencv/pipeline_builder',
+                                     '--camera', str(camera_state['current_camera']),
+                                     '--width', str(camera_state['current_width']),
+                                     '--height', str(camera_state['current_height']),
+                                     '--edit-pipeline', pipeline_key]
+
+    root.bind('<<EditPipeline>>', on_edit_pipeline)
+
     print(f"\nRunning {effect_class.get_name()}...")
     print("Controls:")
     print("  SPACE - Toggle effect on/off")
@@ -803,7 +855,8 @@ Examples:
         # Cleanup
         print("Cleaning up...")
         effect.cleanup()
-        cap.release()
+        if cap is not None:
+            cap.release()
         root.quit()
 
         # If effect change was requested, launch new instance

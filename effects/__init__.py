@@ -8,9 +8,10 @@ and makes them available for use.
 import os
 import importlib
 import inspect
+import json
 from pathlib import Path
 from typing import Dict, List, Type
-from core.base_effect import BaseEffect
+from core.base_effect import BaseEffect, BaseUIEffect
 
 
 def discover_effects() -> Dict[str, Type[BaseEffect]]:
@@ -49,7 +50,190 @@ def discover_effects() -> Dict[str, Type[BaseEffect]]:
             except Exception as e:
                 print(f"Warning: Could not load effect from {module_name}: {e}")
 
+    # Also discover user pipelines
+    user_pipelines = discover_user_pipelines()
+    effects.update(user_pipelines)
+
     return effects
+
+
+def discover_user_pipelines() -> Dict[str, Type[BaseEffect]]:
+    """Discover saved user pipelines and create effect classes for them
+
+    Returns:
+        Dictionary mapping pipeline names (e.g., "opencv/user_mypipeline") to effect classes
+    """
+    pipelines = {}
+    pipelines_file = os.path.expanduser('~/.webcam_filters_pipelines.json')
+
+    if not os.path.exists(pipelines_file):
+        return pipelines
+
+    try:
+        with open(pipelines_file, 'r') as f:
+            saved_pipelines = json.load(f)
+    except:
+        return pipelines
+
+    for pipeline_key, config in saved_pipelines.items():
+        # Create a dynamic class for this pipeline
+        pipeline_class = create_user_pipeline_class(pipeline_key, config)
+        if pipeline_class:
+            effect_key = f"opencv/{pipeline_key}"
+            pipelines[effect_key] = pipeline_class
+
+    return pipelines
+
+
+def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffect]:
+    """Create a dynamic effect class for a saved user pipeline
+
+    Args:
+        pipeline_key: The pipeline key (e.g., "user_mypipeline")
+        config: The pipeline configuration dictionary
+
+    Returns:
+        A dynamically created effect class
+    """
+    import tkinter as tk
+    from tkinter import ttk
+    import numpy as np
+
+    class UserPipelineEffect(BaseUIEffect):
+        """Dynamically created user pipeline effect"""
+
+        # Store config at class level
+        _pipeline_config = config
+        _pipeline_key = pipeline_key
+
+        def __init__(self, width, height, root=None):
+            super().__init__(width, height, root)
+
+            self.width = width
+            self.height = height
+            self.root = root
+
+            # Load effects from config
+            self.effects = []
+            self._load_effects_from_config()
+
+        def _load_effects_from_config(self):
+            """Load and instantiate effects from the pipeline config"""
+            for effect_config in self._pipeline_config.get('effects', []):
+                try:
+                    module_name = effect_config['module']
+                    class_name = effect_config['class_name']
+
+                    # Import the effect module
+                    module = importlib.import_module(f'effects.opencv.{module_name}')
+                    effect_class = getattr(module, class_name)
+
+                    # Create instance
+                    effect = effect_class(self.width, self.height, self.root)
+
+                    # Apply saved parameters
+                    for param_name, value in effect_config.get('params', {}).items():
+                        if hasattr(effect, param_name):
+                            attr = getattr(effect, param_name)
+                            if isinstance(attr, tk.Variable):
+                                try:
+                                    attr.set(value)
+                                except:
+                                    pass
+
+                    self.effects.append(effect)
+
+                except Exception as e:
+                    print(f"Warning: Could not load effect from pipeline: {e}")
+
+        @classmethod
+        def get_name(cls) -> str:
+            return cls._pipeline_config.get('name', cls._pipeline_key)
+
+        @classmethod
+        def get_description(cls) -> str:
+            num_effects = len(cls._pipeline_config.get('effects', []))
+            return f"User pipeline with {num_effects} effects"
+
+        @classmethod
+        def get_category(cls) -> str:
+            return "opencv"
+
+        def create_control_panel(self, parent):
+            """Create control panel showing all effect controls"""
+            self.control_panel = ttk.Frame(parent)
+
+            padding = {'padx': 10, 'pady': 5}
+
+            # Header
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
+
+            title_label = ttk.Label(
+                header_frame,
+                text=self.get_name(),
+                font=('TkDefaultFont', 14, 'bold')
+            )
+            title_label.pack(side='left')
+
+            # Edit button to open in Pipeline Builder
+            def on_edit():
+                # Signal restart - main loop will read _pipeline_key from effect
+                if self.root:
+                    self.root.event_generate('<<EditPipeline>>')
+
+            edit_btn = ttk.Button(
+                header_frame,
+                text="Edit",
+                command=on_edit,
+                width=6
+            )
+            edit_btn.pack(side='right')
+
+            edit_note = ttk.Label(
+                header_frame,
+                text="(restarts app)",
+                font=('TkDefaultFont', 8, 'italic')
+            )
+            edit_note.pack(side='right', padx=(0, 5))
+
+            # Add each effect's control panel
+            for effect in self.effects:
+                if hasattr(effect, 'create_control_panel'):
+                    effect_panel = effect.create_control_panel(self.control_panel)
+                    if effect_panel:
+                        effect_panel.pack(fill='x', padx=5, pady=5)
+
+            return self.control_panel
+
+        def draw(self, frame, face_mask=None):
+            """Apply all effects in the pipeline"""
+            result = frame
+
+            for effect in self.effects:
+                if hasattr(effect, 'enabled'):
+                    if not effect.enabled.get():
+                        continue
+
+                if hasattr(effect, 'update'):
+                    effect.update()
+
+                result = effect.draw(result, face_mask)
+
+            return result
+
+        def cleanup(self):
+            """Cleanup all effects"""
+            for effect in self.effects:
+                if hasattr(effect, 'cleanup'):
+                    effect.cleanup()
+
+    # Create a unique class name
+    class_name = f"UserPipeline_{pipeline_key.replace('user_', '')}"
+    UserPipelineEffect.__name__ = class_name
+    UserPipelineEffect.__qualname__ = class_name
+
+    return UserPipelineEffect
 
 
 def list_effects() -> List[tuple]:
