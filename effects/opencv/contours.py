@@ -35,12 +35,34 @@ class ContoursEffect(BaseUIEffect):
         self.contour_color_b = tk.IntVar(value=0)
         self.thickness = tk.IntVar(value=2)
 
-        # Filter options
-        self.min_area = tk.IntVar(value=100)
-        self.max_area = tk.IntVar(value=100000)
-
         # Pre-processing: threshold before finding contours
         self.threshold_value = tk.IntVar(value=127)
+
+        # Sorting options
+        self.sort_method = tk.IntVar(value=0)  # Index into SORT_METHODS
+
+        # Contour index selection (after sorting)
+        self.min_index = tk.IntVar(value=1)  # 1-based for user display
+        self.max_index = tk.IntVar(value=100)
+
+    # Sorting methods
+    SORT_METHODS = [
+        ("None", None),
+        ("Top-Bottom-Left-Right", "tb_lr"),
+        ("Left-Right-Top-Bottom", "lr_tb"),
+        ("Area (largest first)", "area_desc"),
+        ("Area (smallest first)", "area_asc"),
+        ("Perimeter (largest first)", "perim_desc"),
+        ("Perimeter (smallest first)", "perim_asc"),
+        ("Circularity (most circular)", "circ_desc"),
+        ("Circularity (least circular)", "circ_asc"),
+        ("Aspect Ratio (widest first)", "aspect_desc"),
+        ("Aspect Ratio (tallest first)", "aspect_asc"),
+        ("Extent (most filled first)", "extent_desc"),
+        ("Extent (least filled first)", "extent_asc"),
+        ("Solidity (most convex first)", "solid_desc"),
+        ("Solidity (least convex first)", "solid_asc"),
+    ]
 
     # Contour retrieval modes
     RETRIEVAL_MODES = [
@@ -238,43 +260,56 @@ class ContoursEffect(BaseUIEffect):
         r_spin = ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.contour_color_r)
         r_spin.pack(side='left')
 
-        # Area filter controls
-        area_frame = ttk.Frame(right_column)
-        area_frame.pack(fill='x', pady=3)
+        # Sorting dropdown
+        sort_frame = ttk.Frame(right_column)
+        sort_frame.pack(fill='x', pady=3)
 
-        ttk.Label(area_frame, text="Min Area:").pack(side='left')
+        ttk.Label(sort_frame, text="Sort By:").pack(side='left')
 
-        min_area_slider = ttk.Scale(
-            area_frame,
-            from_=0,
-            to=10000,
-            orient='horizontal',
-            variable=self.min_area,
-            command=self._on_min_area_change
+        sort_values = [name for name, _ in self.SORT_METHODS]
+        self.sort_combo = ttk.Combobox(
+            sort_frame,
+            values=sort_values,
+            state='readonly',
+            width=28
         )
-        min_area_slider.pack(side='left', fill='x', expand=True, padx=5)
+        self.sort_combo.current(0)
+        self.sort_combo.pack(side='left', padx=5)
+        self.sort_combo.bind('<<ComboboxSelected>>', self._on_sort_change)
 
-        self.min_area_label = ttk.Label(area_frame, text="100")
-        self.min_area_label.pack(side='left', padx=5)
+        # Min/Max index selection (after sorting)
+        index_frame = ttk.Frame(right_column)
+        index_frame.pack(fill='x', pady=3)
 
-        # Max area
-        max_frame = ttk.Frame(right_column)
-        max_frame.pack(fill='x', pady=3)
+        ttk.Label(index_frame, text="Keep Contours:").pack(side='left')
 
-        ttk.Label(max_frame, text="Max Area:").pack(side='left')
-
-        max_area_slider = ttk.Scale(
-            max_frame,
-            from_=1000,
-            to=500000,
-            orient='horizontal',
-            variable=self.max_area,
-            command=self._on_max_area_change
+        # Min index
+        ttk.Label(index_frame, text="From:").pack(side='left', padx=(10, 2))
+        min_idx_spin = ttk.Spinbox(
+            index_frame,
+            from_=1,
+            to=1000,
+            width=5,
+            textvariable=self.min_index
         )
-        max_area_slider.pack(side='left', fill='x', expand=True, padx=5)
+        min_idx_spin.pack(side='left')
 
-        self.max_area_label = ttk.Label(max_frame, text="100000")
-        self.max_area_label.pack(side='left', padx=5)
+        # Max index
+        ttk.Label(index_frame, text="To:").pack(side='left', padx=(10, 2))
+        max_idx_spin = ttk.Spinbox(
+            index_frame,
+            from_=1,
+            to=1000,
+            width=5,
+            textvariable=self.max_index
+        )
+        max_idx_spin.pack(side='left')
+
+        ttk.Label(
+            index_frame,
+            text="(after sort)",
+            font=('TkDefaultFont', 10, 'italic')
+        ).pack(side='left', padx=5)
 
         # Contour count display
         count_frame = ttk.Frame(right_column)
@@ -283,6 +318,10 @@ class ContoursEffect(BaseUIEffect):
         ttk.Label(count_frame, text="Contours found:").pack(side='left')
         self.count_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
         self.count_label.pack(side='left', padx=5)
+
+        ttk.Label(count_frame, text="Displayed:").pack(side='left', padx=(15, 0))
+        self.displayed_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
+        self.displayed_label.pack(side='left', padx=5)
 
         return self.control_panel
 
@@ -304,13 +343,105 @@ class ContoursEffect(BaseUIEffect):
         """Handle thickness slider change"""
         self.thick_label.config(text=str(int(float(value))))
 
-    def _on_min_area_change(self, value):
-        """Handle min area slider change"""
-        self.min_area_label.config(text=str(int(float(value))))
+    def _on_sort_change(self, event):
+        """Handle sort method change"""
+        self.sort_method.set(self.sort_combo.current())
 
-    def _on_max_area_change(self, value):
-        """Handle max area slider change"""
-        self.max_area_label.config(text=str(int(float(value))))
+    def _get_contour_centroid(self, contour):
+        """Get centroid of a contour"""
+        M = cv2.moments(contour)
+        if M["m00"] != 0:
+            cx = M["m10"] / M["m00"]
+            cy = M["m01"] / M["m00"]
+        else:
+            # Fallback to bounding rect center
+            x, y, w, h = cv2.boundingRect(contour)
+            cx, cy = x + w/2, y + h/2
+        return cx, cy
+
+    def _get_contour_circularity(self, contour):
+        """Get circularity: 4*pi*area / perimeter^2 (1 = perfect circle)"""
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter == 0:
+            return 0
+        return (4 * np.pi * area) / (perimeter * perimeter)
+
+    def _get_contour_aspect_ratio(self, contour):
+        """Get aspect ratio: width / height of bounding rect"""
+        x, y, w, h = cv2.boundingRect(contour)
+        if h == 0:
+            return 0
+        return w / h
+
+    def _get_contour_extent(self, contour):
+        """Get extent: contour area / bounding rect area"""
+        area = cv2.contourArea(contour)
+        x, y, w, h = cv2.boundingRect(contour)
+        rect_area = w * h
+        if rect_area == 0:
+            return 0
+        return area / rect_area
+
+    def _get_contour_solidity(self, contour):
+        """Get solidity: contour area / convex hull area"""
+        area = cv2.contourArea(contour)
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        if hull_area == 0:
+            return 0
+        return area / hull_area
+
+    def _sort_contours(self, contours, method_key):
+        """Sort contours by the specified method"""
+        if method_key is None or len(contours) == 0:
+            return contours
+
+        if method_key == "tb_lr":
+            # Top-Bottom-Left-Right (Y primary, X secondary)
+            return sorted(contours, key=lambda c: (self._get_contour_centroid(c)[1], self._get_contour_centroid(c)[0]))
+
+        elif method_key == "lr_tb":
+            # Left-Right-Top-Bottom (X primary, Y secondary)
+            return sorted(contours, key=lambda c: (self._get_contour_centroid(c)[0], self._get_contour_centroid(c)[1]))
+
+        elif method_key == "area_desc":
+            return sorted(contours, key=lambda c: cv2.contourArea(c), reverse=True)
+
+        elif method_key == "area_asc":
+            return sorted(contours, key=lambda c: cv2.contourArea(c))
+
+        elif method_key == "perim_desc":
+            return sorted(contours, key=lambda c: cv2.arcLength(c, True), reverse=True)
+
+        elif method_key == "perim_asc":
+            return sorted(contours, key=lambda c: cv2.arcLength(c, True))
+
+        elif method_key == "circ_desc":
+            return sorted(contours, key=lambda c: self._get_contour_circularity(c), reverse=True)
+
+        elif method_key == "circ_asc":
+            return sorted(contours, key=lambda c: self._get_contour_circularity(c))
+
+        elif method_key == "aspect_desc":
+            return sorted(contours, key=lambda c: self._get_contour_aspect_ratio(c), reverse=True)
+
+        elif method_key == "aspect_asc":
+            return sorted(contours, key=lambda c: self._get_contour_aspect_ratio(c))
+
+        elif method_key == "extent_desc":
+            return sorted(contours, key=lambda c: self._get_contour_extent(c), reverse=True)
+
+        elif method_key == "extent_asc":
+            return sorted(contours, key=lambda c: self._get_contour_extent(c))
+
+        elif method_key == "solid_desc":
+            return sorted(contours, key=lambda c: self._get_contour_solidity(c), reverse=True)
+
+        elif method_key == "solid_asc":
+            return sorted(contours, key=lambda c: self._get_contour_solidity(c))
+
+        return contours
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Find and draw contours on the frame"""
@@ -337,19 +468,24 @@ class ContoursEffect(BaseUIEffect):
         # Find contours
         contours, hierarchy = cv2.findContours(binary, retrieval_mode, approx_method)
 
-        # Filter contours by area
-        min_area = self.min_area.get()
-        max_area = self.max_area.get()
-
-        filtered_contours = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if min_area <= area <= max_area:
-                filtered_contours.append(contour)
-
-        # Update count display
+        # Update count display (before sorting/index selection)
         if hasattr(self, 'count_label'):
-            self.count_label.config(text=str(len(filtered_contours)))
+            self.count_label.config(text=str(len(contours)))
+
+        # Sort contours
+        sort_idx = self.sort_method.get()
+        sort_key = self.SORT_METHODS[sort_idx][1]
+        sorted_contours = self._sort_contours(list(contours), sort_key)
+
+        # Select contours by index (1-based for user, convert to 0-based)
+        min_idx = max(0, self.min_index.get() - 1)  # Convert to 0-based
+        max_idx = self.max_index.get()  # Keep as-is since slicing is exclusive
+
+        selected_contours = sorted_contours[min_idx:max_idx]
+
+        # Update displayed count
+        if hasattr(self, 'displayed_label'):
+            self.displayed_label.config(text=str(len(selected_contours)))
 
         # Create output image
         if self.show_original.get():
@@ -368,6 +504,6 @@ class ContoursEffect(BaseUIEffect):
         thickness = self.thickness.get()
 
         # Draw contours
-        cv2.drawContours(result, filtered_contours, -1, color, thickness)
+        cv2.drawContours(result, selected_contours, -1, color, thickness)
 
         return result
