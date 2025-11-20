@@ -33,9 +33,11 @@ class GradientSobelEffect(BaseUIEffect):
         self.depth_index = tk.IntVar(value=3)  # Default to CV_64F
         self.scale = tk.DoubleVar(value=1.0)
         self.delta = tk.DoubleVar(value=0.0)
-        self.return_mode_index = tk.IntVar(value=0)  # 0=dx, 1=dy, 2=Combined
+        self.return_mode_index = tk.IntVar(value=2)  # 0=dx, 1=dy, 2=Combined, 3=Magnitude, 4=Orientation, 5=Mask
         self.weight_x = tk.DoubleVar(value=0.5)
         self.weight_y = tk.DoubleVar(value=0.5)
+        self.min_angle = tk.DoubleVar(value=0.0)
+        self.max_angle = tk.DoubleVar(value=180.0)
 
     @classmethod
     def get_name(cls) -> str:
@@ -207,32 +209,37 @@ class GradientSobelEffect(BaseUIEffect):
         self.delta_label = ttk.Label(delta_frame, text="0.0")
         self.delta_label.pack(side='left', padx=5)
 
-        # Return mode - vertical radio buttons
+        # Return mode - dropdown with descriptions
         return_frame = ttk.Frame(right_column)
         return_frame.pack(fill='x', pady=3)
 
-        ttk.Label(return_frame, text="Return:").pack(anchor='w')
+        ttk.Label(return_frame, text="Return:", font=('TkDefaultFont', 12, 'bold')).pack(side='left')
 
-        # Radio buttons with descriptions
+        # Dropdown options with help text included
         return_options = [
-            (0, "gX", "(uses dx)"),
-            (1, "gY", "(uses dy)"),
-            (2, "Combined", "(cv2.addWeighted)"),
-            (3, "Magnitude", "(√(gX² + gY²))"),
-            (4, "Orientation", "(arctan2(gY, gX) → 0-180°)"),
+            "gX (uses dx)",
+            "gY (uses dy)",
+            "Combined (cv2.addWeighted)",
+            "Magnitude (√(gX² + gY²))",
+            "Orientation (arctan2 → 0-180°)",
+            "Mask (angle range filter)",
         ]
 
-        for val, label, desc in return_options:
-            row = ttk.Frame(return_frame)
-            row.pack(fill='x', padx=(10, 0))
-            ttk.Radiobutton(row, text=label, variable=self.return_mode_index, value=val).pack(side='left')
-            ttk.Label(row, text=desc, font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
+        self.return_combo = ttk.Combobox(
+            return_frame,
+            values=return_options,
+            state='readonly',
+            width=30
+        )
+        self.return_combo.current(2)  # Default to Combined
+        self.return_combo.pack(side='left', padx=5)
+        self.return_combo.bind('<<ComboboxSelected>>', self._on_return_change)
 
         # Weight X slider (for combined mode)
         weight_x_frame = ttk.Frame(right_column)
         weight_x_frame.pack(fill='x', pady=3)
 
-        ttk.Label(weight_x_frame, text="Weight X:").pack(side='left')
+        ttk.Label(weight_x_frame, text="Combined Weight X:").pack(side='left')
 
         weight_x_slider = ttk.Scale(
             weight_x_frame,
@@ -251,7 +258,7 @@ class GradientSobelEffect(BaseUIEffect):
         weight_y_frame = ttk.Frame(right_column)
         weight_y_frame.pack(fill='x', pady=3)
 
-        ttk.Label(weight_y_frame, text="Weight Y:").pack(side='left')
+        ttk.Label(weight_y_frame, text="Combined Weight Y:").pack(side='left')
 
         weight_y_slider = ttk.Scale(
             weight_y_frame,
@@ -265,6 +272,44 @@ class GradientSobelEffect(BaseUIEffect):
 
         self.weight_y_label = ttk.Label(weight_y_frame, text="0.5")
         self.weight_y_label.pack(side='left', padx=5)
+
+        # Min Angle slider (for mask mode)
+        min_angle_frame = ttk.Frame(right_column)
+        min_angle_frame.pack(fill='x', pady=3)
+
+        ttk.Label(min_angle_frame, text="Mask Min Angle:").pack(side='left')
+
+        min_angle_slider = ttk.Scale(
+            min_angle_frame,
+            from_=0,
+            to=180,
+            orient='horizontal',
+            variable=self.min_angle,
+            command=self._on_min_angle_change
+        )
+        min_angle_slider.pack(side='left', fill='x', expand=True, padx=5)
+
+        self.min_angle_label = ttk.Label(min_angle_frame, text="0°")
+        self.min_angle_label.pack(side='left', padx=5)
+
+        # Max Angle slider (for mask mode)
+        max_angle_frame = ttk.Frame(right_column)
+        max_angle_frame.pack(fill='x', pady=3)
+
+        ttk.Label(max_angle_frame, text="Mask Max Angle:").pack(side='left')
+
+        max_angle_slider = ttk.Scale(
+            max_angle_frame,
+            from_=0,
+            to=180,
+            orient='horizontal',
+            variable=self.max_angle,
+            command=self._on_max_angle_change
+        )
+        max_angle_slider.pack(side='left', fill='x', expand=True, padx=5)
+
+        self.max_angle_label = ttk.Label(max_angle_frame, text="180°")
+        self.max_angle_label.pack(side='left', padx=5)
 
         return self.control_panel
 
@@ -303,6 +348,20 @@ class GradientSobelEffect(BaseUIEffect):
         """Handle weight Y slider change"""
         weight = float(value)
         self.weight_y_label.config(text=f"{weight:.2f}")
+
+    def _on_min_angle_change(self, value):
+        """Handle min angle slider change"""
+        angle = float(value)
+        self.min_angle_label.config(text=f"{angle:.0f}°")
+
+    def _on_max_angle_change(self, value):
+        """Handle max angle slider change"""
+        angle = float(value)
+        self.max_angle_label.config(text=f"{angle:.0f}°")
+
+    def _on_return_change(self, event):
+        """Handle return mode change"""
+        self.return_mode_index.set(self.return_combo.current())
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply Sobel gradient to the frame"""
@@ -377,7 +436,7 @@ class GradientSobelEffect(BaseUIEffect):
             result = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
             result = result.astype(np.uint8)
 
-        else:  # return_mode == 4
+        elif return_mode == 4:
             # Orientation - arctan2(gY, gX) mapped to 0-180°
             gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
@@ -387,6 +446,24 @@ class GradientSobelEffect(BaseUIEffect):
 
             # Normalize to 0-255 for display
             result = (orientation * 255 / 180).astype(np.uint8)
+
+        else:  # return_mode == 5
+            # Mask - filter by angle range
+            gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
+            gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
+
+            # Compute orientation in degrees (0-180)
+            orientation = np.arctan2(gY, gX) * (180 / np.pi) % 180
+
+            # Get angle range
+            lower_angle = self.min_angle.get()
+            upper_angle = self.max_angle.get()
+
+            # Find all pixels within the angle boundaries
+            idxs = np.where(orientation >= lower_angle, orientation, -1)
+            idxs = np.where(orientation <= upper_angle, idxs, -1)
+            result = np.zeros(gray.shape, dtype=np.uint8)
+            result[idxs > -1] = 255
 
         # Convert back to BGR (3 identical channels)
         result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
