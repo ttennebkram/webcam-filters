@@ -207,25 +207,26 @@ class GradientSobelEffect(BaseUIEffect):
         self.delta_label = ttk.Label(delta_frame, text="0.0")
         self.delta_label.pack(side='left', padx=5)
 
-        # Return mode dropdown
+        # Return mode - vertical radio buttons
         return_frame = ttk.Frame(right_column)
         return_frame.pack(fill='x', pady=3)
 
-        ttk.Label(return_frame, text="Return:").pack(side='left')
+        ttk.Label(return_frame, text="Return:").pack(anchor='w')
 
-        return_modes = ["gX (uses dx)", "gY (uses dy)", "Combined"]
-        self.return_combo = ttk.Combobox(
-            return_frame,
-            values=return_modes,
-            state='readonly',
-            width=13
-        )
-        self.return_combo.current(0)
-        self.return_combo.pack(side='left', padx=5)
-        self.return_combo.bind('<<ComboboxSelected>>', self._on_return_change)
+        # Radio buttons with descriptions
+        return_options = [
+            (0, "gX", "(uses dx)"),
+            (1, "gY", "(uses dy)"),
+            (2, "Combined", "(cv2.addWeighted)"),
+            (3, "Magnitude", "(√(gX² + gY²))"),
+            (4, "Orientation", "(arctan2(gY, gX) → 0-180°)"),
+        ]
 
-        # Note about combined mode
-        ttk.Label(return_frame, text="(combined uses cv2.addWeighted)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
+        for val, label, desc in return_options:
+            row = ttk.Frame(return_frame)
+            row.pack(fill='x', padx=(10, 0))
+            ttk.Radiobutton(row, text=label, variable=self.return_mode_index, value=val).pack(side='left')
+            ttk.Label(row, text=desc, font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
 
         # Weight X slider (for combined mode)
         weight_x_frame = ttk.Frame(right_column)
@@ -293,10 +294,6 @@ class GradientSobelEffect(BaseUIEffect):
         delta = float(value)
         self.delta_label.config(text=f"{delta:.1f}")
 
-    def _on_return_change(self, event):
-        """Handle return mode change"""
-        self.return_mode_index.set(self.return_combo.current())
-
     def _on_weight_x_change(self, value):
         """Handle weight X slider change"""
         weight = float(value)
@@ -327,10 +324,34 @@ class GradientSobelEffect(BaseUIEffect):
         scale = self.scale.get()
         delta = self.delta.get()
 
-        # Get return mode: 0=gX, 1=gY, 2=Combined
+        # Get return mode: 0=gX, 1=gY, 2=Combined, 3=Magnitude, 4=Orientation
         return_mode = self.return_mode_index.get()
 
-        if return_mode == 2:
+        if return_mode == 0:
+            # gX - use dx value, force dy=0
+            if dx == 0:
+                dx = 1
+            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=dx, dy=0, ksize=ksize, scale=scale, delta=delta)
+
+            # Convert to displayable format
+            if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
+                result = cv2.convertScaleAbs(gradient)
+            else:
+                result = gradient
+
+        elif return_mode == 1:
+            # gY - use dy value, force dx=0
+            if dy == 0:
+                dy = 1
+            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=dy, ksize=ksize, scale=scale, delta=delta)
+
+            # Convert to displayable format
+            if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
+                result = cv2.convertScaleAbs(gradient)
+            else:
+                result = gradient
+
+        elif return_mode == 2:
             # Combined - weighted average of gX and gY
             gX = cv2.Sobel(gray, ddepth=ddepth, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
@@ -343,28 +364,29 @@ class GradientSobelEffect(BaseUIEffect):
             weight_x = self.weight_x.get()
             weight_y = self.weight_y.get()
             result = cv2.addWeighted(absX, weight_x, absY, weight_y, 0)
-        elif return_mode == 1:
-            # gY - use dy value, force dx=0
-            if dy == 0:
-                dy = 1
-            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=dy, ksize=ksize, scale=scale, delta=delta)
 
-            # Convert to displayable format
-            if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
-                result = cv2.convertScaleAbs(gradient)
-            else:
-                result = gradient
-        else:
-            # gX - use dx value, force dy=0
-            if dx == 0:
-                dx = 1
-            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=dx, dy=0, ksize=ksize, scale=scale, delta=delta)
+        elif return_mode == 3:
+            # Magnitude - √(gX² + gY²)
+            gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
+            gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
 
-            # Convert to displayable format
-            if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
-                result = cv2.convertScaleAbs(gradient)
-            else:
-                result = gradient
+            # Compute magnitude
+            mag = np.sqrt((gX ** 2) + (gY ** 2))
+
+            # Normalize to 0-255
+            result = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+            result = result.astype(np.uint8)
+
+        else:  # return_mode == 4
+            # Orientation - arctan2(gY, gX) mapped to 0-180°
+            gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
+            gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
+
+            # Compute orientation in degrees (0-180)
+            orientation = np.arctan2(gY, gX) * (180 / np.pi) % 180
+
+            # Normalize to 0-255 for display
+            result = (orientation * 255 / 180).astype(np.uint8)
 
         # Convert back to BGR (3 identical channels)
         result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
