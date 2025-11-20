@@ -205,14 +205,14 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
             ttk.Label(
                 header_frame,
                 text="Enabled",
-                font=('TkDefaultFont', 9),
+                font=('TkDefaultFont', 12, 'bold'),
                 anchor='center'
             ).pack(side='left', padx=(10, 30))
 
             ttk.Label(
                 header_frame,
                 text="Effect",
-                font=('TkDefaultFont', 9)
+                font=('TkDefaultFont', 12, 'bold')
             ).pack(side='left')
 
             # Show effects with enable checkboxes and read-only parameters
@@ -311,7 +311,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                         ttk.Label(
                             effect_col,
                             text=desc,
-                            font=('TkDefaultFont', 9)
+                            font=('TkDefaultFont', 12)
                         ).pack(anchor='w', padx=(15, 0))
 
                 # Method signature (if available)
@@ -321,7 +321,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                         ttk.Label(
                             effect_col,
                             text=sig,
-                            font=('TkFixedFont', 9)
+                            font=('TkFixedFont', 12)
                         ).pack(anchor='w', padx=(15, 0))
 
                 # Read-only parameter values (in effect column)
@@ -336,7 +336,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                             ttk.Label(
                                 params_frame,
                                 text=line,
-                                font=('TkDefaultFont', 9)
+                                font=('TkDefaultFont', 12)
                             ).pack(anchor='w')
                 else:
                     # Default: show all tk.Variable parameters
@@ -393,7 +393,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                                 ttk.Label(
                                     params_frame,
                                     text=f"{display_name}: {value_str}",
-                                    font=('TkDefaultFont', 9)
+                                    font=('TkDefaultFont', 12)
                                 ).pack(anchor='w')
                                 param_count += 1
                             except:
