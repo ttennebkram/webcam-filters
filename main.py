@@ -529,12 +529,8 @@ Examples:
 
         # Handle special "(new user pipeline)" entry
         if new_effect == new_pipeline_entry:
-            # Just launch the pipeline builder - user can name it there
-            restart_info['should_restart'] = True
-            restart_info['args'] = [sys.executable, sys.argv[0], 'opencv/pipeline_builder',
-                                     '--camera', str(camera_state['current_camera']),
-                                     '--width', str(camera_state['current_width']),
-                                     '--height', str(camera_state['current_height'])]
+            # Switch to pipeline builder using hot-swap
+            switch_effect('opencv/pipeline_builder')
             return
 
         # Hot-swap to new effect if different from current
@@ -868,13 +864,16 @@ Examples:
         current_effect = effect_state['effect']
         pipeline_key = getattr(current_effect, '_pipeline_key', None)
         if pipeline_key:
-            print(f"\nRestarting to edit pipeline '{pipeline_key}'...")
-            restart_info['should_restart'] = True
-            restart_info['args'] = [sys.executable, sys.argv[0], 'opencv/pipeline_builder',
-                                     '--camera', str(camera_state['current_camera']),
-                                     '--width', str(camera_state['current_width']),
-                                     '--height', str(camera_state['current_height']),
-                                     '--edit-pipeline', pipeline_key]
+            print(f"\nSwitching to Pipeline Builder to edit '{pipeline_key}'...")
+            # Switch to pipeline builder and set it to load the pipeline
+            if switch_effect('opencv/pipeline_builder'):
+                # Set the pipeline to load after switching
+                new_effect = effect_state['effect']
+                if hasattr(new_effect, '_load_pipeline_by_key'):
+                    new_effect._load_pipeline_by_key(pipeline_key)
+                elif hasattr(new_effect, 'pipeline_name'):
+                    # Fallback: just set the name
+                    new_effect.pipeline_name.set(pipeline_key.replace('user_', ''))
 
     root.bind('<<EditPipeline>>', on_edit_pipeline)
 
