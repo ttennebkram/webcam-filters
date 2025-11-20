@@ -29,10 +29,10 @@ python main.py seasonal/winter --camera 0 --width 1280 --height 720
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Available Effects](#available-effects)
 - [User Interface](#user-interface)
-- [Creating New Effects](#creating-new-effects)
 - [Global Controls](#global-controls)
+- [Available Effects](#available-effects)
+- [Creating New Effects](#creating-new-effects)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Technical Details](#technical-details)
 - [Repository History](#repository-history)
@@ -69,6 +69,38 @@ Effects are **automatically discovered** at runtime. Each effect:
 - Defines metadata (name, description, category)
 - Implements `update()` and `draw()` methods
 - Can optionally provide a control panel UI
+
+---
+
+## User Interface
+
+### Global Controls Window
+
+Available for all effects:
+- **Camera Selection**: Switch between available cameras
+- **Resolution**: 640×480, 1024×768, 1280×720, 1920×1080
+- **Mirror Flip**: Toggle horizontal flip
+- **Effect Selection**: Choose from all available effects (restarts program)
+- **Output Controls**:
+  - **Gain**: 0.1× to 10× (logarithmic slider)
+  - **Invert**: Invert colors
+  - **Show Original**: Bypass all effects
+
+### Effect-Specific Controls
+
+Some effects (like FFT Ringing) provide additional control panels with:
+- Mode selection
+- Parameter adjustment
+- Real-time visualization
+- Collapsible sections
+
+### Window Layout
+
+Windows are automatically positioned:
+- **Global Controls**: Top left
+- **Effect Controls**: Below global controls (if applicable)
+- **Video Output**: Top right
+- **Visualization**: Below video (if applicable)
 
 ---
 
@@ -119,7 +151,7 @@ Effects are **automatically discovered** at runtime. Each effect:
 
 ### OpenCV Operations (`opencv/`)
 
-A comprehensive collection of OpenCV image processing operations with interactive UI controls.
+A comprehensive collection of OpenCV image processing operations with interactive UI controls. These can be chained together using the **[Custom Pipelines](#custom-pipelines)** feature described below.
 
 #### Edge Detection
 | Effect | Description |
@@ -168,44 +200,42 @@ A comprehensive collection of OpenCV image processing operations with interactiv
 |--------|-------------|
 | **blobs** | Blob detection with SimpleBlobDetector |
 
+#### Custom Pipelines
+
+The OpenCV category includes a powerful **Pipeline Builder** that lets you chain multiple effects together:
+
+| Effect | Description |
+|--------|-------------|
+| **pipeline_builder** | Create custom effect chains with multiple OpenCV operations |
+
+**Creating a Pipeline:**
+- Select "opencv/(new user pipeline)" from the effect dropdown
+- Use the "+" button to add effects to the chain
+- Configure each effect's parameters
+- Name your pipeline and click "Save"
+- Click "Done Editing" to switch to view mode
+
+**Pipeline Features:**
+- Chain any OpenCV effects together (blur → edge detection → threshold, etc.)
+- Reorder effects with drag handles
+- Enable/disable individual effects in the chain
+- Save multiple pipelines with custom names
+- Edit saved pipelines anytime
+
+**View Mode vs Edit Mode:**
+- **Edit Mode**: Full control panels for each effect, add/remove/reorder effects
+- **View Mode**: Read-only summary of effect settings with "Copy Settings" buttons
+
+Saved pipelines appear in the effect dropdown as `opencv/user_<name>` and can be loaded directly.
+
+**Note on Standalone Effects:** When running any OpenCV effect by itself (not in a pipeline), the control panel is always in "edit mode" with live, interactive controls. These settings are **not persisted** - the rationale is that most effects have few parameters and it's convenient to adjust them in real-time. Use pipelines when you want to save specific configurations.
+
 ### Miscellaneous (`misc/`)
 
 | Effect | Description |
 |--------|-------------|
-| **passthrough** | No effect - displays original camera feed |
+| **passthrough** | The *default* effect - displays original camera feed |
 | **stained_glass** | K-means color quantization |
-
----
-
-## User Interface
-
-### Global Controls Window
-
-Available for all effects:
-- **Camera Selection**: Switch between available cameras
-- **Resolution**: 640×480, 1024×768, 1280×720, 1920×1080
-- **Mirror Flip**: Toggle horizontal flip
-- **Effect Selection**: Choose from all available effects (restarts program)
-- **Output Controls**:
-  - **Gain**: 0.1× to 10× (logarithmic slider)
-  - **Invert**: Invert colors
-  - **Show Original**: Bypass all effects
-
-### Effect-Specific Controls
-
-Some effects (like FFT Ringing) provide additional control panels with:
-- Mode selection
-- Parameter adjustment
-- Real-time visualization
-- Collapsible sections
-
-### Window Layout
-
-Windows are automatically positioned:
-- **Global Controls**: Top left
-- **Effect Controls**: Below global controls (if applicable)
-- **Video Output**: Top right
-- **Visualization**: Below video (if applicable)
 
 ---
 
@@ -246,35 +276,6 @@ class MyEffect(BaseEffect):
         result = frame.copy()
         # Process frame here
         return result
-```
-
-### UI Effect Example
-
-For effects needing a control panel:
-
-```python
-from core.base_effect import BaseUIEffect
-import tkinter as tk
-from tkinter import ttk
-
-class MyUIEffect(BaseUIEffect):
-    """Effect with UI controls"""
-
-    def __init__(self, width, height, root=None):
-        super().__init__(width, height, root)
-        self.param = tk.IntVar(value=50)
-
-    def create_control_panel(self, parent):
-        """Create Tkinter control panel"""
-        panel = ttk.Frame(parent)
-
-        ttk.Label(panel, text="Parameter:").pack()
-        ttk.Scale(panel, from_=0, to=100,
-                 variable=self.param).pack()
-
-        return panel
-
-    # ... implement draw(), etc.
 ```
 
 The effect will be **automatically discovered** - no registration required!
@@ -341,6 +342,33 @@ All settings saved to `~/.webcam_filters_settings.json`:
 - Extends BaseEffect
 - `create_control_panel(parent)`: Return Tkinter widget
 - Access to root window for advanced UI
+
+**UI Effect Example**
+
+```python
+from core.base_effect import BaseUIEffect
+import tkinter as tk
+from tkinter import ttk
+
+class MyUIEffect(BaseUIEffect):
+    """Effect with UI controls"""
+
+    def __init__(self, width, height, root=None):
+        super().__init__(width, height, root)
+        self.param = tk.IntVar(value=50)
+
+    def create_control_panel(self, parent):
+        """Create Tkinter control panel"""
+        panel = ttk.Frame(parent)
+
+        ttk.Label(panel, text="Parameter:").pack()
+        ttk.Scale(panel, from_=0, to=100,
+                 variable=self.param).pack()
+
+        return panel
+
+    # ... implement draw(), etc.
+```
 
 **Effect Discovery**
 - Automatic scanning of `effects/` directory
@@ -478,7 +506,7 @@ result = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 ## Development
 
 ### Project Location
-`/Users/mbennett/Dropbox/dev/webcam-filters`
+`~/Dropbox/dev/webcam-filters`
 
 ### Contributing
 
@@ -497,10 +525,10 @@ result = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
 ## License
 
-This project is a personal development exploration of computer vision and signal processing techniques.
+This project is licensed under the MIT License - see [LICENSE.txt](LICENSE.txt) for details.
 
 ---
 
-*Last updated: 2025-11-19*
+*Last updated: 2025-11-20*
 *Architecture: Unified Plugin System*
 *Total Effects: 40+*
