@@ -33,7 +33,9 @@ class GradientSobelEffect(BaseUIEffect):
         self.depth_index = tk.IntVar(value=3)  # Default to CV_64F
         self.scale = tk.DoubleVar(value=1.0)
         self.delta = tk.DoubleVar(value=0.0)
-        self.return_mode_index = tk.IntVar(value=0)  # 0=dx, 1=dy, 2=Combined Magnitude
+        self.return_mode_index = tk.IntVar(value=0)  # 0=dx, 1=dy, 2=Combined
+        self.weight_x = tk.DoubleVar(value=0.5)
+        self.weight_y = tk.DoubleVar(value=0.5)
 
     @classmethod
     def get_name(cls) -> str:
@@ -211,16 +213,57 @@ class GradientSobelEffect(BaseUIEffect):
 
         ttk.Label(return_frame, text="Return:").pack(side='left')
 
-        return_modes = ["gX (uses dx)", "gY (uses dy)", "Combined Magnitude"]
+        return_modes = ["gX (uses dx)", "gY (uses dy)", "Combined"]
         self.return_combo = ttk.Combobox(
             return_frame,
             values=return_modes,
             state='readonly',
-            width=20
+            width=13
         )
         self.return_combo.current(0)
         self.return_combo.pack(side='left', padx=5)
         self.return_combo.bind('<<ComboboxSelected>>', self._on_return_change)
+
+        # Note about combined mode
+        ttk.Label(return_frame, text="(combined uses cv2.addWeighted)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
+
+        # Weight X slider (for combined mode)
+        weight_x_frame = ttk.Frame(right_column)
+        weight_x_frame.pack(fill='x', pady=3)
+
+        ttk.Label(weight_x_frame, text="Weight X:").pack(side='left')
+
+        weight_x_slider = ttk.Scale(
+            weight_x_frame,
+            from_=0,
+            to=1,
+            orient='horizontal',
+            variable=self.weight_x,
+            command=self._on_weight_x_change
+        )
+        weight_x_slider.pack(side='left', fill='x', expand=True, padx=5)
+
+        self.weight_x_label = ttk.Label(weight_x_frame, text="0.5")
+        self.weight_x_label.pack(side='left', padx=5)
+
+        # Weight Y slider (for combined mode)
+        weight_y_frame = ttk.Frame(right_column)
+        weight_y_frame.pack(fill='x', pady=3)
+
+        ttk.Label(weight_y_frame, text="Weight Y:").pack(side='left')
+
+        weight_y_slider = ttk.Scale(
+            weight_y_frame,
+            from_=0,
+            to=1,
+            orient='horizontal',
+            variable=self.weight_y,
+            command=self._on_weight_y_change
+        )
+        weight_y_slider.pack(side='left', fill='x', expand=True, padx=5)
+
+        self.weight_y_label = ttk.Label(weight_y_frame, text="0.5")
+        self.weight_y_label.pack(side='left', padx=5)
 
         return self.control_panel
 
@@ -254,6 +297,16 @@ class GradientSobelEffect(BaseUIEffect):
         """Handle return mode change"""
         self.return_mode_index.set(self.return_combo.current())
 
+    def _on_weight_x_change(self, value):
+        """Handle weight X slider change"""
+        weight = float(value)
+        self.weight_x_label.config(text=f"{weight:.2f}")
+
+    def _on_weight_y_change(self, value):
+        """Handle weight Y slider change"""
+        weight = float(value)
+        self.weight_y_label.config(text=f"{weight:.2f}")
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply Sobel gradient to the frame"""
         # If not enabled, return original frame
@@ -278,16 +331,18 @@ class GradientSobelEffect(BaseUIEffect):
         return_mode = self.return_mode_index.get()
 
         if return_mode == 2:
-            # Combined Magnitude
+            # Combined - weighted average of gX and gY
             gX = cv2.Sobel(gray, ddepth=ddepth, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
 
-            # Compute magnitude
-            magnitude = np.sqrt(gX**2 + gY**2)
+            # Convert to absolute values for combining
+            absX = cv2.convertScaleAbs(gX)
+            absY = cv2.convertScaleAbs(gY)
 
-            # Normalize to 0-255
-            result = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
-            result = result.astype(np.uint8)
+            # Combine the sobel X and Y representations into a single image
+            weight_x = self.weight_x.get()
+            weight_y = self.weight_y.get()
+            result = cv2.addWeighted(absX, weight_x, absY, weight_y, 0)
         elif return_mode == 1:
             # gY - use dy value, force dx=0
             if dy == 0:
