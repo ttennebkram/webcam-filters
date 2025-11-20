@@ -246,6 +246,64 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                     font=('TkDefaultFont', 12, 'bold')
                 ).pack(anchor='w')
 
+                # Copy Settings button on the right
+                def make_copy_handler(eff, eff_name):
+                    def copy_settings():
+                        # Build text representation
+                        lines = [eff_name]
+
+                        # Add description
+                        if hasattr(eff, 'get_description'):
+                            desc = eff.get_description()
+                            if desc:
+                                lines.append(desc)
+
+                        # Add method signature
+                        if hasattr(eff, 'get_method_signature'):
+                            sig = eff.get_method_signature()
+                            if sig:
+                                lines.append(sig)
+
+                        # Add parameters
+                        if hasattr(eff, 'get_view_mode_summary'):
+                            summary = eff.get_view_mode_summary()
+                            if summary:
+                                lines.append(summary)
+                        else:
+                            # Default parameter display
+                            for attr_name in sorted(dir(eff)):
+                                if attr_name.startswith('_'):
+                                    continue
+                                if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
+                                    continue
+                                attr = getattr(eff, attr_name)
+                                if isinstance(attr, tk.Variable):
+                                    try:
+                                        value = attr.get()
+                                        display_name = attr_name.replace('_', ' ').title()
+                                        if isinstance(value, float):
+                                            lines.append(f"{display_name}: {value:.2f}")
+                                        elif isinstance(value, bool):
+                                            lines.append(f"{display_name}: {'Yes' if value else 'No'}")
+                                        else:
+                                            lines.append(f"{display_name}: {value}")
+                                    except:
+                                        pass
+
+                        # Copy to clipboard
+                        text = '\n'.join(lines)
+                        self.root.clipboard_clear()
+                        self.root.clipboard_append(text)
+
+                    return copy_settings
+
+                ttk.Button(
+                    header_row,
+                    text="Copy Settings",
+                    command=make_copy_handler(effect, effect_name),
+                    width=12
+                ).pack(side='right', padx=(10, 10))
+
                 # Description
                 if hasattr(effect, 'get_description'):
                     desc = effect.get_description()
