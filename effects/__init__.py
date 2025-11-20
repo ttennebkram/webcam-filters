@@ -269,64 +269,76 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                 params_frame = ttk.Frame(effect_col)
                 params_frame.pack(fill='x', padx=(15, 0))
 
-                param_count = 0
-                for attr_name in sorted(dir(effect)):
-                    # Skip private and internal variables
-                    if attr_name.startswith('_'):
-                        continue
-                    if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
-                        continue
-
-                    attr = getattr(effect, attr_name)
-                    if isinstance(attr, tk.Variable):
-                        try:
-                            value = attr.get()
-
-                            # Handle index variables - try to get display value
-                            if attr_name.endswith('_index'):
-                                # Look for corresponding list to get display name
-                                # e.g., conversion_index -> COLOR_CONVERSIONS
-                                base_name = attr_name[:-6].upper()  # Remove '_index'
-                                lookup_names = [
-                                    f'{base_name}S',  # e.g., CONVERSIONS
-                                    f'COLOR_{base_name}S',  # e.g., COLOR_CONVERSIONS
-                                    f'{base_name}_OPTIONS',
-                                ]
-                                found = False
-                                for lookup in lookup_names:
-                                    if hasattr(effect, lookup):
-                                        options = getattr(effect, lookup)
-                                        if isinstance(options, list) and 0 <= value < len(options):
-                                            # Get display name from tuple (code, name)
-                                            if isinstance(options[value], tuple):
-                                                value_str = options[value][1]
-                                            else:
-                                                value_str = str(options[value])
-                                            display_name = base_name.replace('_', ' ').title()
-                                            found = True
-                                            break
-                                if not found:
-                                    continue  # Skip if we can't resolve
-                            else:
-                                # Format the value nicely
-                                if isinstance(value, float):
-                                    value_str = f"{value:.2f}"
-                                elif isinstance(value, bool):
-                                    value_str = "Yes" if value else "No"
-                                else:
-                                    value_str = str(value)
-
-                                # Make parameter name more readable
-                                display_name = attr_name.replace('_', ' ').title()
-
+                # Check if effect has a custom view mode summary
+                if hasattr(effect, 'get_view_mode_summary'):
+                    summary = effect.get_view_mode_summary()
+                    if summary:
+                        for line in summary.split('\n'):
                             ttk.Label(
                                 params_frame,
-                                text=f"{display_name}: {value_str}",
+                                text=line,
                                 font=('TkDefaultFont', 9)
                             ).pack(anchor='w')
-                            param_count += 1
-                        except:
-                            pass
+                else:
+                    # Default: show all tk.Variable parameters
+                    param_count = 0
+                    for attr_name in sorted(dir(effect)):
+                        # Skip private and internal variables
+                        if attr_name.startswith('_'):
+                            continue
+                        if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
+                            continue
+
+                        attr = getattr(effect, attr_name)
+                        if isinstance(attr, tk.Variable):
+                            try:
+                                value = attr.get()
+
+                                # Handle index variables - try to get display value
+                                if attr_name.endswith('_index'):
+                                    # Look for corresponding list to get display name
+                                    # e.g., conversion_index -> COLOR_CONVERSIONS
+                                    base_name = attr_name[:-6].upper()  # Remove '_index'
+                                    lookup_names = [
+                                        f'{base_name}S',  # e.g., CONVERSIONS
+                                        f'COLOR_{base_name}S',  # e.g., COLOR_CONVERSIONS
+                                        f'{base_name}_OPTIONS',
+                                    ]
+                                    found = False
+                                    for lookup in lookup_names:
+                                        if hasattr(effect, lookup):
+                                            options = getattr(effect, lookup)
+                                            if isinstance(options, list) and 0 <= value < len(options):
+                                                # Get display name from tuple (code, name)
+                                                if isinstance(options[value], tuple):
+                                                    value_str = options[value][1]
+                                                else:
+                                                    value_str = str(options[value])
+                                                display_name = base_name.replace('_', ' ').title()
+                                                found = True
+                                                break
+                                    if not found:
+                                        continue  # Skip if we can't resolve
+                                else:
+                                    # Format the value nicely
+                                    if isinstance(value, float):
+                                        value_str = f"{value:.2f}"
+                                    elif isinstance(value, bool):
+                                        value_str = "Yes" if value else "No"
+                                    else:
+                                        value_str = str(value)
+
+                                    # Make parameter name more readable
+                                    display_name = attr_name.replace('_', ' ').title()
+
+                                ttk.Label(
+                                    params_frame,
+                                    text=f"{display_name}: {value_str}",
+                                    font=('TkDefaultFont', 9)
+                                ).pack(anchor='w')
+                                param_count += 1
+                            except:
+                                pass
 
                 # Add separator between effects
                 if i < len(self.effects) - 1:

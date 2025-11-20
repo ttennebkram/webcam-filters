@@ -65,6 +65,27 @@ class ColorBitPlanesEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
+    def get_view_mode_summary(self) -> str:
+        """Return a human-readable summary of enabled channels and gains for view mode"""
+        lines = []
+        for color in ['red', 'green', 'blue']:
+            enabled_bits = []
+            for i in range(8):
+                if self.color_bitplane_enable[color][i].get():
+                    gain = self.color_bitplane_gain[color][i].get()
+                    bit_num = 7 - i  # Convert index to bit number
+                    if abs(gain - 1.0) < 0.01:
+                        enabled_bits.append(str(bit_num))
+                    else:
+                        enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+
+            if enabled_bits:
+                lines.append(f"{color.capitalize()}: bits {', '.join(enabled_bits)}")
+            else:
+                lines.append(f"{color.capitalize()}: none")
+
+        return '\n'.join(lines)
+
     def _slider_to_gain(self, slider_val):
         """Convert slider value (-1 to 1) to gain (0.1x to 10x)"""
         return 10 ** slider_val
