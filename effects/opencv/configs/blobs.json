@@ -4,17 +4,18 @@
     "enabled": false
   },
   "blur": {
-    "enabled": true,
+    "enabled": false,
     "kernel_size_x": 7,
     "kernel_size_y": 7,
     "sigma_x": 0.0
   },
-  "threshold_simple": {
+  "threshold_adaptive": {
+    "adaptive_method_index": 0,
+    "block_size": 25,
+    "c_value": 15,
     "enabled": true,
     "max_value": 255,
-    "thresh_modifier_index": 1,
-    "thresh_type_index": 0,
-    "thresh_value": 200
+    "thresh_type_index": 0
   },
   "_window_height": 723
 }
