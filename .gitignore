@@ -29,3 +29,6 @@ ENV/
 
 # Settings files (if you want to keep them local)
 # .webcam_filters_settings.json
+
+# User pipelines
+pipelines/

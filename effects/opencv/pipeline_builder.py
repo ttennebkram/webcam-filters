@@ -400,42 +400,51 @@ class PipelineBuilderEffect(BaseUIEffect):
 
             config['effects'].append(effect_config)
 
-        # Load existing pipelines
-        pipelines_file = os.path.expanduser('~/.webcam_filters_pipelines.json')
-        pipelines = {}
-        if os.path.exists(pipelines_file):
-            try:
-                with open(pipelines_file, 'r') as f:
-                    pipelines = json.load(f)
-            except:
-                pass
+        # Get pipelines directory (in project root)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        pipelines_dir = os.path.join(project_root, 'pipelines')
 
-        # Save this pipeline
-        pipeline_key = f"user_{name}"
-        pipelines[pipeline_key] = config
+        # Create directory if it doesn't exist
+        os.makedirs(pipelines_dir, exist_ok=True)
 
-        with open(pipelines_file, 'w') as f:
-            json.dump(pipelines, f, indent=2)
+        # Save this pipeline as its own file
+        pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
 
-        print(f"Pipeline saved: '{pipeline_key}' -> {pipelines_file}")
+        with open(pipeline_file, 'w') as f:
+            json.dump(config, f, indent=2)
+
+        print(f"Pipeline saved: '{name}' -> {pipeline_file}")
 
     def _show_load_dialog(self):
         """Show dialog to load a saved pipeline"""
-        pipelines_file = os.path.expanduser('~/.webcam_filters_pipelines.json')
+        # Get pipelines directory
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        pipelines_dir = os.path.join(project_root, 'pipelines')
 
-        if not os.path.exists(pipelines_file):
+        if not os.path.exists(pipelines_dir):
             messagebox.showinfo("Load Pipeline", "No saved pipelines found")
             return
 
-        try:
-            with open(pipelines_file, 'r') as f:
-                pipelines = json.load(f)
-        except:
-            messagebox.showerror("Load Pipeline", "Error reading pipelines file")
+        # Find all pipeline files
+        pipeline_files = [f for f in os.listdir(pipelines_dir) if f.endswith('.json')]
+
+        if not pipeline_files:
+            messagebox.showinfo("Load Pipeline", "No saved pipelines found")
             return
+
+        # Load all pipelines
+        pipelines = {}
+        for filename in pipeline_files:
+            name = filename[:-5]  # Remove .json extension
+            filepath = os.path.join(pipelines_dir, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    pipelines[name] = json.load(f)
+            except:
+                pass
 
         if not pipelines:
-            messagebox.showinfo("Load Pipeline", "No saved pipelines found")
+            messagebox.showinfo("Load Pipeline", "No valid pipelines found")
             return
 
         # Create dialog
@@ -463,20 +472,21 @@ class PipelineBuilderEffect(BaseUIEffect):
             name = pipeline_var.get()
             if name:
                 self._load_pipeline(pipelines[name])
-                self.pipeline_name.set(name.replace('user_', ''))
-                print(f"Pipeline loaded: '{name}' <- {pipelines_file}")
+                self.pipeline_name.set(name)
+                pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
+                print(f"Pipeline loaded: '{name}' <- {pipeline_file}")
             dialog.destroy()
 
         def on_delete():
             name = pipeline_var.get()
             if name:
                 if messagebox.askyesno("Delete Pipeline", f"Delete '{name}'?"):
+                    pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
+                    os.remove(pipeline_file)
                     del pipelines[name]
-                    with open(pipelines_file, 'w') as f:
-                        json.dump(pipelines, f, indent=2)
                     combo['values'] = list(pipelines.keys())
                     pipeline_var.set('')
-                    print(f"Pipeline deleted: '{name}' from {pipelines_file}")
+                    print(f"Pipeline deleted: '{name}' from {pipeline_file}")
 
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=10)
@@ -486,29 +496,29 @@ class PipelineBuilderEffect(BaseUIEffect):
         ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side='left', padx=5)
 
     def _load_pipeline_by_key(self, pipeline_key):
-        """Load a pipeline by its key (e.g., 'user_test1')"""
-        pipelines_file = os.path.expanduser('~/.webcam_filters_pipelines.json')
+        """Load a pipeline by its key (e.g., 'test1')"""
+        # Get pipelines directory
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        pipelines_dir = os.path.join(project_root, 'pipelines')
 
-        if not os.path.exists(pipelines_file):
-            print(f"Warning: No pipelines file found")
+        # Handle old-style keys with 'user_' prefix
+        name = pipeline_key.replace('user_', '')
+        pipeline_file = os.path.join(pipelines_dir, f"{name}.json")
+
+        if not os.path.exists(pipeline_file):
+            print(f"Warning: Pipeline file not found: {pipeline_file}")
             return
 
         try:
-            with open(pipelines_file, 'r') as f:
-                pipelines = json.load(f)
+            with open(pipeline_file, 'r') as f:
+                config = json.load(f)
         except Exception as e:
-            print(f"Warning: Could not load pipelines: {e}")
+            print(f"Warning: Could not load pipeline: {e}")
             return
 
-        if pipeline_key not in pipelines:
-            print(f"Warning: Pipeline '{pipeline_key}' not found")
-            return
-
-        config = pipelines[pipeline_key]
         self._load_pipeline(config)
-        # Set the name (strip 'user_' prefix)
-        name = pipeline_key.replace('user_', '')
         self.pipeline_name.set(name)
+        print(f"Pipeline loaded: '{name}' <- {pipeline_file}")
 
     def _load_pipeline(self, config):
         """Load a pipeline from configuration"""

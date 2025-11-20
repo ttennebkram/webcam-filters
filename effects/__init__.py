@@ -64,23 +64,30 @@ def discover_user_pipelines() -> Dict[str, Type[BaseEffect]]:
         Dictionary mapping pipeline names (e.g., "opencv/user_mypipeline") to effect classes
     """
     pipelines = {}
-    pipelines_file = os.path.expanduser('~/.webcam_filters_pipelines.json')
 
-    if not os.path.exists(pipelines_file):
+    # Get pipelines directory (in project root)
+    effects_dir = Path(__file__).parent
+    project_root = effects_dir.parent
+    pipelines_dir = project_root / 'pipelines'
+
+    if not pipelines_dir.exists():
         return pipelines
 
-    try:
-        with open(pipelines_file, 'r') as f:
-            saved_pipelines = json.load(f)
-    except:
-        return pipelines
+    # Find all pipeline JSON files
+    for pipeline_file in pipelines_dir.glob('*.json'):
+        name = pipeline_file.stem  # filename without extension
+        try:
+            with open(pipeline_file, 'r') as f:
+                config = json.load(f)
 
-    for pipeline_key, config in saved_pipelines.items():
-        # Create a dynamic class for this pipeline
-        pipeline_class = create_user_pipeline_class(pipeline_key, config)
-        if pipeline_class:
-            effect_key = f"opencv/{pipeline_key}"
-            pipelines[effect_key] = pipeline_class
+            # Create a dynamic class for this pipeline
+            pipeline_key = f"user_{name}"
+            pipeline_class = create_user_pipeline_class(pipeline_key, config)
+            if pipeline_class:
+                effect_key = f"opencv/{pipeline_key}"
+                pipelines[effect_key] = pipeline_class
+        except Exception as e:
+            print(f"Warning: Could not load pipeline {pipeline_file}: {e}")
 
     return pipelines
 
