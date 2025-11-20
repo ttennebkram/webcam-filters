@@ -33,7 +33,7 @@ class GradientSobelEffect(BaseUIEffect):
         self.depth_index = tk.IntVar(value=3)  # Default to CV_64F
         self.scale = tk.DoubleVar(value=1.0)
         self.delta = tk.DoubleVar(value=0.0)
-        self.combine_xy = tk.BooleanVar(value=False)  # Combine gX and gY
+        self.return_mode_index = tk.IntVar(value=0)  # 0=dx, 1=dy, 2=Combined Magnitude
 
     @classmethod
     def get_name(cls) -> str:
@@ -115,23 +115,37 @@ class GradientSobelEffect(BaseUIEffect):
         self.depth_combo.pack(side='left', padx=5)
         self.depth_combo.bind('<<ComboboxSelected>>', self._on_depth_change)
 
-        # dx control - radio buttons
+        # dx control - dropdown
         dx_frame = ttk.Frame(right_column)
         dx_frame.pack(fill='x', pady=3)
 
         ttk.Label(dx_frame, text="dx (x derivative):").pack(side='left')
 
-        for val in [0, 1, 2]:
-            ttk.Radiobutton(dx_frame, text=str(val), variable=self.dx, value=val).pack(side='left', padx=5)
+        self.dx_combo = ttk.Combobox(
+            dx_frame,
+            values=[0, 1, 2],
+            state='readonly',
+            width=5
+        )
+        self.dx_combo.current(1)  # Default to 1
+        self.dx_combo.pack(side='left', padx=5)
+        self.dx_combo.bind('<<ComboboxSelected>>', self._on_dx_change)
 
-        # dy control - radio buttons
+        # dy control - dropdown
         dy_frame = ttk.Frame(right_column)
         dy_frame.pack(fill='x', pady=3)
 
         ttk.Label(dy_frame, text="dy (y derivative):").pack(side='left')
 
-        for val in [0, 1, 2]:
-            ttk.Radiobutton(dy_frame, text=str(val), variable=self.dy, value=val).pack(side='left', padx=5)
+        self.dy_combo = ttk.Combobox(
+            dy_frame,
+            values=[0, 1, 2],
+            state='readonly',
+            width=5
+        )
+        self.dy_combo.current(0)  # Default to 0
+        self.dy_combo.pack(side='left', padx=5)
+        self.dy_combo.bind('<<ComboboxSelected>>', self._on_dy_change)
 
         # ksize control
         ksize_frame = ttk.Frame(right_column)
@@ -191,22 +205,36 @@ class GradientSobelEffect(BaseUIEffect):
         self.delta_label = ttk.Label(delta_frame, text="0.0")
         self.delta_label.pack(side='left', padx=5)
 
-        # Combine X and Y checkbox
-        combine_frame = ttk.Frame(right_column)
-        combine_frame.pack(fill='x', pady=3)
+        # Return mode dropdown
+        return_frame = ttk.Frame(right_column)
+        return_frame.pack(fill='x', pady=3)
 
-        combine_cb = ttk.Checkbutton(
-            combine_frame,
-            text="Combine gX and gY (magnitude)",
-            variable=self.combine_xy
+        ttk.Label(return_frame, text="Return:").pack(side='left')
+
+        return_modes = ["gX (uses dx)", "gY (uses dy)", "Combined Magnitude"]
+        self.return_combo = ttk.Combobox(
+            return_frame,
+            values=return_modes,
+            state='readonly',
+            width=20
         )
-        combine_cb.pack(side='left')
+        self.return_combo.current(0)
+        self.return_combo.pack(side='left', padx=5)
+        self.return_combo.bind('<<ComboboxSelected>>', self._on_return_change)
 
         return self.control_panel
 
     def _on_depth_change(self, event):
         """Handle depth change"""
         self.depth_index.set(self.depth_combo.current())
+
+    def _on_dx_change(self, event):
+        """Handle dx change"""
+        self.dx.set(int(self.dx_combo.get()))
+
+    def _on_dy_change(self, event):
+        """Handle dy change"""
+        self.dy.set(int(self.dy_combo.get()))
 
     def _on_ksize_change(self, event):
         """Handle ksize change"""
@@ -221,6 +249,10 @@ class GradientSobelEffect(BaseUIEffect):
         """Handle delta slider change"""
         delta = float(value)
         self.delta_label.config(text=f"{delta:.1f}")
+
+    def _on_return_change(self, event):
+        """Handle return mode change"""
+        self.return_mode_index.set(self.return_combo.current())
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply Sobel gradient to the frame"""
@@ -242,12 +274,11 @@ class GradientSobelEffect(BaseUIEffect):
         scale = self.scale.get()
         delta = self.delta.get()
 
-        # Ensure at least one derivative is non-zero
-        if dx == 0 and dy == 0:
-            dx = 1
+        # Get return mode: 0=gX, 1=gY, 2=Combined
+        return_mode = self.return_mode_index.get()
 
-        if self.combine_xy.get():
-            # Compute both gradients and combine
+        if return_mode == 2:
+            # Combined Magnitude
             gX = cv2.Sobel(gray, ddepth=ddepth, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
 
@@ -257,13 +288,25 @@ class GradientSobelEffect(BaseUIEffect):
             # Normalize to 0-255
             result = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
             result = result.astype(np.uint8)
-        else:
-            # Single Sobel operation
-            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=dx, dy=dy, ksize=ksize, scale=scale, delta=delta)
+        elif return_mode == 1:
+            # gY - use dy value, force dx=0
+            if dy == 0:
+                dy = 1
+            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=0, dy=dy, ksize=ksize, scale=scale, delta=delta)
 
             # Convert to displayable format
             if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
-                # Take absolute value and normalize
+                result = cv2.convertScaleAbs(gradient)
+            else:
+                result = gradient
+        else:
+            # gX - use dx value, force dy=0
+            if dx == 0:
+                dx = 1
+            gradient = cv2.Sobel(gray, ddepth=ddepth, dx=dx, dy=0, ksize=ksize, scale=scale, delta=delta)
+
+            # Convert to displayable format
+            if ddepth in [cv2.CV_64F, cv2.CV_32F, cv2.CV_16S]:
                 result = cv2.convertScaleAbs(gradient)
             else:
                 result = gradient
