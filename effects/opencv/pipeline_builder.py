@@ -417,7 +417,7 @@ class PipelineBuilderEffect(BaseUIEffect):
         with open(pipelines_file, 'w') as f:
             json.dump(pipelines, f, indent=2)
 
-        messagebox.showinfo("Save Pipeline", f"Pipeline '{pipeline_key}' saved successfully!")
+        print(f"Pipeline saved: '{pipeline_key}' -> {pipelines_file}")
 
     def _show_load_dialog(self):
         """Show dialog to load a saved pipeline"""
@@ -464,6 +464,7 @@ class PipelineBuilderEffect(BaseUIEffect):
             if name:
                 self._load_pipeline(pipelines[name])
                 self.pipeline_name.set(name.replace('user_', ''))
+                print(f"Pipeline loaded: '{name}' <- {pipelines_file}")
             dialog.destroy()
 
         def on_delete():
@@ -475,6 +476,7 @@ class PipelineBuilderEffect(BaseUIEffect):
                         json.dump(pipelines, f, indent=2)
                     combo['values'] = list(pipelines.keys())
                     pipeline_var.set('')
+                    print(f"Pipeline deleted: '{name}' from {pipelines_file}")
 
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=10)
