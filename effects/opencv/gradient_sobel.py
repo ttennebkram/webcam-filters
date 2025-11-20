@@ -57,25 +57,26 @@ class GradientSobelEffect(BaseUIEffect):
 
         padding = {'padx': 10, 'pady': 5}
 
-        # Header section
-        header_frame = ttk.Frame(self.control_panel)
-        header_frame.pack(fill='x', **padding)
+        # Header section (skip if in pipeline - LabelFrame already shows name)
+        if not getattr(self, '_in_pipeline', False):
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
 
-        # Title in section header font
-        title_label = ttk.Label(
-            header_frame,
-            text="Sobel Gradient",
-            font=('TkDefaultFont', 14, 'bold')
-        )
-        title_label.pack(anchor='w')
+            # Title in section header font
+            title_label = ttk.Label(
+                header_frame,
+                text="Sobel Gradient",
+                font=('TkDefaultFont', 14, 'bold')
+            )
+            title_label.pack(anchor='w')
 
-        # Method signature for reference
-        signature_label = ttk.Label(
-            header_frame,
-            text="cv2.Sobel(src, ddepth, dx, dy, ksize, scale, delta)",
-            font=('TkFixedFont', 12)
-        )
-        signature_label.pack(anchor='w', pady=(2, 2))
+            # Method signature for reference
+            signature_label = ttk.Label(
+                header_frame,
+                text="cv2.Sobel(src, ddepth, dx, dy, ksize, scale, delta)",
+                font=('TkFixedFont', 12)
+            )
+            signature_label.pack(anchor='w', pady=(2, 2))
 
         # Main frame with two columns
         main_frame = ttk.Frame(self.control_panel)

@@ -35,7 +35,7 @@ class GrayscaleEffect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Grayscale / Color Convert"
+        return "Grayscale / Color Conversion"
 
     @classmethod
     def get_description(cls) -> str:
@@ -51,25 +51,26 @@ class GrayscaleEffect(BaseUIEffect):
 
         padding = {'padx': 10, 'pady': 5}
 
-        # Header section
-        header_frame = ttk.Frame(self.control_panel)
-        header_frame.pack(fill='x', **padding)
+        # Header section (skip if in pipeline - LabelFrame already shows name)
+        if not getattr(self, '_in_pipeline', False):
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
 
-        # Title in section header font
-        title_label = ttk.Label(
-            header_frame,
-            text="Color Conversion",
-            font=('TkDefaultFont', 14, 'bold')
-        )
-        title_label.pack(anchor='w')
+            # Title in section header font
+            title_label = ttk.Label(
+                header_frame,
+                text="Grayscale / Color Conversion",
+                font=('TkDefaultFont', 14, 'bold')
+            )
+            title_label.pack(anchor='w')
 
-        # Method signature for reference
-        signature_label = ttk.Label(
-            header_frame,
-            text="cv2.cvtColor(src, code)",
-            font=('TkFixedFont', 12)
-        )
-        signature_label.pack(anchor='w', pady=(2, 2))
+            # Method signature for reference
+            signature_label = ttk.Label(
+                header_frame,
+                text="cv2.cvtColor(src, code)",
+                font=('TkFixedFont', 12)
+            )
+            signature_label.pack(anchor='w', pady=(2, 2))
 
         # Main frame with two columns
         main_frame = ttk.Frame(self.control_panel)

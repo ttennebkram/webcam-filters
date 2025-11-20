@@ -248,53 +248,71 @@ class PipelineBuilderEffect(BaseUIEffect):
         # Store index as attribute
         effect_frame.effect_index = index
 
-        # Main container with two columns
-        main_container = ttk.Frame(effect_frame)
-        main_container.pack(fill='both', expand=True, padx=5, pady=2)
+        # Effect's own control panel
+        if hasattr(effect, 'create_control_panel'):
+            # Set flag to indicate we're in a pipeline (skip title)
+            effect._in_pipeline = True
+            effect_panel = effect.create_control_panel(effect_frame)
+            if effect_panel:
+                effect_panel.pack(fill='x', padx=5, pady=2)
 
-        # Left column - Enabled checkbox and +/- buttons
-        left_column = ttk.Frame(main_container)
-        left_column.pack(side='left', anchor='n', padx=(0, 10), pady=5)
+                # Find the left_column in the effect's panel and add +/- buttons there
+                # The left_column contains the Enabled checkbox
+                self._add_buttons_to_left_column(effect_panel, effect_frame)
 
-        # Enabled checkbox (using effect's variable)
-        if hasattr(effect, 'enabled'):
-            enabled_cb = ttk.Checkbutton(
-                left_column,
-                text="Enabled",
-                variable=effect.enabled
-            )
-            enabled_cb.pack(anchor='w')
+        return effect_frame
 
-        # +/- buttons in a row below Enabled
-        btn_frame = ttk.Frame(left_column)
-        btn_frame.pack(anchor='w', pady=(2, 0))
+    def _add_buttons_to_left_column(self, effect_panel, effect_frame):
+        """Find the left column in the effect panel and add +/- buttons below Enabled"""
+        # Search for the left_column frame that contains the Enabled checkbox
+        # It's typically in a main_frame which is a child of control_panel
+        for child in effect_panel.winfo_children():
+            if isinstance(child, ttk.Frame):
+                for subchild in child.winfo_children():
+                    if isinstance(subchild, ttk.Frame):
+                        # Check if this frame contains a Checkbutton (Enabled)
+                        for widget in subchild.winfo_children():
+                            if isinstance(widget, ttk.Checkbutton):
+                                # Found the left column - add buttons here
+                                btn_frame = ttk.Frame(subchild)
+                                btn_frame.pack(pady=(2, 0))
+
+                                plus_btn = ttk.Button(
+                                    btn_frame,
+                                    text="+",
+                                    width=1,
+                                    command=lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
+                                )
+                                plus_btn.pack(side='left', padx=(0, 1))
+
+                                minus_btn = ttk.Button(
+                                    btn_frame,
+                                    text="-",
+                                    width=1,
+                                    command=lambda f=effect_frame: self._remove_effect(f)
+                                )
+                                minus_btn.pack(side='left')
+                                return
+
+        # Fallback: add buttons at the bottom if we couldn't find left column
+        btn_frame = ttk.Frame(effect_frame)
+        btn_frame.pack(anchor='w', padx=10, pady=(0, 5))
 
         plus_btn = ttk.Button(
             btn_frame,
             text="+",
-            width=2,
+            width=1,
             command=lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
         )
-        plus_btn.pack(side='left', padx=(0, 2))
+        plus_btn.pack(side='left', padx=(0, 1))
 
         minus_btn = ttk.Button(
             btn_frame,
             text="-",
-            width=2,
+            width=1,
             command=lambda f=effect_frame: self._remove_effect(f)
         )
         minus_btn.pack(side='left')
-
-        # Right column - Effect's own control panel
-        right_column = ttk.Frame(main_container)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        if hasattr(effect, 'create_control_panel'):
-            effect_panel = effect.create_control_panel(right_column)
-            if effect_panel:
-                effect_panel.pack(fill='x')
-
-        return effect_frame
 
     def _get_frame_index(self, frame):
         """Get the current index of a frame"""

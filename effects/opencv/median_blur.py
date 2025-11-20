@@ -42,25 +42,26 @@ class MedianBlurEffect(BaseUIEffect):
 
         padding = {'padx': 10, 'pady': 5}
 
-        # Header section
-        header_frame = ttk.Frame(self.control_panel)
-        header_frame.pack(fill='x', **padding)
+        # Header section (skip if in pipeline - LabelFrame already shows name)
+        if not getattr(self, '_in_pipeline', False):
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
 
-        # Title
-        title_label = ttk.Label(
-            header_frame,
-            text="Median Blur",
-            font=('TkDefaultFont', 14, 'bold')
-        )
-        title_label.pack(anchor='w')
+            # Title
+            title_label = ttk.Label(
+                header_frame,
+                text="Median Blur",
+                font=('TkDefaultFont', 14, 'bold')
+            )
+            title_label.pack(anchor='w')
 
-        # Method signature
-        signature_label = ttk.Label(
-            header_frame,
-            text="cv2.medianBlur(src, ksize)",
-            font=('TkFixedFont', 12)
-        )
-        signature_label.pack(anchor='w', pady=(2, 2))
+            # Method signature
+            signature_label = ttk.Label(
+                header_frame,
+                text="cv2.medianBlur(src, ksize)",
+                font=('TkFixedFont', 12)
+            )
+            signature_label.pack(anchor='w', pady=(2, 2))
 
         # Main frame with two columns
         main_frame = ttk.Frame(self.control_panel)

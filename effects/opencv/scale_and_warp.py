@@ -64,25 +64,26 @@ class ScaleAndWarpEffect(BaseUIEffect):
 
         padding = {'padx': 10, 'pady': 5}
 
-        # Header section
-        header_frame = ttk.Frame(self.control_panel)
-        header_frame.pack(fill='x', **padding)
+        # Header section (skip if in pipeline - LabelFrame already shows name)
+        if not getattr(self, '_in_pipeline', False):
+            header_frame = ttk.Frame(self.control_panel)
+            header_frame.pack(fill='x', **padding)
 
-        # Title
-        title_label = ttk.Label(
-            header_frame,
-            text="Geometric Transform",
-            font=('TkDefaultFont', 14, 'bold')
-        )
-        title_label.pack(anchor='w')
+            # Title
+            title_label = ttk.Label(
+                header_frame,
+                text="Geometric Transform",
+                font=('TkDefaultFont', 14, 'bold')
+            )
+            title_label.pack(anchor='w')
 
-        # Method signature
-        signature_label = ttk.Label(
-            header_frame,
-            text="cv2.warpAffine(src, Matrix, dsize)",
-            font=('TkFixedFont', 12)
-        )
-        signature_label.pack(anchor='w', pady=(2, 2))
+            # Method signature
+            signature_label = ttk.Label(
+                header_frame,
+                text="cv2.warpAffine(src, Matrix, dsize)",
+                font=('TkFixedFont', 12)
+            )
+            signature_label.pack(anchor='w', pady=(2, 2))
 
         # Main frame with two columns
         main_frame = ttk.Frame(self.control_panel)
@@ -305,7 +306,8 @@ class ScaleAndWarpEffect(BaseUIEffect):
 
         # Build transformation matrix
         # getRotationMatrix2D handles rotation and scale around center
-        M = cv2.getRotationMatrix2D((cx, cy), angle, scale)
+        # Negate angle so positive = clockwise (more intuitive)
+        M = cv2.getRotationMatrix2D((cx, cy), -angle, scale)
 
         # Add translation
         M[0, 2] += tx
