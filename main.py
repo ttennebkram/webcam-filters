@@ -18,8 +18,8 @@ from effects import discover_effects, list_effects, get_effect_class
 from core.camera import find_cameras, get_camera_name, open_camera
 from core.video_window import VideoWindow
 
-# Settings file path
-SETTINGS_FILE = os.path.expanduser("~/.webcam_filters_settings.json")
+# Settings file path (in project directory)
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 
 def load_settings():
@@ -133,9 +133,15 @@ Examples:
     try:
         effect_class = get_effect_class(effect_to_load)
     except KeyError as e:
-        print(f"Error: {e}")
-        print("\nUse --list to see available effects")
-        return 1
+        # If saved effect not found, fall back to passthrough
+        if effect_to_load != args.effect:
+            print(f"Warning: Saved effect '{effect_to_load}' not found, falling back to passthrough")
+            effect_to_load = 'misc/passthrough'
+            effect_class = get_effect_class(effect_to_load)
+        else:
+            print(f"Error: {e}")
+            print("\nUse --list to see available effects")
+            return 1
 
     # Discover all available cameras (needed for UI even if loading from file)
     cameras = find_cameras()

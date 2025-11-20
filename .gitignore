@@ -27,8 +27,8 @@ ENV/
 *.swo
 *~
 
-# Settings files (if you want to keep them local)
-# .webcam_filters_settings.json
+# Settings files (local to each user)
+settings.json
 
 # User pipelines
 pipelines/
