@@ -5,6 +5,7 @@ Uses PIL/ImageTk for accurate rendering without OpenCV's auto-contrast issues.
 """
 
 import tkinter as tk
+from tkinter import ttk
 from PIL import Image, ImageTk
 import cv2
 
@@ -26,16 +27,48 @@ class VideoWindow:
         self.window = tk.Toplevel(root)
         self.window.title(title)
 
-        # Use Canvas for direct pixel control
-        self.canvas = tk.Canvas(self.window, width=width, height=height, highlightthickness=0)
-        self.canvas.pack()
+        # Store image dimensions
+        self.image_width = width
+        self.image_height = height
+
+        # Create main frame to hold canvas and scrollbars
+        self.main_frame = ttk.Frame(self.window)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create canvas with scrollbars
+        self.canvas = tk.Canvas(self.main_frame, highlightthickness=0, bg='black')
+
+        # Vertical scrollbar
+        self.v_scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Horizontal scrollbar
+        self.h_scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Configure canvas scrolling
+        self.canvas.configure(xscrollcommand=self.h_scrollbar.set, yscrollcommand=self.v_scrollbar.set)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Store current photo reference to prevent garbage collection
         self.current_photo = None
         self.canvas_image_id = None
 
-        # Position window
-        self.window.geometry(f"{width}x{height}+0+0")
+        # Position window - set initial size with some reasonable maximum
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+
+        # Window size: use image size but cap at 80% of screen
+        window_width = min(width, int(screen_width * 0.8))
+        window_height = min(height, int(screen_height * 0.8))
+
+        self.window.geometry(f"{window_width}x{window_height}+0+0")
+
+        # Set scroll region to image size
+        self.canvas.configure(scrollregion=(0, 0, width, height))
+
+        # Enable mouse wheel scrolling
+        self._bind_mousewheel()
 
         # Keyboard handler callback
         self.on_key_callback = None
@@ -51,6 +84,27 @@ class VideoWindow:
         # Flag to check if window is open
         self.is_open = True
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _bind_mousewheel(self):
+        """Bind mouse wheel events for scrolling"""
+        # macOS uses MouseWheel event differently
+        self.canvas.bind('<MouseWheel>', self._on_mousewheel_y)
+        self.canvas.bind('<Shift-MouseWheel>', self._on_mousewheel_x)
+
+        # Linux uses Button-4/5 for scroll
+        self.canvas.bind('<Button-4>', lambda e: self.canvas.yview_scroll(-1, 'units'))
+        self.canvas.bind('<Button-5>', lambda e: self.canvas.yview_scroll(1, 'units'))
+        self.canvas.bind('<Shift-Button-4>', lambda e: self.canvas.xview_scroll(-1, 'units'))
+        self.canvas.bind('<Shift-Button-5>', lambda e: self.canvas.xview_scroll(1, 'units'))
+
+    def _on_mousewheel_y(self, event):
+        """Handle vertical mouse wheel scroll"""
+        # macOS delta is inverted and larger
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+
+    def _on_mousewheel_x(self, event):
+        """Handle horizontal mouse wheel scroll (with Shift)"""
+        self.canvas.xview_scroll(int(-1 * (event.delta / 120)), 'units')
 
     def _handle_key(self, key):
         """Handle keyboard input"""
@@ -79,6 +133,13 @@ class VideoWindow:
 
             # Convert to PIL Image
             image = Image.fromarray(frame_rgb)
+
+            # Check if image size changed and update scroll region
+            img_width, img_height = image.size
+            if img_width != self.image_width or img_height != self.image_height:
+                self.image_width = img_width
+                self.image_height = img_height
+                self.canvas.configure(scrollregion=(0, 0, img_width, img_height))
 
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(image=image)
@@ -115,17 +176,34 @@ class VideoWindow:
         self.window.geometry(f"+{x}+{y}")
 
     def resize(self, width, height):
-        """Resize the window and canvas
+        """Resize for new image dimensions
 
         Args:
-            width: New width
-            height: New height
+            width: New image width
+            height: New image height
         """
-        self.canvas.config(width=width, height=height)
+        # Update stored image dimensions
+        self.image_width = width
+        self.image_height = height
+
+        # Update scroll region to match image size
+        self.canvas.configure(scrollregion=(0, 0, width, height))
+
+        # Resize window, capping at 80% of screen
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        window_width = min(width, int(screen_width * 0.8))
+        window_height = min(height, int(screen_height * 0.8))
+
         # Get current position
         geometry = self.window.geometry()
         if '+' in geometry:
             pos = geometry.split('+', 1)[1]
-            self.window.geometry(f"{width}x{height}+{pos}")
+            self.window.geometry(f"{window_width}x{window_height}+{pos}")
         else:
-            self.window.geometry(f"{width}x{height}")
+            self.window.geometry(f"{window_width}x{window_height}")
+
+        # Reset scroll position to top-left
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
