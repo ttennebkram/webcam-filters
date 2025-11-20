@@ -193,7 +193,7 @@ A comprehensive collection of OpenCV image processing operations with interactiv
 #### Transforms
 | Effect | Description |
 |--------|-------------|
-| **scale_and_warp** | Translate, rotate, scale with border modes |
+| **scale_and_warp** | Apply translation, rotation, and scaling via affine transform (`cv2.warpAffine(src, Matrix, dsize)`) |
 
 #### Other
 | Effect | Description |
