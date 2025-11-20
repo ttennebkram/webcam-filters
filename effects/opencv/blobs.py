@@ -14,7 +14,7 @@ class BlobsEffect(BasePipelineEffect):
     PIPELINE_EFFECTS = [
         'grayscale',
         'blur',
-        'threshold_simple',
+        'threshold_adaptive',
     ]
 
     @classmethod
