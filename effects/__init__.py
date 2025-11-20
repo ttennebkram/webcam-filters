@@ -201,12 +201,13 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
             header_frame = ttk.Frame(self.control_panel)
             header_frame.pack(fill='x', **padding)
 
-            # Fixed width for Enabled column
+            # Fixed width for Enabled column (match checkbox below)
             ttk.Label(
                 header_frame,
                 text="Enabled",
-                font=('TkDefaultFont', 9)
-            ).pack(side='left', padx=(0, 10))
+                font=('TkDefaultFont', 9),
+                anchor='center'
+            ).pack(side='left', padx=(10, 30))
 
             ttk.Label(
                 header_frame,
@@ -233,7 +234,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                         header_row,
                         text="",
                         variable=effect.enabled
-                    ).pack(side='left', padx=(10, 10))
+                    ).pack(side='left', padx=(25, 35))
 
                 # Effect name and details in the Effect column
                 effect_col = ttk.Frame(header_row)
