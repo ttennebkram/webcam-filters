@@ -45,6 +45,20 @@ class ContoursEffect(BaseUIEffect):
         self.min_index = tk.IntVar(value=1)  # 1-based for user display
         self.max_index = tk.IntVar(value=100)
 
+        # Drawing mode
+        self.draw_mode = tk.IntVar(value=0)  # Index into DRAW_MODES
+
+    # Drawing modes
+    DRAW_MODES = [
+        ("Contours", "contours"),
+        ("Bounding Rectangles", "bounding_rect"),
+        ("Rotated Bounding Rectangles", "rotated_rect"),
+        ("Enclosing Circles", "enclosing_circle"),
+        ("Fitted Ellipses", "fitted_ellipse"),
+        ("Convex Hulls", "convex_hull"),
+        ("Centroids", "centroids"),
+    ]
+
     # Sorting methods
     SORT_METHODS = [
         ("None", None),
@@ -323,6 +337,23 @@ class ContoursEffect(BaseUIEffect):
         self.displayed_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
         self.displayed_label.pack(side='left', padx=5)
 
+        # Drawing mode dropdown
+        draw_frame = ttk.Frame(right_column)
+        draw_frame.pack(fill='x', pady=3)
+
+        ttk.Label(draw_frame, text="Draw Mode:").pack(side='left')
+
+        draw_values = [name for name, _ in self.DRAW_MODES]
+        self.draw_combo = ttk.Combobox(
+            draw_frame,
+            values=draw_values,
+            state='readonly',
+            width=25
+        )
+        self.draw_combo.current(0)
+        self.draw_combo.pack(side='left', padx=5)
+        self.draw_combo.bind('<<ComboboxSelected>>', self._on_draw_mode_change)
+
         return self.control_panel
 
     def _on_thresh_change(self, value):
@@ -342,6 +373,10 @@ class ContoursEffect(BaseUIEffect):
     def _on_thickness_change(self, value):
         """Handle thickness slider change"""
         self.thick_label.config(text=str(int(float(value))))
+
+    def _on_draw_mode_change(self, event):
+        """Handle draw mode change"""
+        self.draw_mode.set(self.draw_combo.current())
 
     def _on_sort_change(self, event):
         """Handle sort method change"""
@@ -478,10 +513,14 @@ class ContoursEffect(BaseUIEffect):
         sorted_contours = self._sort_contours(list(contours), sort_key)
 
         # Select contours by index (1-based for user, convert to 0-based)
-        min_idx = max(0, self.min_index.get() - 1)  # Convert to 0-based
-        max_idx = self.max_index.get()  # Keep as-is since slicing is exclusive
+        try:
+            min_idx = max(0, int(self.min_index.get()) - 1)  # Convert to 0-based
+            max_idx = int(self.max_index.get())  # Keep as-is since slicing is exclusive
+        except (ValueError, tk.TclError):
+            min_idx = 0
+            max_idx = 100
 
-        selected_contours = sorted_contours[min_idx:max_idx]
+        selected_contours = list(sorted_contours[min_idx:max_idx])
 
         # Update displayed count
         if hasattr(self, 'displayed_label'):
@@ -503,7 +542,64 @@ class ContoursEffect(BaseUIEffect):
         )
         thickness = self.thickness.get()
 
-        # Draw contours
-        cv2.drawContours(result, selected_contours, -1, color, thickness)
+        # Get draw mode
+        try:
+            draw_mode_idx = self.draw_mode.get()
+            draw_mode_key = self.DRAW_MODES[draw_mode_idx][1]
+        except:
+            draw_mode_key = "contours"
+
+        # Draw based on mode
+        if draw_mode_key == "contours" or draw_mode_key is None:
+            if len(selected_contours) > 0:
+                cv2.drawContours(result, selected_contours, -1, color, thickness)
+
+        elif draw_mode_key == "bounding_rect":
+            for contour in selected_contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(result, (x, y), (x + w, y + h), color, thickness)
+
+        elif draw_mode_key == "rotated_rect":
+            for contour in selected_contours:
+                if len(contour) >= 5:  # minAreaRect needs at least 5 points
+                    rect = cv2.minAreaRect(contour)
+                    box = cv2.boxPoints(rect)
+                    box = np.int0(box)
+                    cv2.drawContours(result, [box], 0, color, thickness)
+                else:
+                    # Fall back to regular bounding rect
+                    x, y, w, h = cv2.boundingRect(contour)
+                    cv2.rectangle(result, (x, y), (x + w, y + h), color, thickness)
+
+        elif draw_mode_key == "enclosing_circle":
+            for contour in selected_contours:
+                (x, y), radius = cv2.minEnclosingCircle(contour)
+                center = (int(x), int(y))
+                radius = int(radius)
+                cv2.circle(result, center, radius, color, thickness)
+
+        elif draw_mode_key == "fitted_ellipse":
+            for contour in selected_contours:
+                if len(contour) >= 5:  # fitEllipse needs at least 5 points
+                    ellipse = cv2.fitEllipse(contour)
+                    cv2.ellipse(result, ellipse, color, thickness)
+                else:
+                    # Fall back to enclosing circle
+                    (x, y), radius = cv2.minEnclosingCircle(contour)
+                    center = (int(x), int(y))
+                    radius = int(radius)
+                    cv2.circle(result, center, radius, color, thickness)
+
+        elif draw_mode_key == "convex_hull":
+            for contour in selected_contours:
+                hull = cv2.convexHull(contour)
+                cv2.drawContours(result, [hull], 0, color, thickness)
+
+        elif draw_mode_key == "centroids":
+            for contour in selected_contours:
+                cx, cy = self._get_contour_centroid(contour)
+                center = (int(cx), int(cy))
+                # Draw a filled circle for centroid
+                cv2.circle(result, center, thickness + 2, color, -1)
 
         return result
