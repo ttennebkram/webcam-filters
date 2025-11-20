@@ -141,6 +141,15 @@ class BasePipelineEffect(BaseUIEffect):
         # Store canvas reference for cleanup
         self._canvas = canvas
 
+        # Add save warning message at the top (use tk.Label for color support)
+        warning_label = tk.Label(
+            self.scrollable_frame,
+            text="Note: These values are not persisted unless you click Save Configuration",
+            font=('TkDefaultFont', 10, 'italic'),
+            fg='red'
+        )
+        warning_label.pack(anchor='w', padx=10, pady=(5, 10))
+
         # Add each effect's control panel
         for i, effect in enumerate(self.effects):
             # Create frame for this effect
