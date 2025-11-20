@@ -54,6 +54,10 @@ class VideoWindow:
         self.current_photo = None
         self.canvas_image_id = None
 
+        # Zoom level (1.0 = 100%)
+        self.zoom_level = 1.0
+        self.zoom_steps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+
         # Position window - set initial size with some reasonable maximum
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
@@ -81,6 +85,20 @@ class VideoWindow:
         self.window.bind('<q>', lambda e: self._handle_key('q'))
         self.window.bind('<Escape>', lambda e: self._handle_key('esc'))
 
+        # Bind zoom keyboard shortcuts
+        # macOS: Command+Plus/Minus, Others: Control+Plus/Minus
+        # Plus can be = or + (shift+=)
+        self.window.bind('<Command-equal>', lambda e: self._zoom_in())
+        self.window.bind('<Command-plus>', lambda e: self._zoom_in())
+        self.window.bind('<Command-minus>', lambda e: self._zoom_out())
+        self.window.bind('<Command-0>', lambda e: self._zoom_reset())
+
+        # Linux/Windows bindings
+        self.window.bind('<Control-equal>', lambda e: self._zoom_in())
+        self.window.bind('<Control-plus>', lambda e: self._zoom_in())
+        self.window.bind('<Control-minus>', lambda e: self._zoom_out())
+        self.window.bind('<Control-0>', lambda e: self._zoom_reset())
+
         # Flag to check if window is open
         self.is_open = True
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -105,6 +123,43 @@ class VideoWindow:
     def _on_mousewheel_x(self, event):
         """Handle horizontal mouse wheel scroll (with Shift)"""
         self.canvas.xview_scroll(int(-1 * (event.delta / 120)), 'units')
+
+    def _zoom_in(self):
+        """Zoom in to next zoom level"""
+        # Find next higher zoom step
+        for step in self.zoom_steps:
+            if step > self.zoom_level:
+                self.zoom_level = step
+                self._update_zoom()
+                break
+
+    def _zoom_out(self):
+        """Zoom out to previous zoom level"""
+        # Find next lower zoom step
+        for step in reversed(self.zoom_steps):
+            if step < self.zoom_level:
+                self.zoom_level = step
+                self._update_zoom()
+                break
+
+    def _zoom_reset(self):
+        """Reset zoom to 100%"""
+        self.zoom_level = 1.0
+        self._update_zoom()
+
+    def _update_zoom(self):
+        """Update scroll region and window title for current zoom level"""
+        # Update scroll region based on zoom
+        zoomed_width = int(self.image_width * self.zoom_level)
+        zoomed_height = int(self.image_height * self.zoom_level)
+        self.canvas.configure(scrollregion=(0, 0, zoomed_width, zoomed_height))
+
+        # Update window title to show zoom level
+        base_title = self.window.title().split(' - ')[0]
+        if ' [' in base_title:
+            base_title = base_title.split(' [')[0]
+        zoom_percent = int(self.zoom_level * 100)
+        self.window.title(f"{base_title} [{zoom_percent}%]")
 
     def _handle_key(self, key):
         """Handle keyboard input"""
@@ -139,7 +194,18 @@ class VideoWindow:
             if img_width != self.image_width or img_height != self.image_height:
                 self.image_width = img_width
                 self.image_height = img_height
-                self.canvas.configure(scrollregion=(0, 0, img_width, img_height))
+                # Update scroll region with zoom
+                zoomed_width = int(img_width * self.zoom_level)
+                zoomed_height = int(img_height * self.zoom_level)
+                self.canvas.configure(scrollregion=(0, 0, zoomed_width, zoomed_height))
+
+            # Apply zoom if not 1.0
+            if self.zoom_level != 1.0:
+                new_width = int(img_width * self.zoom_level)
+                new_height = int(img_height * self.zoom_level)
+                # Use NEAREST for speed, LANCZOS for quality
+                resample = Image.NEAREST if self.zoom_level > 1.0 else Image.LANCZOS
+                image = image.resize((new_width, new_height), resample)
 
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(image=image)
@@ -186,8 +252,10 @@ class VideoWindow:
         self.image_width = width
         self.image_height = height
 
-        # Update scroll region to match image size
-        self.canvas.configure(scrollregion=(0, 0, width, height))
+        # Update scroll region to match image size (with zoom)
+        zoomed_width = int(width * self.zoom_level)
+        zoomed_height = int(height * self.zoom_level)
+        self.canvas.configure(scrollregion=(0, 0, zoomed_width, zoomed_height))
 
         # Resize window, capping at 80% of screen
         screen_width = self.root.winfo_screenwidth()
