@@ -598,7 +598,36 @@ Examples:
             control_window.geometry(f"700x{control_height}")
             control_window.minsize(700, 400)    # Prevent it from being too small
             control_window.protocol("WM_DELETE_WINDOW", on_any_window_close)
-            control_panel = effect.create_control_panel(control_window)
+
+            # Create scrollable container for control panel
+            canvas = tk.Canvas(control_window, bd=0, highlightthickness=0)
+            scrollbar = ttk.Scrollbar(control_window, orient="vertical", command=canvas.yview)
+            scrollable_frame = ttk.Frame(canvas)
+
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+
+            canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+            # Make the scrollable frame expand to canvas width
+            def _configure_canvas_width(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+
+            canvas.bind("<Configure>", _configure_canvas_width)
+
+            # Mouse wheel scrolling
+            def _on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+
+            control_panel = effect.create_control_panel(scrollable_frame)
             control_panel.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     else:
         effect = effect_class(width, height)
