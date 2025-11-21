@@ -531,7 +531,11 @@ Examples:
         # Handle special "(new user pipeline)" entry
         if new_effect == new_pipeline_entry:
             # Switch to pipeline builder using hot-swap
-            switch_effect('opencv/pipeline_builder')
+            if switch_effect('opencv/pipeline_builder'):
+                # Clear any existing pipeline to start fresh
+                eff = effect_state['effect']
+                if hasattr(eff, 'clear_pipeline'):
+                    eff.clear_pipeline()
             return
 
         # Handle user pipelines - load in pipeline_builder instead of UserPipelineEffect

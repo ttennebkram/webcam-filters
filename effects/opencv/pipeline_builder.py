@@ -1,5 +1,5 @@
 """
-Pipeline Builder 2 - FormRenderer-enabled pipeline builder.
+Pipeline Builder - FormRenderer-enabled pipeline builder.
 
 Uses the new FormRenderer system for effects that support it.
 Provides UI to add/remove/reorder OpenCV effects at runtime.
@@ -202,7 +202,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Pipeline Builder 2"
+        return "Pipeline Builder"
 
     @classmethod
     def get_description(cls) -> str:
@@ -248,8 +248,15 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._fields_frame = ttk.Frame(self.control_panel)
         self._fields_frame.pack(fill='x', **padding)
 
-        # Name row
-        ttk.Label(self._fields_frame, text="Name:").grid(row=0, column=0, sticky='e', padx=(0, 5), pady=4)
+        # Name row (with asterisk for required field in edit mode)
+        self._name_label_text = ttk.Label(self._fields_frame, text="Name:")
+        self._name_label_required = ttk.Label(self._fields_frame, text="* Name:")
+
+        # Show appropriate label based on mode
+        if self._current_mode == 'edit':
+            self._name_label_required.grid(row=0, column=0, sticky='e', padx=(0, 5), pady=4)
+        else:
+            self._name_label_text.grid(row=0, column=0, sticky='e', padx=(0, 5), pady=4)
 
         # Name entry (edit mode)
         self._name_entry = ttk.Entry(
@@ -316,7 +323,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
         # Edit All / Save All button
         self._edit_save_btn = tk.Label(
-            btn_frame, text="Edit All", relief='raised', borderwidth=1,
+            btn_frame, text=" Edit All ", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
         )
         self._edit_save_btn.bind('<Button-1>', lambda e: self._on_edit_save_click())
@@ -363,7 +370,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             self._edit_save_btn.config(text="Save All")
         else:
             self._edit_save_btn.pack(side='left')
-            self._edit_save_btn.config(text="Edit All")
+            self._edit_save_btn.config(text=" Edit All ")
 
         self._ct_btn.pack(side='left', padx=(10, 1))
         self._pt_btn.pack(side='left', padx=1)
@@ -520,6 +527,19 @@ class PipelineBuilder2Effect(BaseUIEffect):
             effect._on_add_below = lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
             effect._on_remove = lambda f=effect_frame: self._remove_effect(f)
             effect._on_edit = self._ensure_edit_mode  # Notify pipeline when effect enters edit mode
+
+            # Store frame reference on effect for replace functionality
+            effect._pipeline_frame = effect_frame
+
+            # Wrap the effect's _paste_json to handle different effect types
+            if hasattr(effect, '_paste_json'):
+                original_paste_json = effect._paste_json
+                effect._paste_json = lambda eff=effect, orig=original_paste_json: self._wrapped_paste_json(eff, orig)
+
+            # Wrap the effect's _paste_text to handle different effect types
+            if hasattr(effect, '_paste_text'):
+                original_paste_text = effect._paste_text
+                effect._paste_text = lambda eff=effect, orig=original_paste_text: self._wrapped_paste_text(eff, orig)
 
             # Set flag and create control panel in view mode
             effect._in_pipeline = True
@@ -698,6 +718,220 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Show "add first" frame if no effects
             if not self.effects and self.add_first_frame:
                 self.add_first_frame.pack(fill='x', padx=10, pady=5)
+
+    def _wrapped_paste_json(self, effect, original_paste_json):
+        """Wrapper for effect's _paste_json that handles different effect types"""
+        if not self.root:
+            return
+
+        try:
+            text = self.root.clipboard_get()
+            data = json.loads(text)
+
+            # Check if this is a different effect type
+            pasted_effect_name = data.get('effect', '')
+            current_effect_name = effect.get_name() if hasattr(effect, 'get_name') else ''
+
+            if pasted_effect_name and pasted_effect_name != current_effect_name:
+                # Different effect type - find the effect info by name
+                effect_info = None
+                for info in self.available_effects:
+                    if info['name'] == pasted_effect_name:
+                        effect_info = info
+                        break
+
+                if effect_info:
+                    # Replace this effect with the new type
+                    self._replace_effect(effect, effect_info, data)
+                    return
+                else:
+                    print(f"Warning: Effect '{pasted_effect_name}' not found")
+                    return
+
+            # Same effect type - call original paste_json
+            original_paste_json()
+
+        except json.JSONDecodeError:
+            # Not valid JSON, let original handler try (maybe it handles other formats)
+            original_paste_json()
+        except Exception as e:
+            print(f"Error in wrapped paste JSON: {e}")
+            original_paste_json()
+
+    def _wrapped_paste_text(self, effect, original_paste_text):
+        """Wrapper for effect's _paste_text that handles different effect types"""
+        if not self.root:
+            return
+
+        try:
+            text = self.root.clipboard_get()
+            lines = text.strip().split('\n')
+
+            if not lines:
+                original_paste_text()
+                return
+
+            # The first line should be the effect name
+            pasted_effect_name = lines[0].strip()
+            current_effect_name = effect.get_name() if hasattr(effect, 'get_name') else ''
+
+            if pasted_effect_name and pasted_effect_name != current_effect_name:
+                # Different effect type - find the effect info by name
+                effect_info = None
+                for info in self.available_effects:
+                    if info['name'] == pasted_effect_name:
+                        effect_info = info
+                        break
+
+                if effect_info:
+                    # Replace this effect with the new type
+                    # Parse text data into a dict format for _replace_effect
+                    data = {'effect': pasted_effect_name}
+                    for line in lines[1:]:
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            data[key.strip().lower()] = value.strip()
+                    self._replace_effect_from_text(effect, effect_info, lines)
+                    return
+                else:
+                    # Effect not found - maybe it's just parameter text, let original handle it
+                    original_paste_text()
+                    return
+
+            # Same effect type - call original paste_text
+            original_paste_text()
+
+        except Exception as e:
+            print(f"Error in wrapped paste text: {e}")
+            original_paste_text()
+
+    def _replace_effect_from_text(self, old_effect, new_effect_info, lines):
+        """Replace an effect using text format data"""
+        # Ensure we're in edit mode
+        self._ensure_edit_mode()
+
+        # Find the index of the old effect
+        try:
+            index = self.effects.index(old_effect)
+        except ValueError:
+            print("Error: Could not find effect to replace")
+            return
+
+        # Get the old frame
+        old_frame = old_effect._pipeline_frame if hasattr(old_effect, '_pipeline_frame') else self.effect_frames[index]
+
+        # Cleanup the old effect
+        if hasattr(old_effect, 'cleanup'):
+            old_effect.cleanup()
+
+        # Remove from lists
+        self.effects.pop(index)
+        self.effect_frames.pop(index)
+
+        # Destroy old UI
+        old_frame.destroy()
+
+        # Add the new effect at the same position
+        self._add_effect(new_effect_info, index)
+
+        # Get the newly added effect
+        new_effect = self.effects[index]
+
+        # Restore parameters from text lines
+        for line in lines[1:]:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+
+                # Skip lines that look like method signatures
+                if '(' in key or ')' in key:
+                    continue
+
+                # Use the existing text parameter matching logic
+                self._set_effect_param_from_text(new_effect, key, value)
+
+        # Re-render the effect's control panel to show updated values
+        if hasattr(new_effect, '_toggle_mode'):
+            # Toggle twice to stay in same mode but refresh display
+            new_effect._toggle_mode()
+            new_effect._toggle_mode()
+
+        # Repack frames to maintain order
+        self._repack_effect_frames()
+
+    def _replace_effect(self, old_effect, new_effect_info, data):
+        """Replace an effect at its current position with a new effect type"""
+        # Ensure we're in edit mode
+        self._ensure_edit_mode()
+
+        # Find the index of the old effect
+        try:
+            index = self.effects.index(old_effect)
+        except ValueError:
+            print("Error: Could not find effect to replace")
+            return
+
+        # Get the old frame
+        old_frame = old_effect._pipeline_frame if hasattr(old_effect, '_pipeline_frame') else self.effect_frames[index]
+
+        # Cleanup the old effect
+        if hasattr(old_effect, 'cleanup'):
+            old_effect.cleanup()
+
+        # Remove from lists
+        self.effects.pop(index)
+        self.effect_frames.pop(index)
+
+        # Destroy old UI
+        old_frame.destroy()
+
+        # Add the new effect at the same position
+        self._add_effect(new_effect_info, index)
+
+        # Get the newly added effect
+        new_effect = self.effects[index]
+
+        # Restore parameters from pasted data
+        # First, check for 'params' key (pipeline format)
+        if 'params' in data:
+            for param_name, value in data['params'].items():
+                if hasattr(new_effect, param_name):
+                    attr = getattr(new_effect, param_name)
+                    if isinstance(attr, tk.Variable):
+                        try:
+                            attr.set(value)
+                        except:
+                            pass
+                    elif isinstance(attr, (dict, list)):
+                        _restore_tk_variables(attr, value)
+        else:
+            # Single effect format - match parameters by name
+            for key, value in data.items():
+                if key == 'effect':
+                    continue
+                # Try to find matching attribute
+                for attr_name in dir(new_effect):
+                    if attr_name.startswith('_'):
+                        continue
+                    # Check for direct match or key in attr name
+                    if attr_name.lower() == key.lower() or key.lower() in attr_name.lower():
+                        try:
+                            attr = getattr(new_effect, attr_name)
+                            if isinstance(attr, tk.Variable):
+                                attr.set(value)
+                                break
+                        except:
+                            pass
+
+        # Re-render the effect's control panel to show updated values
+        if hasattr(new_effect, '_toggle_mode'):
+            # Toggle twice to stay in same mode but refresh display
+            new_effect._toggle_mode()
+            new_effect._toggle_mode()
+
+        # Repack frames to maintain order
+        self._repack_effect_frames()
 
     def _repack_effect_frames(self):
         """Repack all effect frames in order"""
@@ -995,6 +1229,14 @@ class PipelineBuilder2Effect(BaseUIEffect):
         else:
             self._warning_label.grid_forget()
 
+        # Update name label (with/without asterisk)
+        if self._current_mode == 'edit':
+            self._name_label_text.grid_forget()
+            self._name_label_required.grid(row=0, column=0, sticky='e', padx=(0, 5), pady=4)
+        else:
+            self._name_label_required.grid_forget()
+            self._name_label_text.grid(row=0, column=0, sticky='e', padx=(0, 5), pady=4)
+
         # Update name field (entry vs label)
         if self._current_mode == 'edit':
             self._name_label.grid_forget()
@@ -1026,7 +1268,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             self._edit_save_btn.config(text="Save All")
         else:
             self._edit_save_btn.pack(side='left')
-            self._edit_save_btn.config(text="Edit All")
+            self._edit_save_btn.config(text=" Edit All ")
 
         self._ct_btn.pack(side='left', padx=(10, 1))
         self._pt_btn.pack(side='left', padx=1)
@@ -1367,6 +1609,38 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
         except Exception as e:
             print(f"Error pasting JSON: {e}")
+
+    def clear_pipeline(self):
+        """Clear all effects and reset to blank pipeline state"""
+        # Clear existing effects
+        for frame in self.effect_frames[:]:
+            index = self._get_frame_index(frame)
+            if index < len(self.effects):
+                effect = self.effects[index]
+                if hasattr(effect, 'cleanup'):
+                    effect.cleanup()
+            frame.destroy()
+
+        self.effects = []
+        self.effect_frames = []
+
+        # Reset name and description
+        self.pipeline_name.set("")
+        self.pipeline_description.set("")
+
+        # Show "Add First Effect" button (before the effects_container)
+        if self.add_first_frame and self.effects_container:
+            self.add_first_frame.pack(fill='x', padx=10, pady=5, before=self.effects_container)
+
+        # Reset to edit mode for new pipeline
+        self._current_mode = 'edit'
+        self._update_mode_ui()
+
+        # Clear original states
+        self._original_name = ""
+        self._original_description = ""
+        self._original_enabled_states = []
+        self._original_pipeline_config = None
 
     def cleanup(self):
         """Cleanup all effects in the pipeline"""
