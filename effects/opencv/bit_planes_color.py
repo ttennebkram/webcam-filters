@@ -97,23 +97,30 @@ class ColorBitPlanesEffect(BaseUIEffect):
         self._restoring = False
 
     def get_view_mode_summary(self) -> str:
-        """Return a human-readable summary of enabled channels and gains for view mode"""
+        """Return a human-readable summary of enabled and disabled bits with gains for view mode"""
         lines = []
         for color in ['red', 'green', 'blue']:
             enabled_bits = []
+            disabled_bits = []
             for i in range(8):
+                gain = self.color_bitplane_gain[color][i].get()
+                bit_num = 7 - i  # Convert index to bit number
                 if self.color_bitplane_enable[color][i].get():
-                    gain = self.color_bitplane_gain[color][i].get()
-                    bit_num = 7 - i  # Convert index to bit number
                     if abs(gain - 1.0) < 0.01:
                         enabled_bits.append(str(bit_num))
                     else:
                         enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+                else:
+                    if abs(gain - 1.0) < 0.01:
+                        disabled_bits.append(str(bit_num))
+                    else:
+                        disabled_bits.append(f"{bit_num}({gain:.1f}x)")
 
-            if enabled_bits:
-                lines.append(f"{color.capitalize()}: {', '.join(enabled_bits)}")
-            else:
-                lines.append(f"{color.capitalize()}: none")
+            set_value = ', '.join(enabled_bits) if enabled_bits else 'none'
+            unset_value = ', '.join(disabled_bits) if disabled_bits else 'none'
+
+            lines.append(f"{color.capitalize()} Set Bits: {set_value}")
+            lines.append(f"Unset: {unset_value}")
 
         return '\n'.join(lines)
 
@@ -200,9 +207,6 @@ class ColorBitPlanesEffect(BaseUIEffect):
         summary_frame = ttk.Frame(parent)
         summary_frame.pack(fill='x', pady=(5, 0))
 
-        # Map color names to display colors
-        color_fg_map = {'red': 'red', 'green': 'green', 'blue': 'DeepSkyBlue'}
-
         # Create ttk styles for colored labels that preserve color on defocus
         style = ttk.Style()
         for color_name, color_fg in [('Red', 'red'), ('Green', 'green'), ('Blue', 'DeepSkyBlue')]:
@@ -212,32 +216,45 @@ class ColorBitPlanesEffect(BaseUIEffect):
             style.map(style_name, foreground=[('disabled', color_fg), ('background', color_fg)])
         style_map = {'red': 'RedView.TLabel', 'green': 'GreenView.TLabel', 'blue': 'BlueView.TLabel'}
 
-        for row_idx, color in enumerate(['red', 'green', 'blue']):
-            # Build the bits string for this color
+        row_idx = 0
+        for color in ['red', 'green', 'blue']:
+            # Build the bits strings for this color
             enabled_bits = []
+            disabled_bits = []
             for i in range(8):
+                gain = self.color_bitplane_gain[color][i].get()
+                bit_num = 7 - i  # Convert index to bit number
                 if self.color_bitplane_enable[color][i].get():
-                    gain = self.color_bitplane_gain[color][i].get()
-                    bit_num = 7 - i  # Convert index to bit number
                     if abs(gain - 1.0) < 0.01:
                         enabled_bits.append(str(bit_num))
                     else:
                         enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+                else:
+                    if abs(gain - 1.0) < 0.01:
+                        disabled_bits.append(str(bit_num))
+                    else:
+                        disabled_bits.append(f"{bit_num}({gain:.1f}x)")
 
-            if enabled_bits:
-                bits_value = ', '.join(enabled_bits)
-            else:
-                bits_value = "none"
+            set_value = ', '.join(enabled_bits) if enabled_bits else 'none'
+            unset_value = ', '.join(disabled_bits) if disabled_bits else 'none'
 
-            # Right-justified color label with colored text
-            color_label = ttk.Label(summary_frame, text=f"{color.capitalize()}:",
+            # Row for Set Bits
+            color_label = ttk.Label(summary_frame, text=f"{color.capitalize()} Set Bits:",
                                     style=style_map[color])
             color_label.grid(row=row_idx, column=0, sticky='e', padx=(5, 10), pady=4)
-
-            # Value label
-            ttk.Label(summary_frame, text=bits_value).grid(
+            ttk.Label(summary_frame, text=set_value).grid(
                 row=row_idx, column=1, sticky='w', pady=4
             )
+            row_idx += 1
+
+            # Row for Unset
+            unset_label = ttk.Label(summary_frame, text="Unset:",
+                                    style=style_map[color])
+            unset_label.grid(row=row_idx, column=0, sticky='e', padx=(5, 10), pady=4)
+            ttk.Label(summary_frame, text=unset_value).grid(
+                row=row_idx, column=1, sticky='w', pady=4
+            )
+            row_idx += 1
 
     def _add_color_tabs(self, parent):
         """Add the tabbed color panels to the given parent frame"""
@@ -356,8 +373,9 @@ class ColorBitPlanesEffect(BaseUIEffect):
                                         command=lambda v, c=color_key, idx=i: update_gain(v, c, idx))
                 gain_slider.grid(row=row, column=2, padx=5, pady=2, sticky='ew')
 
-                # Gain value label
-                gain_label = ttk.Label(table_frame, text="1.00x", width=6)
+                # Gain value label - initialize with current gain value
+                initial_gain = self.color_bitplane_gain[color_key][i].get()
+                gain_label = ttk.Label(table_frame, text=f"{initial_gain:.2f}x", width=6)
                 gain_label.grid(row=row, column=3, padx=(2, 5), pady=2)
                 gain_labels.append(gain_label)
 
@@ -476,42 +494,105 @@ class ColorBitPlanesEffect(BaseUIEffect):
         if not self.root_window:
             return
 
+        def parse_bits(bits_str):
+            """Parse a comma-separated bits string like '7, 6(2.0x), 5' into list of (bit_num, gain)"""
+            result = []
+            if bits_str.lower() == 'none':
+                return result
+            for bit_spec in bits_str.split(','):
+                bit_spec = bit_spec.strip()
+                if not bit_spec:
+                    continue
+                if '(' in bit_spec:
+                    # Has gain: "7(2.0x)"
+                    bit_num = int(bit_spec.split('(')[0])
+                    gain_str = bit_spec.split('(')[1].rstrip('x)')
+                    gain = float(gain_str)
+                else:
+                    bit_num = int(bit_spec)
+                    gain = 1.0
+                # Clamp gain to valid range (0.1 to 10.0)
+                gain = max(0.1, min(10.0, gain))
+                result.append((bit_num, gain))
+            return result
+
         try:
             text = self.root_window.clipboard_get()
             lines = text.strip().split('\n')
 
-            for line in lines:
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    key = key.strip().lower()
+            # Check if this is the new format (has "Set Bits:" or "Unset:" in it)
+            is_new_format = any('set bits:' in line.lower() or ' unset:' in line.lower() for line in lines)
+
+            if is_new_format:
+                # New format: "Red Set Bits: 7, 6" and "Unset: 5, 4"
+                current_color = None
+                for line in lines:
+                    if ':' not in line:
+                        continue
+
+                    key_part, value = line.split(':', 1)
+                    key_part = key_part.strip().lower()
                     value = value.strip()
 
-                    # Parse color lines like "Red: 7, 6(2.0x), 5, ..."
-                    if key in ['red', 'green', 'blue']:
-                        # Reset all bits for this color
-                        for i in range(8):
-                            self.color_bitplane_enable[key][i].set(False)
-                            self.color_bitplane_gain[key][i].set(1.0)
-                            self.color_bitplane_gain_slider[key][i].set(0.0)
+                    # Check if line starts with a color (e.g., "Red Set Bits:")
+                    found_color = False
+                    for color in ['red', 'green', 'blue']:
+                        if key_part.startswith(color):
+                            found_color = True
+                            current_color = color
+                            remainder = key_part[len(color):].strip()
 
-                        if value.lower() != 'none':
-                            for bit_spec in value.split(','):
-                                bit_spec = bit_spec.strip()
-                                if '(' in bit_spec:
-                                    # Has gain: "7(2.0x)"
-                                    bit_num = int(bit_spec.split('(')[0])
-                                    gain_str = bit_spec.split('(')[1].rstrip('x)')
-                                    gain = float(gain_str)
-                                else:
-                                    bit_num = int(bit_spec)
-                                    gain = 1.0
+                            if 'set bits' in remainder:
+                                # Reset all bits for this color first (only on Set Bits line)
+                                for i in range(8):
+                                    self.color_bitplane_enable[color][i].set(False)
+                                    self.color_bitplane_gain[color][i].set(1.0)
+                                    self.color_bitplane_gain_slider[color][i].set(0.0)
 
-                                # Convert bit number to index (7 -> 0, 0 -> 7)
+                                # Set enabled bits
+                                for bit_num, gain in parse_bits(value):
+                                    idx = 7 - bit_num
+                                    if 0 <= idx < 8:
+                                        self.color_bitplane_enable[color][idx].set(True)
+                                        # Clamp slider value to valid range (-1 to 1)
+                                        slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                                        self.color_bitplane_gain_slider[color][idx].set(slider_val)
+                                        self.color_bitplane_gain[color][idx].set(gain)
+                            break
+
+                    # Check for "Unset:" line (applies to current_color)
+                    if not found_color and key_part == 'unset' and current_color:
+                        for bit_num, gain in parse_bits(value):
+                            idx = 7 - bit_num
+                            if 0 <= idx < 8:
+                                self.color_bitplane_enable[current_color][idx].set(False)
+                                # Clamp slider value to valid range (-1 to 1)
+                                slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                                self.color_bitplane_gain_slider[current_color][idx].set(slider_val)
+                                self.color_bitplane_gain[current_color][idx].set(gain)
+            else:
+                # Legacy format: "Red: 7, 6(2.0x), 5, ..."
+                for line in lines:
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key = key.strip().lower()
+                        value = value.strip()
+
+                        if key in ['red', 'green', 'blue']:
+                            # Reset all bits for this color
+                            for i in range(8):
+                                self.color_bitplane_enable[key][i].set(False)
+                                self.color_bitplane_gain[key][i].set(1.0)
+                                self.color_bitplane_gain_slider[key][i].set(0.0)
+
+                            for bit_num, gain in parse_bits(value):
                                 idx = 7 - bit_num
                                 if 0 <= idx < 8:
                                     self.color_bitplane_enable[key][idx].set(True)
+                                    # Clamp slider value to valid range (-1 to 1)
+                                    slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                                    self.color_bitplane_gain_slider[key][idx].set(slider_val)
                                     self.color_bitplane_gain[key][idx].set(gain)
-                                    self.color_bitplane_gain_slider[key][idx].set(self._gain_to_slider(gain))
         except Exception as e:
             print(f"Error pasting text: {e}")
 
@@ -531,8 +612,12 @@ class ColorBitPlanesEffect(BaseUIEffect):
                         self.color_bitplane_enable[color][i].set(data[f'{color}_bit_{bit_num}_enabled'])
                     if f'{color}_bit_{bit_num}_gain' in data:
                         gain = data[f'{color}_bit_{bit_num}_gain']
+                        # Clamp gain to valid range (0.1 to 10.0)
+                        gain = max(0.1, min(10.0, gain))
+                        # Clamp slider value to valid range (-1 to 1)
+                        slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                        self.color_bitplane_gain_slider[color][i].set(slider_val)
                         self.color_bitplane_gain[color][i].set(gain)
-                        self.color_bitplane_gain_slider[color][i].set(self._gain_to_slider(gain))
         except Exception as e:
             print(f"Error pasting JSON: {e}")
 

@@ -77,21 +77,27 @@ class BitPlanesEffect(BaseUIEffect):
         self._restoring = False
 
     def get_view_mode_summary(self) -> str:
-        """Return a human-readable summary of enabled bits and gains for view mode"""
+        """Return a human-readable summary of enabled and disabled bits with gains for view mode"""
         enabled_bits = []
+        disabled_bits = []
         for i in range(8):
+            gain = self.bitplane_gain[i].get()
+            bit_num = 7 - i  # Convert index to bit number
             if self.bitplane_enable[i].get():
-                gain = self.bitplane_gain[i].get()
-                bit_num = 7 - i  # Convert index to bit number
                 if abs(gain - 1.0) < 0.01:
                     enabled_bits.append(str(bit_num))
                 else:
                     enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+            else:
+                if abs(gain - 1.0) < 0.01:
+                    disabled_bits.append(str(bit_num))
+                else:
+                    disabled_bits.append(f"{bit_num}({gain:.1f}x)")
 
-        if enabled_bits:
-            return f"Bits: {', '.join(enabled_bits)}"
-        else:
-            return "Bits: none"
+        set_value = ', '.join(enabled_bits) if enabled_bits else 'none'
+        unset_value = ', '.join(disabled_bits) if disabled_bits else 'none'
+
+        return f"Set Bits: {set_value}\nUnset: {unset_value}"
 
     def get_pipeline_params(self) -> dict:
         """Return custom parameters for pipeline saving"""
@@ -239,8 +245,9 @@ class BitPlanesEffect(BaseUIEffect):
                                     command=lambda v, idx=i: update_gain(v, idx))
             gain_slider.grid(row=row, column=2, padx=5, pady=2, sticky='ew')
 
-            # Gain value label
-            gain_label = ttk.Label(table_frame, text="1.00x", width=6)
+            # Gain value label - initialize with current gain value
+            initial_gain = self.bitplane_gain[i].get()
+            gain_label = ttk.Label(table_frame, text=f"{initial_gain:.2f}x", width=6)
             gain_label.grid(row=row, column=3, padx=(2, 5), pady=2)
             self.gain_labels.append(gain_label)
 
@@ -254,30 +261,45 @@ class BitPlanesEffect(BaseUIEffect):
 
     def _add_view_summary(self, parent):
         """Add the bits summary label for view mode"""
-        # Build the bits string without the "Bits: " prefix since we'll use a proper label
+        # Build the set bits string
         enabled_bits = []
+        disabled_bits = []
         for i in range(8):
+            gain = self.bitplane_gain[i].get()
+            bit_num = 7 - i  # Convert index to bit number
             if self.bitplane_enable[i].get():
-                gain = self.bitplane_gain[i].get()
-                bit_num = 7 - i  # Convert index to bit number
                 if abs(gain - 1.0) < 0.01:
                     enabled_bits.append(str(bit_num))
                 else:
                     enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+            else:
+                # Unset bits - show gain if not 1.0
+                if abs(gain - 1.0) < 0.01:
+                    disabled_bits.append(str(bit_num))
+                else:
+                    disabled_bits.append(f"{bit_num}({gain:.1f}x)")
 
         if enabled_bits:
-            bits_value = ', '.join(enabled_bits)
+            set_value = ', '.join(enabled_bits)
         else:
-            bits_value = "none"
+            set_value = "none"
 
-        # Create frame for the label row
+        if disabled_bits:
+            unset_value = ', '.join(disabled_bits)
+        else:
+            unset_value = "none"
+
+        # Create frame for the label rows
         summary_frame = ttk.Frame(parent)
         summary_frame.pack(fill='x', pady=(5, 0))
 
-        # Right-justified "Bits:" label
-        ttk.Label(summary_frame, text="Bits:").grid(row=0, column=0, sticky='e', padx=(5, 10), pady=4)
-        # Value label
-        ttk.Label(summary_frame, text=bits_value).grid(row=0, column=1, sticky='w', pady=4)
+        # Row 0: Set Bits
+        ttk.Label(summary_frame, text="Set Bits:").grid(row=0, column=0, sticky='e', padx=(5, 10), pady=4)
+        ttk.Label(summary_frame, text=set_value).grid(row=0, column=1, sticky='w', pady=4)
+
+        # Row 1: Unset Bits
+        ttk.Label(summary_frame, text="Unset:").grid(row=1, column=0, sticky='e', padx=(5, 10), pady=4)
+        ttk.Label(summary_frame, text=unset_value).grid(row=1, column=1, sticky='w', pady=4)
 
     def _toggle_mode(self):
         """Toggle between edit and view modes"""
@@ -356,10 +378,70 @@ class BitPlanesEffect(BaseUIEffect):
         if not self.root_window:
             return
 
+        def parse_bits(bits_str):
+            """Parse a comma-separated bits string like '7, 6(2.0x), 5' into list of (bit_num, gain)"""
+            result = []
+            if bits_str.lower() == 'none':
+                return result
+            for bit_spec in bits_str.split(','):
+                bit_spec = bit_spec.strip()
+                if not bit_spec:
+                    continue
+                if '(' in bit_spec:
+                    # Has gain: "7(2.0x)"
+                    bit_num = int(bit_spec.split('(')[0])
+                    gain_str = bit_spec.split('(')[1].rstrip('x)')
+                    gain = float(gain_str)
+                else:
+                    bit_num = int(bit_spec)
+                    gain = 1.0
+                # Clamp gain to valid range (0.1 to 10.0)
+                gain = max(0.1, min(10.0, gain))
+                result.append((bit_num, gain))
+            return result
+
         try:
             text = self.root_window.clipboard_get()
-            # Parse "Bits: 7, 6(2.0x), 5, ..." format
-            if 'Bits:' in text:
+
+            # Check for new "Set Bits:/Unset:" or "Set:/Unset:" format
+            if 'Set Bits:' in text or 'Set:' in text:
+                # Reset all bits to disabled with default gain
+                for i in range(8):
+                    self.bitplane_enable[i].set(False)
+                    self.bitplane_gain[i].set(1.0)
+                    self.bitplane_gain_slider[i].set(0.0)
+
+                # Parse Set Bits: or Set: line
+                if 'Set Bits:' in text:
+                    set_part = text.split('Set Bits:')[1].strip().split('\n')[0]
+                elif 'Set:' in text:
+                    set_part = text.split('Set:')[1].strip().split('\n')[0]
+                else:
+                    set_part = ''
+
+                for bit_num, gain in parse_bits(set_part):
+                    idx = 7 - bit_num
+                    if 0 <= idx < 8:
+                        self.bitplane_enable[idx].set(True)
+                        # Clamp slider value to valid range (-1 to 1)
+                        slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                        self.bitplane_gain_slider[idx].set(slider_val)
+                        self.bitplane_gain[idx].set(gain)
+
+                # Parse Unset: line
+                if 'Unset:' in text:
+                    unset_part = text.split('Unset:')[1].strip().split('\n')[0]
+                    for bit_num, gain in parse_bits(unset_part):
+                        idx = 7 - bit_num
+                        if 0 <= idx < 8:
+                            self.bitplane_enable[idx].set(False)
+                            # Clamp slider value to valid range (-1 to 1)
+                            slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                            self.bitplane_gain_slider[idx].set(slider_val)
+                            self.bitplane_gain[idx].set(gain)
+
+            # Legacy format support: "Bits: 7, 6(2.0x), 5, ..."
+            elif 'Bits:' in text:
                 bits_part = text.split('Bits:')[1].strip().split('\n')[0]
                 # Reset all bits to disabled
                 for i in range(8):
@@ -367,24 +449,14 @@ class BitPlanesEffect(BaseUIEffect):
                     self.bitplane_gain[i].set(1.0)
                     self.bitplane_gain_slider[i].set(0.0)
 
-                if bits_part.lower() != 'none':
-                    for bit_spec in bits_part.split(','):
-                        bit_spec = bit_spec.strip()
-                        if '(' in bit_spec:
-                            # Has gain: "7(2.0x)"
-                            bit_num = int(bit_spec.split('(')[0])
-                            gain_str = bit_spec.split('(')[1].rstrip('x)')
-                            gain = float(gain_str)
-                        else:
-                            bit_num = int(bit_spec)
-                            gain = 1.0
-
-                        # Convert bit number to index (7 -> 0, 0 -> 7)
-                        idx = 7 - bit_num
-                        if 0 <= idx < 8:
-                            self.bitplane_enable[idx].set(True)
-                            self.bitplane_gain[idx].set(gain)
-                            self.bitplane_gain_slider[idx].set(self._gain_to_slider(gain))
+                for bit_num, gain in parse_bits(bits_part):
+                    idx = 7 - bit_num
+                    if 0 <= idx < 8:
+                        self.bitplane_enable[idx].set(True)
+                        # Clamp slider value to valid range (-1 to 1)
+                        slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                        self.bitplane_gain_slider[idx].set(slider_val)
+                        self.bitplane_gain[idx].set(gain)
         except Exception as e:
             print(f"Error pasting text: {e}")
 
@@ -403,8 +475,12 @@ class BitPlanesEffect(BaseUIEffect):
                     self.bitplane_enable[i].set(data[f'bit_{bit_num}_enabled'])
                 if f'bit_{bit_num}_gain' in data:
                     gain = data[f'bit_{bit_num}_gain']
+                    # Clamp gain to valid range (0.1 to 10.0)
+                    gain = max(0.1, min(10.0, gain))
+                    # Clamp slider value to valid range (-1 to 1)
+                    slider_val = max(-1.0, min(1.0, self._gain_to_slider(gain)))
+                    self.bitplane_gain_slider[i].set(slider_val)
                     self.bitplane_gain[i].set(gain)
-                    self.bitplane_gain_slider[i].set(self._gain_to_slider(gain))
         except Exception as e:
             print(f"Error pasting JSON: {e}")
 
