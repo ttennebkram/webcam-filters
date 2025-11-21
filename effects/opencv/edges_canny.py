@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class CannyEffect(BaseUIEffect):
@@ -26,7 +28,7 @@ class CannyEffect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Canny Edge Detection"
+        return "Edges Canny"
 
     @classmethod
     def get_description(cls) -> str:
@@ -40,143 +42,224 @@ class CannyEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'slider', 'label': 'Threshold 1 (lower)', 'key': 'threshold1', 'min': 0, 'max': 500, 'default': 30},
+            {'type': 'slider', 'label': 'Threshold 2 (upper)', 'key': 'threshold2', 'min': 0, 'max': 500, 'default': 150},
+            {'type': 'dropdown', 'label': 'Aperture Size', 'key': 'aperture_size', 'options': [3, 5, 7], 'default': 3},
+            {'type': 'checkbox', 'label': 'L2 Gradient', 'key': 'l2_gradient', 'default': False},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        return {
+            'threshold1': self.threshold1.get(),
+            'threshold2': self.threshold2.get(),
+            'aperture_size': self.aperture_size.get(),
+            'l2_gradient': self.l2_gradient.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title in section header font
-            title_label = ttk.Label(
-                header_frame,
-                text="Canny Edge Detection",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature for reference
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.Canny(image, threshold1, threshold2, apertureSize, L2gradient)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox (vertically centered)
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        # Spacer to center the checkbox vertically
-        ttk.Frame(left_column).pack(expand=True)
-
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
 
-        # Spacer below
-        ttk.Frame(left_column).pack(expand=True)
-
-        # Right column - all parameter controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Threshold 1 (lower) control
-        thresh1_frame = ttk.Frame(right_column)
-        thresh1_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh1_frame, text="Threshold 1 (lower):").pack(side='left')
-
-        thresh1_slider = ttk.Scale(
-            thresh1_frame,
-            from_=0,
-            to=500,
-            orient='horizontal',
-            variable=self.threshold1,
-            command=self._on_thresh1_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        thresh1_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.thresh1_label = ttk.Label(thresh1_frame, text="30")
-        self.thresh1_label.pack(side='left', padx=5)
-
-        # Threshold 2 (upper) control
-        thresh2_frame = ttk.Frame(right_column)
-        thresh2_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh2_frame, text="Threshold 2 (upper):").pack(side='left')
-
-        thresh2_slider = ttk.Scale(
-            thresh2_frame,
-            from_=0,
-            to=500,
-            orient='horizontal',
-            variable=self.threshold2,
-            command=self._on_thresh2_change
-        )
-        thresh2_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.thresh2_label = ttk.Label(thresh2_frame, text="150")
-        self.thresh2_label.pack(side='left', padx=5)
-
-        # Aperture size dropdown
-        aperture_frame = ttk.Frame(right_column)
-        aperture_frame.pack(fill='x', pady=3)
-
-        ttk.Label(aperture_frame, text="Aperture Size:").pack(side='left')
-
-        aperture_values = [3, 5, 7]
-        self.aperture_combo = ttk.Combobox(
-            aperture_frame,
-            values=aperture_values,
-            state='readonly',
-            width=5
-        )
-        self.aperture_combo.current(0)  # Default to 3
-        self.aperture_combo.pack(side='left', padx=5)
-        self.aperture_combo.bind('<<ComboboxSelected>>', self._on_aperture_change)
-
-        ttk.Label(aperture_frame, text="(3, 5, or 7)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # L2 gradient checkbox
-        l2_frame = ttk.Frame(right_column)
-        l2_frame.pack(fill='x', pady=3)
-
-        l2_cb = ttk.Checkbutton(
-            l2_frame,
-            text="L2 Gradient",
-            variable=self.l2_gradient
-        )
-        l2_cb.pack(side='left')
-
-        ttk.Label(l2_frame, text="(more accurate, slower)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_thresh1_change(self, value):
-        """Handle threshold 1 slider change"""
-        thresh = int(float(value))
-        self.thresh1_label.config(text=str(thresh))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'threshold1':
+                var.trace_add('write', lambda *args: self.threshold1.set(int(self._subform._vars['threshold1'].get())))
+            elif key == 'threshold2':
+                var.trace_add('write', lambda *args: self.threshold2.set(int(self._subform._vars['threshold2'].get())))
+            elif key == 'aperture_size':
+                var.trace_add('write', lambda *args: self.aperture_size.set(int(self._subform._vars['aperture_size'].get())))
+            elif key == 'l2_gradient':
+                var.trace_add('write', lambda *args: self.l2_gradient.set(self._subform._vars['l2_gradient'].get()))
 
-    def _on_thresh2_change(self, value):
-        """Handle threshold 2 slider change"""
-        thresh = int(float(value))
-        self.thresh2_label.config(text=str(thresh))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_aperture_change(self, event):
-        """Handle aperture size change"""
-        self.aperture_size.set(int(self.aperture_combo.get()))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Threshold 1: {self.threshold1.get()}")
+        lines.append(f"Threshold 2: {self.threshold2.get()}")
+        lines.append(f"Aperture Size: {self.aperture_size.get()}")
+        lines.append(f"L2 Gradient: {'Yes' if self.l2_gradient.get() else 'No'}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'threshold1': self.threshold1.get(),
+            'threshold2': self.threshold2.get(),
+            'aperture_size': self.aperture_size.get(),
+            'l2_gradient': self.l2_gradient.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'threshold 1' in key:
+                        self.threshold1.set(max(0, min(500, int(value))))
+                    elif 'threshold 2' in key:
+                        self.threshold2.set(max(0, min(500, int(value))))
+                    elif 'aperture' in key:
+                        val = int(value)
+                        # Clamp to valid aperture sizes
+                        if val <= 3:
+                            val = 3
+                        elif val <= 5:
+                            val = 5
+                        else:
+                            val = 7
+                        self.aperture_size.set(val)
+                    elif 'l2' in key or 'gradient' in key:
+                        self.l2_gradient.set(value.lower() in ('yes', 'true', '1'))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'threshold1' in self._subform._vars:
+                    self._subform._vars['threshold1'].set(self.threshold1.get())
+                if 'threshold2' in self._subform._vars:
+                    self._subform._vars['threshold2'].set(self.threshold2.get())
+                if 'aperture_size' in self._subform._vars:
+                    self._subform._vars['aperture_size'].set(str(self.aperture_size.get()))
+                if 'l2_gradient' in self._subform._vars:
+                    self._subform._vars['l2_gradient'].set(self.l2_gradient.get())
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'threshold1' in data:
+                self.threshold1.set(max(0, min(500, int(data['threshold1']))))
+            if 'threshold2' in data:
+                self.threshold2.set(max(0, min(500, int(data['threshold2']))))
+            if 'aperture_size' in data:
+                val = int(data['aperture_size'])
+                # Clamp to valid aperture sizes
+                if val <= 3:
+                    val = 3
+                elif val <= 5:
+                    val = 5
+                else:
+                    val = 7
+                self.aperture_size.set(val)
+            if 'l2_gradient' in data:
+                self.l2_gradient.set(bool(data['l2_gradient']))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'threshold1' in self._subform._vars:
+                    self._subform._vars['threshold1'].set(self.threshold1.get())
+                if 'threshold2' in self._subform._vars:
+                    self._subform._vars['threshold2'].set(self.threshold2.get())
+                if 'aperture_size' in self._subform._vars:
+                    self._subform._vars['aperture_size'].set(str(self.aperture_size.get()))
+                if 'l2_gradient' in self._subform._vars:
+                    self._subform._vars['l2_gradient'].set(self.l2_gradient.get())
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""

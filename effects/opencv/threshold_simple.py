@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
+import json
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
 
 
 class ThresholdSimpleEffect(BaseUIEffect):
@@ -56,168 +58,254 @@ class ThresholdSimpleEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        type_names = [name for _, name in self.THRESHOLD_TYPES]
+        modifier_names = [name for _, name in self.THRESHOLD_MODIFIERS]
+        return [
+            {'type': 'slider', 'label': 'Threshold', 'key': 'thresh_value', 'min': 0, 'max': 255, 'default': 200},
+            {'type': 'slider', 'label': 'Max Value', 'key': 'max_value', 'min': 0, 'max': 255, 'default': 255},
+            {'type': 'dropdown', 'label': 'Type', 'key': 'thresh_type', 'options': type_names, 'default': 'THRESH_BINARY'},
+            {'type': 'dropdown', 'label': 'Modifier', 'key': 'thresh_modifier', 'options': modifier_names, 'default': 'None'},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        type_idx = self.thresh_type_index.get()
+        type_name = self.THRESHOLD_TYPES[type_idx][1] if type_idx < len(self.THRESHOLD_TYPES) else "THRESH_BINARY"
+        modifier_idx = self.thresh_modifier_index.get()
+        modifier_name = self.THRESHOLD_MODIFIERS[modifier_idx][1] if modifier_idx < len(self.THRESHOLD_MODIFIERS) else "None"
+        return {
+            'thresh_value': self.thresh_value.get(),
+            'max_value': self.max_value.get(),
+            'thresh_type': type_name,
+            'thresh_modifier': modifier_name
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title in section header font
-            title_label = ttk.Label(
-                header_frame,
-                text="Simple Threshold",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature for reference
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.threshold(src, thresh, maxval, type)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox (vertically centered)
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        # Spacer to center the checkbox vertically
-        ttk.Frame(left_column).pack(expand=True)
-
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
 
-        # Spacer below
-        ttk.Frame(left_column).pack(expand=True)
-
-        # Right column - all parameter controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Threshold value control
-        thresh_frame = ttk.Frame(right_column)
-        thresh_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh_frame, text="Threshold:").pack(side='left')
-
-        thresh_slider = ttk.Scale(
-            thresh_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.thresh_value,
-            command=self._on_thresh_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        thresh_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.thresh_label = ttk.Label(thresh_frame, text="200")
-        self.thresh_label.pack(side='left', padx=5)
-
-        # Note about modifier ignoring threshold
-        ttk.Label(thresh_frame, text="(ignored w/ modifier)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # Max value control
-        max_frame = ttk.Frame(right_column)
-        max_frame.pack(fill='x', pady=3)
-
-        ttk.Label(max_frame, text="Max Value:").pack(side='left')
-
-        max_slider = ttk.Scale(
-            max_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.max_value,
-            command=self._on_max_change
-        )
-        max_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.max_label = ttk.Label(max_frame, text="255")
-        self.max_label.pack(side='left', padx=5)
-
-        # Threshold type dropdown
-        type_frame = ttk.Frame(right_column)
-        type_frame.pack(fill='x', pady=3)
-
-        ttk.Label(type_frame, text="Type:").pack(side='left')
-
-        # Create dropdown with type names
-        type_names = [name for _, name in self.THRESHOLD_TYPES]
-        self.type_combo = ttk.Combobox(
-            type_frame,
-            values=type_names,
-            state='readonly',
-            width=20
-        )
-        self.type_combo.current(0)  # Default to THRESH_BINARY
-        self.type_combo.pack(side='left', padx=5)
-        self.type_combo.bind('<<ComboboxSelected>>', self._on_type_change)
-
-        # Bitwise OR label (italic)
-        ttk.Label(type_frame, text="(bitwise OR)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # Modifier dropdown (OTSU, TRIANGLE)
-        modifier_frame = ttk.Frame(right_column)
-        modifier_frame.pack(fill='x', pady=3)
-
-        ttk.Label(modifier_frame, text="Modifier:").pack(side='left')
-
-        # Create dropdown with modifier names
-        modifier_names = [name for _, name in self.THRESHOLD_MODIFIERS]
-        self.modifier_combo = ttk.Combobox(
-            modifier_frame,
-            values=modifier_names,
-            state='readonly',
-            width=20
-        )
-        self.modifier_combo.current(0)  # Default to None
-        self.modifier_combo.pack(side='left', padx=5)
-        self.modifier_combo.bind('<<ComboboxSelected>>', self._on_modifier_change)
-
-        # Forces grayscale label (italic)
-        ttk.Label(modifier_frame, text="(forces grayscale)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # Calculated T value display
-        t_frame = ttk.Frame(right_column)
-        t_frame.pack(fill='x', pady=3)
-
-        ttk.Label(t_frame, text="Calculated T:").pack(side='left')
-        self.t_value_label = ttk.Label(t_frame, text="—")
-        self.t_value_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_thresh_change(self, value):
-        """Handle threshold value slider change"""
-        thresh = int(float(value))
-        self.thresh_label.config(text=str(thresh))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        if 'thresh_value' in self._subform._vars:
+            self._subform._vars['thresh_value'].trace_add('write',
+                lambda *args: self.thresh_value.set(int(self._subform._vars['thresh_value'].get())))
+        if 'max_value' in self._subform._vars:
+            self._subform._vars['max_value'].trace_add('write',
+                lambda *args: self.max_value.set(int(self._subform._vars['max_value'].get())))
+        if 'thresh_type' in self._subform._vars:
+            def on_type_change(*args):
+                type_name = self._subform._vars['thresh_type'].get()
+                for i, (_, name) in enumerate(self.THRESHOLD_TYPES):
+                    if name == type_name:
+                        self.thresh_type_index.set(i)
+                        break
+            self._subform._vars['thresh_type'].trace_add('write', on_type_change)
+        if 'thresh_modifier' in self._subform._vars:
+            def on_modifier_change(*args):
+                modifier_name = self._subform._vars['thresh_modifier'].get()
+                for i, (_, name) in enumerate(self.THRESHOLD_MODIFIERS):
+                    if name == modifier_name:
+                        self.thresh_modifier_index.set(i)
+                        break
+            self._subform._vars['thresh_modifier'].trace_add('write', on_modifier_change)
 
-    def _on_max_change(self, value):
-        """Handle max value slider change"""
-        maxval = int(float(value))
-        self.max_label.config(text=str(maxval))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_type_change(self, event):
-        """Handle threshold type change"""
-        self.thresh_type_index.set(self.type_combo.current())
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_modifier_change(self, event):
-        """Handle threshold modifier change"""
-        self.thresh_modifier_index.set(self.modifier_combo.current())
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Threshold: {self.thresh_value.get()}")
+        lines.append(f"Max Value: {self.max_value.get()}")
+        type_idx = self.thresh_type_index.get()
+        type_name = self.THRESHOLD_TYPES[type_idx][1] if type_idx < len(self.THRESHOLD_TYPES) else "Unknown"
+        lines.append(f"Type: {type_name}")
+        modifier_idx = self.thresh_modifier_index.get()
+        modifier_name = self.THRESHOLD_MODIFIERS[modifier_idx][1] if modifier_idx < len(self.THRESHOLD_MODIFIERS) else "Unknown"
+        lines.append(f"Modifier: {modifier_name}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        type_idx = self.thresh_type_index.get()
+        type_name = self.THRESHOLD_TYPES[type_idx][1] if type_idx < len(self.THRESHOLD_TYPES) else "THRESH_BINARY"
+        modifier_idx = self.thresh_modifier_index.get()
+        modifier_name = self.THRESHOLD_MODIFIERS[modifier_idx][1] if modifier_idx < len(self.THRESHOLD_MODIFIERS) else "None"
+        data = {
+            'effect': self.get_name(),
+            'thresh_value': self.thresh_value.get(),
+            'max_value': self.max_value.get(),
+            'thresh_type': type_name,
+            'thresh_type_index': type_idx,
+            'thresh_modifier': modifier_name,
+            'thresh_modifier_index': modifier_idx
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if key == 'threshold':
+                        self.thresh_value.set(max(0, min(255, int(value))))
+                    elif 'max' in key:
+                        self.max_value.set(max(0, min(255, int(value))))
+                    elif key == 'type':
+                        for i, (_, name) in enumerate(self.THRESHOLD_TYPES):
+                            if name == value:
+                                self.thresh_type_index.set(i)
+                                break
+                    elif 'modifier' in key:
+                        for i, (_, name) in enumerate(self.THRESHOLD_MODIFIERS):
+                            if name == value:
+                                self.thresh_modifier_index.set(i)
+                                break
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'thresh_value' in data:
+                self.thresh_value.set(max(0, min(255, int(data['thresh_value']))))
+            if 'max_value' in data:
+                self.max_value.set(max(0, min(255, int(data['max_value']))))
+            if 'thresh_type_index' in data:
+                idx = max(0, min(len(self.THRESHOLD_TYPES) - 1, int(data['thresh_type_index'])))
+                self.thresh_type_index.set(idx)
+            elif 'thresh_type' in data:
+                for i, (_, name) in enumerate(self.THRESHOLD_TYPES):
+                    if name == data['thresh_type']:
+                        self.thresh_type_index.set(i)
+                        break
+            if 'thresh_modifier_index' in data:
+                idx = max(0, min(len(self.THRESHOLD_MODIFIERS) - 1, int(data['thresh_modifier_index'])))
+                self.thresh_modifier_index.set(idx)
+            elif 'thresh_modifier' in data:
+                for i, (_, name) in enumerate(self.THRESHOLD_MODIFIERS):
+                    if name == data['thresh_modifier']:
+                        self.thresh_modifier_index.set(i)
+                        break
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_effect(self):
+        """Sync subform variables from effect variables"""
+        if self._current_mode == 'edit' and hasattr(self, '_subform'):
+            if 'thresh_value' in self._subform._vars:
+                self._subform._vars['thresh_value'].set(self.thresh_value.get())
+            if 'max_value' in self._subform._vars:
+                self._subform._vars['max_value'].set(self.max_value.get())
+            if 'thresh_type' in self._subform._vars:
+                type_idx = self.thresh_type_index.get()
+                type_name = self.THRESHOLD_TYPES[type_idx][1]
+                self._subform._vars['thresh_type'].set(type_name)
+            if 'thresh_modifier' in self._subform._vars:
+                modifier_idx = self.thresh_modifier_index.get()
+                modifier_name = self.THRESHOLD_MODIFIERS[modifier_idx][1]
+                self._subform._vars['thresh_modifier'].set(modifier_name)
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""
@@ -258,19 +346,11 @@ class ThresholdSimpleEffect(BaseUIEffect):
             # Apply threshold
             t_value, thresholded = cv2.threshold(gray, thresh, maxval, combined_type)
 
-            # Update T value display
-            if hasattr(self, 't_value_label'):
-                self.t_value_label.config(text=f"{t_value:.1f}")
-
             # Convert back to BGR (3 identical channels)
             result = cv2.cvtColor(thresholded, cv2.COLOR_GRAY2BGR)
             return result
         else:
             # Apply threshold (works on grayscale or each BGR channel separately)
             t_value, thresholded = cv2.threshold(frame, thresh, maxval, combined_type)
-
-            # Update T value display (shows input thresh when no modifier)
-            if hasattr(self, 't_value_label'):
-                self.t_value_label.config(text=f"{t_value:.1f}")
 
             return thresholded
