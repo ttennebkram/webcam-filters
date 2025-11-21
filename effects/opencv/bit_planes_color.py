@@ -420,8 +420,9 @@ class ColorBitPlanesEffect(BaseUIEffect):
         }
         for color in ['red', 'green', 'blue']:
             for i in range(8):
-                data[f'{color}_enable_{i}'] = self.color_bitplane_enable[color][i].get()
-                data[f'{color}_gain_{i}'] = self.color_bitplane_gain[color][i].get()
+                bit_num = 7 - i  # Convert index to bit number
+                data[f'{color}_bit_{bit_num}_enabled'] = self.color_bitplane_enable[color][i].get()
+                data[f'{color}_bit_{bit_num}_gain'] = self.color_bitplane_gain[color][i].get()
 
         text = json.dumps(data, indent=2)
         if self.root_window:
@@ -483,10 +484,11 @@ class ColorBitPlanesEffect(BaseUIEffect):
 
             for color in ['red', 'green', 'blue']:
                 for i in range(8):
-                    if f'{color}_enable_{i}' in data:
-                        self.color_bitplane_enable[color][i].set(data[f'{color}_enable_{i}'])
-                    if f'{color}_gain_{i}' in data:
-                        gain = data[f'{color}_gain_{i}']
+                    bit_num = 7 - i  # Convert index to bit number
+                    if f'{color}_bit_{bit_num}_enabled' in data:
+                        self.color_bitplane_enable[color][i].set(data[f'{color}_bit_{bit_num}_enabled'])
+                    if f'{color}_bit_{bit_num}_gain' in data:
+                        gain = data[f'{color}_bit_{bit_num}_gain']
                         self.color_bitplane_gain[color][i].set(gain)
                         self.color_bitplane_gain_slider[color][i].set(self._gain_to_slider(gain))
         except Exception as e:

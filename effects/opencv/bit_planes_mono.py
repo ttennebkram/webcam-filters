@@ -323,8 +323,9 @@ class BitPlanesEffect(BaseUIEffect):
             'effect': self.get_name(),
         }
         for i in range(8):
-            data[f'enable_{i}'] = self.bitplane_enable[i].get()
-            data[f'gain_{i}'] = self.bitplane_gain[i].get()
+            bit_num = 7 - i  # Convert index to bit number
+            data[f'bit_{bit_num}_enabled'] = self.bitplane_enable[i].get()
+            data[f'bit_{bit_num}_gain'] = self.bitplane_gain[i].get()
 
         text = json.dumps(data, indent=2)
         if self.root_window:
@@ -378,10 +379,11 @@ class BitPlanesEffect(BaseUIEffect):
             data = json.loads(text)
 
             for i in range(8):
-                if f'enable_{i}' in data:
-                    self.bitplane_enable[i].set(data[f'enable_{i}'])
-                if f'gain_{i}' in data:
-                    gain = data[f'gain_{i}']
+                bit_num = 7 - i  # Convert index to bit number
+                if f'bit_{bit_num}_enabled' in data:
+                    self.bitplane_enable[i].set(data[f'bit_{bit_num}_enabled'])
+                if f'bit_{bit_num}_gain' in data:
+                    gain = data[f'bit_{bit_num}_gain']
                     self.bitplane_gain[i].set(gain)
                     self.bitplane_gain_slider[i].set(self._gain_to_slider(gain))
         except Exception as e:
