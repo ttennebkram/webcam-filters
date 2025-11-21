@@ -327,7 +327,17 @@ class PipelineBuilderEffect(BaseUIEffect):
         # Store index as attribute
         effect_frame.effect_index = index
 
-        # Method signature on its own line, inside frame but at top
+        # Description on its own line, inside frame at top
+        if hasattr(effect, 'get_description'):
+            desc = effect.get_description()
+            if desc:
+                ttk.Label(
+                    effect_frame,
+                    text=desc,
+                    font=('TkDefaultFont', 10)
+                ).pack(anchor='w', padx=10, pady=(5, 0))
+
+        # Method signature on its own line, below description
         if hasattr(effect, 'get_method_signature'):
             sig = effect.get_method_signature()
             if sig:
@@ -335,7 +345,7 @@ class PipelineBuilderEffect(BaseUIEffect):
                     effect_frame,
                     text=sig,
                     font=('TkFixedFont', 10)
-                ).pack(anchor='w', padx=10, pady=(5, 0))
+                ).pack(anchor='w', padx=10, pady=(2, 0))
 
         # Effect's own control panel
         if hasattr(effect, 'create_control_panel'):
