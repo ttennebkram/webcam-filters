@@ -125,6 +125,12 @@ class GrayscaleEffect(BaseUIEffect):
         """Handle conversion type change"""
         self.conversion_index.set(self.conv_combo.current())
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        conv_idx = self.conversion_index.get()
+        conv_name = self.COLOR_CONVERSIONS[conv_idx][1] if conv_idx < len(self.COLOR_CONVERSIONS) else "Unknown"
+        return f"Conversion: {conv_name}"
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply color conversion to the frame"""
         # If not enabled, return original frame

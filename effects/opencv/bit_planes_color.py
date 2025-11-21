@@ -86,6 +86,28 @@ class ColorBitPlanesEffect(BaseUIEffect):
 
         return '\n'.join(lines)
 
+    def get_pipeline_params(self) -> dict:
+        """Return custom parameters for pipeline saving"""
+        params = {}
+        for color in ['red', 'green', 'blue']:
+            for i in range(8):
+                params[f'{color}_enable_{i}'] = self.color_bitplane_enable[color][i].get()
+                params[f'{color}_gain_{i}'] = self.color_bitplane_gain[color][i].get()
+        return params
+
+    def set_pipeline_params(self, params: dict):
+        """Restore custom parameters from pipeline loading"""
+        for color in ['red', 'green', 'blue']:
+            for i in range(8):
+                enable_key = f'{color}_enable_{i}'
+                gain_key = f'{color}_gain_{i}'
+                if enable_key in params:
+                    self.color_bitplane_enable[color][i].set(params[enable_key])
+                if gain_key in params:
+                    gain = params[gain_key]
+                    self.color_bitplane_gain[color][i].set(gain)
+                    self.color_bitplane_gain_slider[color][i].set(self._gain_to_slider(gain))
+
     def _slider_to_gain(self, slider_val):
         """Convert slider value (-1 to 1) to gain (0.1x to 10x)"""
         return 10 ** slider_val
@@ -147,7 +169,7 @@ class ColorBitPlanesEffect(BaseUIEffect):
 
         # Create custom tab bar
         tab_bar = ttk.Frame(right_column)
-        tab_bar.pack(fill='x', pady=(0, 5))
+        tab_bar.pack(fill='x')
 
         tab_buttons_frame = tk.Frame(tab_bar, bg='gray85')
         tab_buttons_frame.pack(side='left', fill='x')

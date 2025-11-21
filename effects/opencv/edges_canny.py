@@ -178,6 +178,15 @@ class CannyEffect(BaseUIEffect):
         """Handle aperture size change"""
         self.aperture_size.set(int(self.aperture_combo.get()))
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Threshold 1: {self.threshold1.get()}")
+        lines.append(f"Threshold 2: {self.threshold2.get()}")
+        lines.append(f"Aperture Size: {self.aperture_size.get()}")
+        lines.append(f"L2 Gradient: {'Yes' if self.l2_gradient.get() else 'No'}")
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply Canny edge detection to the frame"""
         # If not enabled, return original frame

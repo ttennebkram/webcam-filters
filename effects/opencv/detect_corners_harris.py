@@ -280,6 +280,17 @@ class HarrisCornersEffect(BaseUIEffect):
     def _on_marker_change(self, value):
         self.marker_label.config(text=str(int(float(value))))
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Input: {'Original Image' if self.show_original.get() else 'Black'}")
+        lines.append(f"Output: {'Draw Features' if self.draw_features.get() else 'Raw Values Only'}")
+        lines.append(f"Block Size: {self.block_size.get()}")
+        lines.append(f"Sobel Aperture: {self.ksize.get()}")
+        lines.append(f"Harris k: {self.k.get():.2f}")
+        lines.append(f"Threshold: {self.threshold.get():.3f}")
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Detect and mark corners on the frame"""
         if not self.enabled.get():

@@ -645,9 +645,18 @@ Examples:
 
         # Mouse wheel scrolling
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            # macOS uses different delta scaling than Windows
+            import platform
+            if platform.system() == 'Darwin':
+                canvas.yview_scroll(int(-1 * event.delta), "units")
+            else:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
+        # Bind mouse wheel events - macOS needs both MouseWheel and trackpad gestures
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # macOS trackpad scrolling
+        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")

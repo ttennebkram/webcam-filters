@@ -14,6 +14,34 @@ from typing import Dict, List, Type
 from core.base_effect import BaseEffect, BaseUIEffect
 
 
+def _restore_tk_variables(obj, data):
+    """Recursively restore tk.Variable values from serialized data.
+
+    Handles:
+    - Direct tk.Variable attributes
+    - Dicts containing tk.Variables or nested dicts/lists
+    - Lists containing tk.Variables or nested dicts/lists
+    """
+    import tkinter as tk
+
+    if data is None:
+        return
+
+    if isinstance(obj, tk.Variable):
+        try:
+            obj.set(data)
+        except:
+            pass
+    elif isinstance(obj, dict) and isinstance(data, dict):
+        for key, value in data.items():
+            if key in obj:
+                _restore_tk_variables(obj[key], value)
+    elif isinstance(obj, list) and isinstance(data, list):
+        for i, value in enumerate(data):
+            if i < len(obj):
+                _restore_tk_variables(obj[i], value)
+
+
 def discover_effects() -> Dict[str, Type[BaseEffect]]:
     """Discover all effect plugins in the effects directory
 
@@ -138,7 +166,8 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                     # Create instance
                     effect = effect_class(self.width, self.height, self.root)
 
-                    # Apply saved parameters
+                    # Apply saved parameters - recursively restore tk.Variables
+                    # including those in nested dicts and lists
                     for param_name, value in effect_config.get('params', {}).items():
                         if hasattr(effect, param_name):
                             attr = getattr(effect, param_name)
@@ -147,6 +176,8 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                                     attr.set(value)
                                 except:
                                     pass
+                            elif isinstance(attr, (dict, list)):
+                                _restore_tk_variables(attr, value)
 
                     self.effects.append(effect)
 

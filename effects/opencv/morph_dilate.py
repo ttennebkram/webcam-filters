@@ -173,6 +173,19 @@ class DilateEffect(BaseUIEffect):
         """Handle iterations slider change"""
         self.iter_label.config(text=str(int(float(value))))
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        ksize = self.kernel_size.get()
+        if ksize % 2 == 0:
+            ksize += 1
+        lines.append(f"Kernel Size: {ksize}")
+        shape_idx = self.kernel_shape.get()
+        shape_name = self.KERNEL_SHAPES[shape_idx][1] if shape_idx < len(self.KERNEL_SHAPES) else "Unknown"
+        lines.append(f"Kernel Shape: {shape_name}")
+        lines.append(f"Iterations: {self.iterations.get()}")
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply dilation to the frame"""
         if not self.enabled.get():

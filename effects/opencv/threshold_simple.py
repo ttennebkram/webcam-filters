@@ -219,6 +219,19 @@ class ThresholdSimpleEffect(BaseUIEffect):
         """Handle threshold modifier change"""
         self.thresh_modifier_index.set(self.modifier_combo.current())
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Threshold: {self.thresh_value.get()}")
+        lines.append(f"Max Value: {self.max_value.get()}")
+        type_idx = self.thresh_type_index.get()
+        type_name = self.THRESHOLD_TYPES[type_idx][1] if type_idx < len(self.THRESHOLD_TYPES) else "Unknown"
+        lines.append(f"Type: {type_name}")
+        modifier_idx = self.thresh_modifier_index.get()
+        modifier_name = self.THRESHOLD_MODIFIERS[modifier_idx][1] if modifier_idx < len(self.THRESHOLD_MODIFIERS) else "Unknown"
+        lines.append(f"Modifier: {modifier_name}")
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply thresholding to the frame"""
         # If not enabled, return original frame

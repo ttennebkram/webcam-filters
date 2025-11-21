@@ -368,6 +368,38 @@ class GradientSobelEffect(BaseUIEffect):
         """Handle return mode change"""
         self.return_mode_index.set(self.return_combo.current())
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+
+        # Depth
+        depth_idx = self.depth_index.get()
+        depth_name = self.DEPTH_OPTIONS[depth_idx][1] if depth_idx < len(self.DEPTH_OPTIONS) else "Unknown"
+        lines.append(f"Depth: {depth_name}")
+
+        # dx/dy
+        lines.append(f"dx: {self.dx.get()}, dy: {self.dy.get()}")
+
+        # Kernel size
+        lines.append(f"Kernel Size: {self.ksize.get()}")
+
+        # Scale and delta
+        lines.append(f"Scale: {self.scale.get():.1f}, Delta: {self.delta.get():.1f}")
+
+        # Return mode
+        return_modes = ["gX", "gY", "Combined", "Magnitude", "Orientation", "Mask"]
+        return_idx = self.return_mode_index.get()
+        return_name = return_modes[return_idx] if return_idx < len(return_modes) else "Unknown"
+        lines.append(f"Return: {return_name}")
+
+        # Mode-specific params
+        if return_idx == 2:  # Combined
+            lines.append(f"Weights: X={self.weight_x.get():.2f}, Y={self.weight_y.get():.2f}")
+        elif return_idx == 5:  # Mask
+            lines.append(f"Angle Range: {self.min_angle.get():.0f}° - {self.max_angle.get():.0f}°")
+
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply Sobel gradient to the frame"""
         # If not enabled, return original frame

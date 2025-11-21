@@ -13,6 +13,76 @@ import os
 from core.base_effect import BaseUIEffect
 
 
+def _extract_tk_variables(obj, visited=None):
+    """Recursively extract tk.Variable values from an object.
+
+    Handles:
+    - Direct tk.Variable attributes
+    - Dicts containing tk.Variables or nested dicts/lists
+    - Lists containing tk.Variables or nested dicts/lists
+
+    Returns a serializable structure with the same shape.
+    """
+    if visited is None:
+        visited = set()
+
+    # Avoid infinite recursion
+    obj_id = id(obj)
+    if obj_id in visited:
+        return None
+    visited.add(obj_id)
+
+    if isinstance(obj, tk.Variable):
+        try:
+            return obj.get()
+        except:
+            return None
+    elif isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            extracted = _extract_tk_variables(value, visited)
+            if extracted is not None:
+                result[key] = extracted
+        return result if result else None
+    elif isinstance(obj, list):
+        result = []
+        has_values = False
+        for item in obj:
+            extracted = _extract_tk_variables(item, visited)
+            result.append(extracted)
+            if extracted is not None:
+                has_values = True
+        return result if has_values else None
+    else:
+        return None
+
+
+def _restore_tk_variables(obj, data):
+    """Recursively restore tk.Variable values from serialized data.
+
+    Handles:
+    - Direct tk.Variable attributes
+    - Dicts containing tk.Variables or nested dicts/lists
+    - Lists containing tk.Variables or nested dicts/lists
+    """
+    if data is None:
+        return
+
+    if isinstance(obj, tk.Variable):
+        try:
+            obj.set(data)
+        except:
+            pass
+    elif isinstance(obj, dict) and isinstance(data, dict):
+        for key, value in data.items():
+            if key in obj:
+                _restore_tk_variables(obj[key], value)
+    elif isinstance(obj, list) and isinstance(data, list):
+        for i, value in enumerate(data):
+            if i < len(obj):
+                _restore_tk_variables(obj[i], value)
+
+
 def get_opencv_effects():
     """Get list of available OpenCV effects (excluding pipeline classes)"""
     import importlib
@@ -402,16 +472,28 @@ class PipelineBuilderEffect(BaseUIEffect):
                     effect_config['module'] = info['module']
                     break
 
-            # Save parameter values
+            # Save parameter values - recursively extract all tk.Variables
+            # including those in nested dicts and lists
             for attr_name in dir(effect):
                 if attr_name.startswith('_'):
                     continue
-                attr = getattr(effect, attr_name)
+                # Skip methods and non-data attributes
+                try:
+                    attr = getattr(effect, attr_name)
+                except:
+                    continue
+
+                # Handle direct tk.Variable
                 if isinstance(attr, tk.Variable):
                     try:
                         effect_config['params'][attr_name] = attr.get()
                     except:
                         pass
+                # Handle dicts and lists that may contain tk.Variables
+                elif isinstance(attr, (dict, list)):
+                    extracted = _extract_tk_variables(attr)
+                    if extracted is not None:
+                        effect_config['params'][attr_name] = extracted
 
             config['effects'].append(effect_config)
 
@@ -494,7 +576,8 @@ class PipelineBuilderEffect(BaseUIEffect):
                     # Add the effect
                     self._add_effect(info, len(self.effects))
 
-                    # Restore parameters
+                    # Restore parameters - recursively restore tk.Variables
+                    # including those in nested dicts and lists
                     effect = self.effects[-1]
                     for param_name, value in effect_config['params'].items():
                         if hasattr(effect, param_name):
@@ -504,6 +587,8 @@ class PipelineBuilderEffect(BaseUIEffect):
                                     attr.set(value)
                                 except:
                                     pass
+                            elif isinstance(attr, (dict, list)):
+                                _restore_tk_variables(attr, value)
                     break
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:

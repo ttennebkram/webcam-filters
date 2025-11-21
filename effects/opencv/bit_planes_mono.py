@@ -63,6 +63,26 @@ class BitPlanesEffect(BaseUIEffect):
         else:
             return "Bits: none"
 
+    def get_pipeline_params(self) -> dict:
+        """Return custom parameters for pipeline saving"""
+        params = {}
+        for i in range(8):
+            params[f'enable_{i}'] = self.bitplane_enable[i].get()
+            params[f'gain_{i}'] = self.bitplane_gain[i].get()
+        return params
+
+    def set_pipeline_params(self, params: dict):
+        """Restore custom parameters from pipeline loading"""
+        for i in range(8):
+            enable_key = f'enable_{i}'
+            gain_key = f'gain_{i}'
+            if enable_key in params:
+                self.bitplane_enable[i].set(params[enable_key])
+            if gain_key in params:
+                gain = params[gain_key]
+                self.bitplane_gain[i].set(gain)
+                self.bitplane_gain_slider[i].set(self._gain_to_slider(gain))
+
     def _slider_to_gain(self, slider_val):
         """Convert slider value (-1 to 1) to gain (0.1x to 10x)"""
         return 10 ** slider_val

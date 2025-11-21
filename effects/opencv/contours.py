@@ -387,6 +387,38 @@ class ContoursEffect(BaseUIEffect):
         """Handle sort method change"""
         self.sort_method.set(self.sort_combo.current())
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+
+        # Background
+        lines.append(f"Background: {'Original Image' if self.show_original.get() else 'Black'}")
+
+        # Threshold
+        lines.append(f"Threshold: {self.threshold_value.get()}")
+
+        # Retrieval mode
+        retrieval_idx = self.retrieval_mode.get()
+        retrieval_name = self.RETRIEVAL_MODES[retrieval_idx][1] if retrieval_idx < len(self.RETRIEVAL_MODES) else "Unknown"
+        lines.append(f"Retrieval: {retrieval_name}")
+
+        # Approximation method
+        approx_idx = self.approx_method.get()
+        approx_name = self.APPROX_METHODS[approx_idx][1] if approx_idx < len(self.APPROX_METHODS) else "Unknown"
+        lines.append(f"Approximation: {approx_name}")
+
+        # Sort method
+        sort_idx = self.sort_method.get()
+        sort_name = self.SORT_METHODS[sort_idx][0] if sort_idx < len(self.SORT_METHODS) else "Unknown"
+        lines.append(f"Sort By: {sort_name}")
+
+        # Draw mode
+        draw_idx = self.draw_mode.get()
+        draw_name = self.DRAW_MODES[draw_idx][0] if draw_idx < len(self.DRAW_MODES) else "Unknown"
+        lines.append(f"Draw Mode: {draw_name}")
+
+        return '\n'.join(lines)
+
     def _get_contour_centroid(self, contour):
         """Get centroid of a contour"""
         M = cv2.moments(contour)

@@ -227,6 +227,23 @@ class ThresholdAdaptiveEffect(BaseUIEffect):
         c = int(float(value))
         self.c_label.config(text=str(c))
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Max Value: {self.max_value.get()}")
+        method_idx = self.adaptive_method_index.get()
+        method_name = self.ADAPTIVE_METHODS[method_idx][1] if method_idx < len(self.ADAPTIVE_METHODS) else "Unknown"
+        lines.append(f"Adaptive Method: {method_name}")
+        type_idx = self.thresh_type_index.get()
+        type_name = self.THRESHOLD_TYPES[type_idx][1] if type_idx < len(self.THRESHOLD_TYPES) else "Unknown"
+        lines.append(f"Threshold Type: {type_name}")
+        block = self.block_size.get()
+        if block % 2 == 0:
+            block += 1
+        lines.append(f"Block Size: {block}")
+        lines.append(f"C: {self.c_value.get()}")
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply adaptive thresholding to the frame"""
         # If not enabled, return original frame

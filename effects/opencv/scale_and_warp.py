@@ -285,6 +285,38 @@ class ScaleAndWarpEffect(BaseUIEffect):
         """Handle border mode change"""
         self.border_mode.set(self.border_combo.current())
 
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+
+        # Translation
+        tx = self.translate_x.get()
+        ty = self.translate_y.get()
+        lines.append(f"Translation: ({tx}, {ty})")
+
+        # Rotation
+        rotation = self.rotation.get()
+        lines.append(f"Rotation: {rotation:.1f}°")
+
+        # Scale
+        scale = self.scale.get()
+        lines.append(f"Scale: {scale:.2f}x")
+
+        # Center
+        if self.use_image_center.get():
+            lines.append("Center: Image Center")
+        else:
+            cx = self.center_x.get()
+            cy = self.center_y.get()
+            lines.append(f"Center: ({cx}, {cy})")
+
+        # Border mode - translate index to display name
+        border_idx = self.border_mode.get()
+        border_name = self.BORDER_MODES[border_idx][1] if border_idx < len(self.BORDER_MODES) else "Unknown"
+        lines.append(f"Border Mode: {border_name}")
+
+        return '\n'.join(lines)
+
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply geometric transformation to the frame"""
         if not self.enabled.get():
