@@ -138,6 +138,10 @@ class CloseEffect(BaseUIEffect):
         """Toggle between edit and view modes"""
         self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
+        # Notify pipeline when switching to edit mode
+        if self._current_mode == 'edit' and hasattr(self, '_on_edit') and self._on_edit:
+            self._on_edit()
+
         # Re-render the entire control panel
         for child in self.control_panel.winfo_children():
             child.destroy()

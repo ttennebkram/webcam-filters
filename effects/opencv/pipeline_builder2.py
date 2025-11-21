@@ -193,6 +193,15 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._original_name = ""
         self._original_description = ""
 
+    def _ensure_edit_mode(self):
+        """Switch to edit mode if not already in it - called when user takes any editing action"""
+        if self._current_mode != 'edit':
+            # Enter edit mode - store current values
+            self._original_name = self.pipeline_name.get()
+            self._original_description = self.pipeline_description.get()
+            self._current_mode = 'edit'
+            self._update_mode_ui()
+
     @classmethod
     def get_name(cls) -> str:
         return "Pipeline Builder 2"
@@ -397,6 +406,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     def _show_effect_selector(self, insert_index):
         """Show dropdown to select an effect to add"""
+        # Ensure we're in edit mode when adding effects
+        self._ensure_edit_mode()
+
         # Close any existing selector
         if self.current_selector is not None:
             try:
@@ -496,9 +508,10 @@ class PipelineBuilder2Effect(BaseUIEffect):
             effect_frame = ttk.Frame(self.effects_container)
             effect_frame.effect_index = index
 
-            # Set pipeline callbacks for +/- buttons
+            # Set pipeline callbacks for +/- buttons and edit mode notification
             effect._on_add_below = lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
             effect._on_remove = lambda f=effect_frame: self._remove_effect(f)
+            effect._on_edit = self._ensure_edit_mode  # Notify pipeline when effect enters edit mode
 
             # Set flag and create control panel in view mode
             effect._in_pipeline = True
@@ -617,6 +630,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     def _remove_effect(self, effect_frame):
         """Remove an effect from the pipeline"""
+        # Ensure we're in edit mode when removing effects
+        self._ensure_edit_mode()
+
         index = self._get_frame_index(effect_frame)
 
         if index < len(self.effects):
