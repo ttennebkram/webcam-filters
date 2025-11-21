@@ -531,14 +531,14 @@ Examples:
         # Handle special "(new user pipeline)" entry
         if new_effect == new_pipeline_entry:
             # Switch to pipeline builder using hot-swap
-            switch_effect('opencv/pipeline_builder2')
+            switch_effect('opencv/pipeline_builder')
             return
 
-        # Handle user pipelines - load in pipeline_builder2 instead of UserPipelineEffect
+        # Handle user pipelines - load in pipeline_builder instead of UserPipelineEffect
         if new_effect.startswith('opencv/user_'):
             # Extract pipeline key (e.g., "user_test6a" from "opencv/user_test6a")
             pipeline_key = new_effect.replace('opencv/', '')
-            if switch_effect('opencv/pipeline_builder2'):
+            if switch_effect('opencv/pipeline_builder'):
                 # Load the pipeline in the new pipeline builder instance
                 eff = effect_state['effect']
                 if hasattr(eff, '_load_pipeline_by_key'):
@@ -559,7 +559,7 @@ Examples:
 
         # If in Pipeline Builder with a loaded pipeline, reload as the user pipeline (view mode)
         current_effect = effect_state['effect']
-        if effect_state['effect_key'] in ('opencv/pipeline_builder', 'opencv/pipeline_builder2') and hasattr(current_effect, 'pipeline_name'):
+        if effect_state['effect_key'] == 'opencv/pipeline_builder' and hasattr(current_effect, 'pipeline_name'):
             pipeline_name = current_effect.pipeline_name.get().strip()
             if pipeline_name:
                 # Replace effect key with user pipeline to reload in view mode
@@ -779,11 +779,11 @@ Examples:
         print(f"Effect switched to: {new_effect_class.get_name()}")
         return True
 
-    # Handle user pipelines - redirect to pipeline_builder2
+    # Handle user pipelines - redirect to pipeline_builder
     if effect_to_load.startswith('opencv/user_'):
         pipeline_key = effect_to_load.replace('opencv/', '')
         print(f"Loading user pipeline '{pipeline_key}' via Pipeline Builder...")
-        effect_to_load = 'opencv/pipeline_builder2'
+        effect_to_load = 'opencv/pipeline_builder'
         effect_class = get_effect_class(effect_to_load)
         # Set the pipeline to load after creation
         args.edit_pipeline = pipeline_key
@@ -927,7 +927,7 @@ Examples:
         if pipeline_key:
             print(f"\nSwitching to Pipeline Builder to edit '{pipeline_key}'...")
             # Switch to pipeline builder and set it to load the pipeline
-            if switch_effect('opencv/pipeline_builder2'):
+            if switch_effect('opencv/pipeline_builder'):
                 # Set the pipeline to load after switching
                 new_effect = effect_state['effect']
                 if hasattr(new_effect, '_load_pipeline_by_key'):

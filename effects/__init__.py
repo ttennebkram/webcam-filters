@@ -78,7 +78,7 @@ def discover_effects() -> Dict[str, Type[BaseEffect]]:
             except Exception as e:
                 print(f"Warning: Could not load effect from {module_name}: {e}")
 
-    # Also discover user pipelines (just adds keys to dropdown, loaded via pipeline_builder2)
+    # Also discover user pipelines (just adds keys to dropdown, loaded via pipeline_builder)
     user_pipelines = discover_user_pipelines()
     effects.update(user_pipelines)
 
@@ -124,7 +124,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
     """Create a minimal placeholder class for a saved user pipeline.
 
     This class only provides metadata for the dropdown list.
-    Actual rendering is handled by pipeline_builder2 when selected.
+    Actual rendering is handled by pipeline_builder when selected.
 
     Args:
         pipeline_key: The pipeline key (e.g., "user_mypipeline")
@@ -135,17 +135,17 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
     """
 
     class UserPipelinePlaceholder(BaseEffect):
-        """Placeholder class for user pipeline - actual rendering via pipeline_builder2"""
+        """Placeholder class for user pipeline - actual rendering via pipeline_builder"""
 
         # Store config at class level
         _pipeline_config = config
         _pipeline_key = pipeline_key
 
         def __init__(self, width, height):
-            # This should never be instantiated - main.py redirects to pipeline_builder2
+            # This should never be instantiated - main.py redirects to pipeline_builder
             raise RuntimeError(
                 f"UserPipelinePlaceholder should not be instantiated. "
-                f"Select '{pipeline_key}' from dropdown to load via pipeline_builder2."
+                f"Select '{pipeline_key}' from dropdown to load via pipeline_builder."
             )
 
         @classmethod
