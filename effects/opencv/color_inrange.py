@@ -36,7 +36,7 @@ class InRangeEffect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Color InRange"
+        return "Color In Range"
 
     @classmethod
     def get_description(cls) -> str:
@@ -64,7 +64,7 @@ class InRangeEffect(BaseUIEffect):
             # Title
             title_label = ttk.Label(
                 header_frame,
-                text="Color InRange",
+                text="Color In Range",
                 font=('TkDefaultFont', 14, 'bold')
             )
             title_label.pack(anchor='w')
@@ -122,9 +122,10 @@ class InRangeEffect(BaseUIEffect):
         h_low_frame = ttk.Frame(right_column)
         h_low_frame.pack(fill='x', pady=3)
 
-        ttk.Label(h_low_frame, text="H/B Low:").pack(side='left')
+        self.h_low_name_label = ttk.Label(h_low_frame, text="H Low:")
+        self.h_low_name_label.pack(side='left')
 
-        h_low_slider = ttk.Scale(
+        self.h_low_slider = ttk.Scale(
             h_low_frame,
             from_=0,
             to=179,
@@ -132,7 +133,7 @@ class InRangeEffect(BaseUIEffect):
             variable=self.h_low,
             command=self._on_h_low_change
         )
-        h_low_slider.pack(side='left', fill='x', expand=True, padx=5)
+        self.h_low_slider.pack(side='left', fill='x', expand=True, padx=5)
 
         self.h_low_label = ttk.Label(h_low_frame, text="0")
         self.h_low_label.pack(side='left', padx=5)
@@ -141,9 +142,10 @@ class InRangeEffect(BaseUIEffect):
         h_high_frame = ttk.Frame(right_column)
         h_high_frame.pack(fill='x', pady=3)
 
-        ttk.Label(h_high_frame, text="H/B High:").pack(side='left')
+        self.h_high_name_label = ttk.Label(h_high_frame, text="H High:")
+        self.h_high_name_label.pack(side='left')
 
-        h_high_slider = ttk.Scale(
+        self.h_high_slider = ttk.Scale(
             h_high_frame,
             from_=0,
             to=179,
@@ -151,7 +153,7 @@ class InRangeEffect(BaseUIEffect):
             variable=self.h_high,
             command=self._on_h_high_change
         )
-        h_high_slider.pack(side='left', fill='x', expand=True, padx=5)
+        self.h_high_slider.pack(side='left', fill='x', expand=True, padx=5)
 
         self.h_high_label = ttk.Label(h_high_frame, text="179")
         self.h_high_label.pack(side='left', padx=5)
@@ -160,7 +162,8 @@ class InRangeEffect(BaseUIEffect):
         s_low_frame = ttk.Frame(right_column)
         s_low_frame.pack(fill='x', pady=3)
 
-        ttk.Label(s_low_frame, text="S/G Low:").pack(side='left')
+        self.s_low_name_label = ttk.Label(s_low_frame, text="S Low:")
+        self.s_low_name_label.pack(side='left')
 
         s_low_slider = ttk.Scale(
             s_low_frame,
@@ -179,7 +182,8 @@ class InRangeEffect(BaseUIEffect):
         s_high_frame = ttk.Frame(right_column)
         s_high_frame.pack(fill='x', pady=3)
 
-        ttk.Label(s_high_frame, text="S/G High:").pack(side='left')
+        self.s_high_name_label = ttk.Label(s_high_frame, text="S High:")
+        self.s_high_name_label.pack(side='left')
 
         s_high_slider = ttk.Scale(
             s_high_frame,
@@ -198,7 +202,8 @@ class InRangeEffect(BaseUIEffect):
         v_low_frame = ttk.Frame(right_column)
         v_low_frame.pack(fill='x', pady=3)
 
-        ttk.Label(v_low_frame, text="V/R Low:").pack(side='left')
+        self.v_low_name_label = ttk.Label(v_low_frame, text="V Low:")
+        self.v_low_name_label.pack(side='left')
 
         v_low_slider = ttk.Scale(
             v_low_frame,
@@ -217,7 +222,8 @@ class InRangeEffect(BaseUIEffect):
         v_high_frame = ttk.Frame(right_column)
         v_high_frame.pack(fill='x', pady=3)
 
-        ttk.Label(v_high_frame, text="V/R High:").pack(side='left')
+        self.v_high_name_label = ttk.Label(v_high_frame, text="V High:")
+        self.v_high_name_label.pack(side='left')
 
         v_high_slider = ttk.Scale(
             v_high_frame,
@@ -240,24 +246,52 @@ class InRangeEffect(BaseUIEffect):
 
         ttk.Radiobutton(
             output_frame,
-            text="Mask",
+            text="Mask Only",
             variable=self.output_mode,
             value="mask"
         ).pack(side='left', padx=(10, 5))
 
         ttk.Radiobutton(
             output_frame,
-            text="Masked",
+            text="Keep In-Range",
             variable=self.output_mode,
             value="masked"
         ).pack(side='left', padx=5)
 
         ttk.Radiobutton(
             output_frame,
-            text="Inverse",
+            text="Keep Out-of-Range",
             variable=self.output_mode,
             value="inverse"
         ).pack(side='left', padx=5)
+
+        # Update labels when color space changes
+        def on_color_space_change(*args):
+            if self.use_hsv.get():
+                self.h_low_name_label.config(text="H Low:")
+                self.h_high_name_label.config(text="H High:")
+                self.s_low_name_label.config(text="S Low:")
+                self.s_high_name_label.config(text="S High:")
+                self.v_low_name_label.config(text="V Low:")
+                self.v_high_name_label.config(text="V High:")
+                self.h_low_slider.config(to=179)
+                self.h_high_slider.config(to=179)
+                # Clamp values to new range
+                if self.h_low.get() > 179:
+                    self.h_low.set(179)
+                if self.h_high.get() > 179:
+                    self.h_high.set(179)
+            else:
+                self.h_low_name_label.config(text="B Low:")
+                self.h_high_name_label.config(text="B High:")
+                self.s_low_name_label.config(text="G Low:")
+                self.s_high_name_label.config(text="G High:")
+                self.v_low_name_label.config(text="R Low:")
+                self.v_high_name_label.config(text="R High:")
+                self.h_low_slider.config(to=255)
+                self.h_high_slider.config(to=255)
+
+        self.use_hsv.trace_add('write', on_color_space_change)
 
         return self.control_panel
 
@@ -278,6 +312,31 @@ class InRangeEffect(BaseUIEffect):
 
     def _on_v_high_change(self, value):
         self.v_high_label.config(text=str(int(float(value))))
+
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+
+        lines.append(f"Color Space: {'HSV' if self.use_hsv.get() else 'BGR'}")
+
+        if self.use_hsv.get():
+            lines.append(f"H: {self.h_low.get()} - {self.h_high.get()}")
+            lines.append(f"S: {self.s_low.get()} - {self.s_high.get()}")
+            lines.append(f"V: {self.v_low.get()} - {self.v_high.get()}")
+        else:
+            lines.append(f"B: {self.h_low.get()} - {self.h_high.get()}")
+            lines.append(f"G: {self.s_low.get()} - {self.s_high.get()}")
+            lines.append(f"R: {self.v_low.get()} - {self.v_high.get()}")
+
+        # Map internal values to display names
+        output_names = {
+            'mask': 'Mask Only',
+            'masked': 'Keep In-Range',
+            'inverse': 'Keep Out-of-Range'
+        }
+        lines.append(f"Output: {output_names.get(self.output_mode.get(), self.output_mode.get())}")
+
+        return '\n'.join(lines)
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply inRange color filtering to the frame"""
