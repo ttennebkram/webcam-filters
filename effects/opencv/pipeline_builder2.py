@@ -479,6 +479,10 @@ class PipelineBuilder2Effect(BaseUIEffect):
         effect_class = effect_info['class']
         effect = effect_class(self.width, self.height, self.root)
 
+        # Add trace on effect's enabled variable to trigger edit mode
+        if hasattr(effect, 'enabled'):
+            effect.enabled.trace_add('write', lambda *args: self._ensure_edit_mode())
+
         # Insert into effects list
         self.effects.insert(insert_index, effect)
 
@@ -846,6 +850,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     def _toggle_all_effects(self):
         """Toggle all effects' enabled state based on the All checkbox"""
+        # Ensure we're in edit mode when toggling enabled state
+        self._ensure_edit_mode()
+
         enabled = self.all_enabled.get()
         for effect in self.effects:
             if hasattr(effect, 'enabled'):
