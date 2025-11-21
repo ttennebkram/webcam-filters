@@ -200,6 +200,18 @@ class ColorBitPlanesEffect(BaseUIEffect):
         summary_frame = ttk.Frame(parent)
         summary_frame.pack(fill='x', pady=(5, 0))
 
+        # Map color names to display colors
+        color_fg_map = {'red': 'red', 'green': 'green', 'blue': 'DeepSkyBlue'}
+
+        # Create ttk styles for colored labels that preserve color on defocus
+        style = ttk.Style()
+        for color_name, color_fg in [('Red', 'red'), ('Green', 'green'), ('Blue', 'DeepSkyBlue')]:
+            style_name = f'{color_name}View.TLabel'
+            style.configure(style_name, foreground=color_fg)
+            # Map to preserve foreground color in all states (including background/inactive)
+            style.map(style_name, foreground=[('disabled', color_fg), ('background', color_fg)])
+        style_map = {'red': 'RedView.TLabel', 'green': 'GreenView.TLabel', 'blue': 'BlueView.TLabel'}
+
         for row_idx, color in enumerate(['red', 'green', 'blue']):
             # Build the bits string for this color
             enabled_bits = []
@@ -217,10 +229,11 @@ class ColorBitPlanesEffect(BaseUIEffect):
             else:
                 bits_value = "none"
 
-            # Right-justified color label
-            ttk.Label(summary_frame, text=f"{color.capitalize()}:").grid(
-                row=row_idx, column=0, sticky='e', padx=(5, 10), pady=4
-            )
+            # Right-justified color label with colored text
+            color_label = ttk.Label(summary_frame, text=f"{color.capitalize()}:",
+                                    style=style_map[color])
+            color_label.grid(row=row_idx, column=0, sticky='e', padx=(5, 10), pady=4)
+
             # Value label
             ttk.Label(summary_frame, text=bits_value).grid(
                 row=row_idx, column=1, sticky='w', pady=4
@@ -262,9 +275,10 @@ class ColorBitPlanesEffect(BaseUIEffect):
             table_frame = ttk.Frame(tab_frame)
             table_frame.pack(fill='both', expand=True, padx=5, pady=5)
 
-            # Create style for colored labels
+            # Create style for colored labels with map to preserve color on defocus
             style_name = f"{color_key}_label.TLabel"
             style.configure(style_name, foreground=color_fg)
+            style.map(style_name, foreground=[('disabled', color_fg), ('background', color_fg)])
 
             # Header row
             ttk.Label(table_frame, text="Bit", style=style_name).grid(row=0, column=0, padx=5, pady=2, sticky='e')
@@ -275,6 +289,7 @@ class ColorBitPlanesEffect(BaseUIEffect):
             # "All" row at the top
             all_style_name = f"{color_key}_all_label.TLabel"
             style.configure(all_style_name, foreground=color_fg, font=('TkDefaultFont', 10, 'bold'))
+            style.map(all_style_name, foreground=[('disabled', color_fg), ('background', color_fg)])
             ttk.Label(table_frame, text="All", style=all_style_name).grid(row=1, column=0, padx=5, pady=3, sticky='e')
 
             # All enable checkbox
