@@ -519,15 +519,38 @@ class PipelineBuilder2Effect(BaseUIEffect):
                     ).pack(anchor='w', padx=10, pady=(2, 0))
 
             # Effect's own control panel
+            effect_panel = None
             if hasattr(effect, 'create_control_panel'):
                 effect._in_pipeline = True
                 effect_panel = effect.create_control_panel(effect_frame)
-            if effect_panel:
-                effect_panel.pack(fill='x', padx=5, pady=2)
+                if effect_panel:
+                    effect_panel.pack(fill='x', padx=5, pady=2)
 
-                # Find the left_column in the effect's panel and add +/- buttons there
-                # The left_column contains the Enabled checkbox
-                self._add_buttons_to_left_column(effect_panel, effect_frame)
+                    # Find the left_column in the effect's panel and add +/- buttons there
+                    # The left_column contains the Enabled checkbox
+                    self._add_buttons_to_left_column(effect_panel, effect_frame)
+            else:
+                # Effect has no control panel (no parameters) - add +/- buttons directly
+                btn_frame = ttk.Frame(effect_frame)
+                btn_frame.pack(anchor='w', padx=10, pady=(5, 5))
+
+                plus_btn = ttk.Button(
+                    btn_frame,
+                    text="+",
+                    width=1,
+                    command=lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
+                )
+                plus_btn.pack(side='left', padx=(0, 1))
+                _create_tooltip(plus_btn, "Add effect below")
+
+                minus_btn = ttk.Button(
+                    btn_frame,
+                    text="-",
+                    width=1,
+                    command=lambda f=effect_frame: self._remove_effect(f)
+                )
+                minus_btn.pack(side='left')
+                _create_tooltip(minus_btn, "Remove this effect")
 
             # Show any visualization windows created by the effect (e.g., FFT)
             if hasattr(effect, 'viz_window') and effect.viz_window is not None:
@@ -842,6 +865,14 @@ class PipelineBuilder2Effect(BaseUIEffect):
     def _toggle_pipeline_mode(self):
         """Toggle between view and edit modes (Cancel All button)"""
         if self._current_mode == 'edit':
+            # Close any open effect selector
+            if self.current_selector is not None:
+                try:
+                    self.current_selector.destroy()
+                except:
+                    pass
+                self.current_selector = None
+
             # Cancel - restore original values
             self.pipeline_name.set(self._original_name)
             self.pipeline_description.set(self._original_description)
