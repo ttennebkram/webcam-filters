@@ -173,6 +173,10 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Pipeline to load for editing (set by main.py from --edit-pipeline arg)
         self._pipeline_to_load = None
 
+        # View/edit mode for the pipeline
+        self._current_mode = 'view'
+        self._control_parent = None
+
     @classmethod
     def get_name(cls) -> str:
         return "Pipeline Builder 2"
@@ -242,6 +246,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
         ttk.Label(all_frame, text="All:").pack(side='left')
         ttk.Checkbutton(all_frame, variable=self.all_enabled).pack(side='left')
+
+        # Wire up the All checkbox to toggle all effects
+        self.all_enabled.trace_add('write', lambda *args: self._toggle_all_effects())
 
         # Buttons row
         btn_frame = ttk.Frame(fields_frame)
@@ -752,6 +759,13 @@ class PipelineBuilder2Effect(BaseUIEffect):
             result = effect.draw(result, face_mask)
 
         return result
+
+    def _toggle_all_effects(self):
+        """Toggle all effects' enabled state based on the All checkbox"""
+        enabled = self.all_enabled.get()
+        for effect in self.effects:
+            if hasattr(effect, 'enabled'):
+                effect.enabled.set(enabled)
 
     def _copy_text(self):
         """Copy pipeline settings as human-readable text to clipboard"""
