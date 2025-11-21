@@ -389,7 +389,7 @@ class EffectForm:
                         borderwidth=1,
                         padx=0,
                         pady=0,
-                        cursor='hand2'
+                        cursor='arrow'
                     )
                     plus_btn.pack(side='left', padx=(0, 1))
                     plus_btn.bind('<Button-1>', lambda e: self.on_add_below())
@@ -403,7 +403,7 @@ class EffectForm:
                         borderwidth=1,
                         padx=0,
                         pady=0,
-                        cursor='hand2'
+                        cursor='arrow'
                     )
                     minus_btn.pack(side='left')
                     minus_btn.bind('<Button-1>', lambda e: self.on_remove())
@@ -455,7 +455,7 @@ class EffectForm:
             borderwidth=1,
             padx=0,
             pady=1,
-            cursor='hand2'
+            cursor='arrow'
         )
         self._mode_button.pack(pady=2)
         self._mode_button.bind('<Button-1>', lambda e: self._on_mode_button_click())
@@ -471,7 +471,7 @@ class EffectForm:
             borderwidth=1,
             padx=2,
             pady=0,
-            cursor='hand2'
+            cursor='arrow'
         )
         copy_text_btn.pack(side='left', padx=(0, 1))
         copy_text_btn.bind('<Button-1>', lambda e: self._on_copy_text_click())
@@ -485,7 +485,7 @@ class EffectForm:
                 borderwidth=1,
                 padx=2,
                 pady=0,
-                cursor='hand2'
+                cursor='arrow'
             )
             paste_text_btn.bind('<Button-1>', lambda e: self._on_paste_text_click())
         else:
@@ -513,7 +513,7 @@ class EffectForm:
             borderwidth=1,
             padx=2,
             pady=0,
-            cursor='hand2'
+            cursor='arrow'
         )
         copy_json_btn.pack(side='left', padx=(0, 1))
         copy_json_btn.bind('<Button-1>', lambda e: self._on_copy_json_click())
@@ -527,7 +527,7 @@ class EffectForm:
                 borderwidth=1,
                 padx=2,
                 pady=0,
-                cursor='hand2'
+                cursor='arrow'
             )
             paste_json_btn.bind('<Button-1>', lambda e: self._on_paste_json_click())
         else:

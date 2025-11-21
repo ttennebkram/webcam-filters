@@ -161,11 +161,14 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self.effect_frames = []
         self.current_selector = None
 
-        # Pipeline name for saving
+        # Pipeline name and description for saving
         self.pipeline_name = tk.StringVar(value="")
+        self.pipeline_description = tk.StringVar(value="")
+        self.all_enabled = tk.BooleanVar(value=True)
 
-        # Add first button reference
+        # Add first button/frame references
         self.add_first_btn = None
+        self.add_first_frame = None
 
         # Pipeline to load for editing (set by main.py from --edit-pipeline arg)
         self._pipeline_to_load = None
@@ -209,50 +212,114 @@ class PipelineBuilder2Effect(BaseUIEffect):
         )
         warning_label.pack(anchor='w', pady=(5, 0))
 
-        # Pipeline name and save controls
-        save_frame = ttk.Frame(self.control_panel)
-        save_frame.pack(fill='x', **padding)
+        # Pipeline name/description and save controls using grid for alignment
+        fields_frame = ttk.Frame(self.control_panel)
+        fields_frame.pack(fill='x', **padding)
 
-        ttk.Label(save_frame, text="Name:").pack(side='left')
+        # Name row
+        ttk.Label(fields_frame, text="Name:").grid(row=0, column=0, sticky='e', padx=(0, 5), pady=2)
 
         name_entry = ttk.Entry(
-            save_frame,
+            fields_frame,
             textvariable=self.pipeline_name,
             width=15
         )
-        name_entry.pack(side='left', padx=5)
+        name_entry.grid(row=0, column=1, sticky='w', pady=2)
 
-        save_btn = ttk.Button(
-            save_frame,
-            text="Save",
-            command=self._save_pipeline
-        )
-        save_btn.pack(side='left', padx=5)
+        # Description row
+        ttk.Label(fields_frame, text="Description:").grid(row=1, column=0, sticky='e', padx=(0, 5), pady=2)
 
-        done_btn = ttk.Button(
-            save_frame,
-            text="Done Editing",
-            command=self._run_pipeline
+        desc_entry = ttk.Entry(
+            fields_frame,
+            textvariable=self.pipeline_description,
+            width=40
         )
-        done_btn.pack(side='left', padx=5)
+        desc_entry.grid(row=1, column=1, sticky='ew', pady=2)
+
+        # All checkbox in column 0
+        all_frame = ttk.Frame(fields_frame)
+        all_frame.grid(row=2, column=0, pady=(5, 2))
+
+        ttk.Label(all_frame, text="All:").pack(side='left')
+        ttk.Checkbutton(all_frame, variable=self.all_enabled).pack(side='left')
+
+        # Buttons row
+        btn_frame = ttk.Frame(fields_frame)
+        btn_frame.grid(row=2, column=1, sticky='e', pady=(5, 2))
+
+        cancel_btn = tk.Label(
+            btn_frame, text="Cancel", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        cancel_btn.pack(side='left', padx=(0, 5))
+        cancel_btn.bind('<Button-1>', lambda e: self._run_pipeline())
+        _create_tooltip(cancel_btn, "Exit pipeline builder")
+
+        save_btn = tk.Label(
+            btn_frame, text="Save All", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        save_btn.pack(side='left')
+        save_btn.bind('<Button-1>', lambda e: self._save_pipeline())
+        _create_tooltip(save_btn, "Save pipeline to file")
+
+        # Clipboard buttons (styled like effect buttons)
+        ct_btn = tk.Label(
+            btn_frame, text="CT", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        ct_btn.pack(side='left', padx=(10, 1))
+        ct_btn.bind('<Button-1>', lambda e: self._copy_text())
+        _create_tooltip(ct_btn, "Copy as text")
+
+        pt_btn = tk.Label(
+            btn_frame, text="PT", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        pt_btn.pack(side='left', padx=1)
+        _create_tooltip(pt_btn, "Paste from text")
+
+        cj_btn = tk.Label(
+            btn_frame, text="CJ", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        cj_btn.pack(side='left', padx=1)
+        cj_btn.bind('<Button-1>', lambda e: self._copy_json())
+        _create_tooltip(cj_btn, "Copy as JSON")
+
+        pj_btn = tk.Label(
+            btn_frame, text="PJ", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        pj_btn.pack(side='left', padx=1)
+        pj_btn.bind('<Button-1>', lambda e: self._paste_json())
+        _create_tooltip(pj_btn, "Paste from JSON")
+
+        # Configure column weights
+        fields_frame.columnconfigure(1, weight=1)
 
         # Separator
         ttk.Separator(self.control_panel, orient='horizontal').pack(fill='x', pady=5)
 
-        # Add first effect button
-        add_first_frame = ttk.Frame(self.control_panel)
-        add_first_frame.pack(fill='x', **padding)
+        # Add first effect button (in its own frame so we can destroy it completely)
+        self.add_first_frame = ttk.Frame(self.control_panel)
+        self.add_first_frame.pack(fill='x', **padding)
 
-        self.add_first_btn = ttk.Button(
-            add_first_frame,
+        self.add_first_btn = tk.Label(
+            self.add_first_frame,
             text="+ Add First Effect",
-            command=lambda: self._show_effect_selector(0)
+            relief='raised',
+            borderwidth=1,
+            padx=2,
+            pady=0,
+            cursor='arrow'
         )
         self.add_first_btn.pack(side='left')
+        self.add_first_btn.bind('<Button-1>', lambda e: self._show_effect_selector(0))
 
-        # Container for effect panels
+        # Container for effect panels (minimal padding to reduce whitespace)
         self.effects_container = ttk.Frame(self.control_panel)
-        self.effects_container.pack(fill='both', expand=True, **padding)
+        self.effects_container.pack(fill='both', expand=True, padx=10, pady=0)
 
         # Load pipeline if one was specified for editing
         if self._pipeline_to_load:
@@ -347,9 +414,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Update indices for all effect UIs
         self._update_effect_indices()
 
-        # Hide "add first" button if we have effects
-        if self.effects and self.add_first_btn:
-            self.add_first_btn.pack_forget()
+        # Hide "add first" frame if we have effects
+        if self.effects and self.add_first_frame:
+            self.add_first_frame.pack_forget()
 
     def _create_effect_ui(self, effect, effect_name, index):
         """Create the UI panel for a single effect in the pipeline"""
@@ -500,9 +567,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Update indices
             self._update_effect_indices()
 
-            # Show "add first" button if no effects
-            if not self.effects and self.add_first_btn:
-                self.add_first_btn.pack(side='left')
+            # Show "add first" frame if no effects
+            if not self.effects and self.add_first_frame:
+                self.add_first_frame.pack(fill='x', padx=10, pady=5)
 
     def _repack_effect_frames(self):
         """Repack all effect frames in order"""
@@ -530,6 +597,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Build pipeline config
         config = {
             'name': name,
+            'description': self.pipeline_description.get().strip(),
             'effects': []
         }
 
@@ -633,6 +701,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
         self._load_pipeline(config)
         self.pipeline_name.set(name)
+        self.pipeline_description.set(config.get('description', ''))
         print(f"Pipeline loaded: '{name}' <- {pipeline_file}")
 
     def _load_pipeline(self, config):
@@ -683,6 +752,96 @@ class PipelineBuilder2Effect(BaseUIEffect):
             result = effect.draw(result, face_mask)
 
         return result
+
+    def _copy_text(self):
+        """Copy pipeline settings as human-readable text to clipboard"""
+        lines = []
+        lines.append(f"Pipeline: {self.pipeline_name.get()}")
+        if self.pipeline_description.get():
+            lines.append(f"Description: {self.pipeline_description.get()}")
+        lines.append("")
+
+        for i, effect in enumerate(self.effects):
+            effect_name = effect.get_name() if hasattr(effect, 'get_name') else effect.__class__.__name__
+            lines.append(f"{i+1}. {effect_name}")
+            if hasattr(effect, 'get_view_mode_summary'):
+                summary = effect.get_view_mode_summary()
+                for line in summary.split('\n'):
+                    lines.append(f"   {line}")
+            lines.append("")
+
+        text = '\n'.join(lines)
+        if self.root:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy pipeline as JSON to clipboard - same format as save file"""
+        name = self.pipeline_name.get().strip()
+        config = {
+            'name': name,
+            'description': self.pipeline_description.get().strip(),
+            'effects': []
+        }
+
+        for effect in self.effects:
+            effect_config = {
+                'module': None,
+                'class_name': effect.__class__.__name__,
+                'params': {}
+            }
+
+            # Find module name
+            for info in self.available_effects:
+                if info['class'] == effect.__class__:
+                    effect_config['module'] = info['module']
+                    break
+
+            # Save parameter values
+            for attr_name in dir(effect):
+                if attr_name.startswith('_'):
+                    continue
+                try:
+                    attr = getattr(effect, attr_name)
+                except:
+                    continue
+
+                if isinstance(attr, tk.Variable):
+                    try:
+                        effect_config['params'][attr_name] = attr.get()
+                    except:
+                        pass
+                elif isinstance(attr, (dict, list)):
+                    extracted = _extract_tk_variables(attr)
+                    if extracted is not None:
+                        effect_config['params'][attr_name] = extracted
+
+            config['effects'].append(effect_config)
+
+        text = json.dumps(config, indent=2)
+        if self.root:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste pipeline from text - not implemented for pipeline level"""
+        pass
+
+    def _paste_json(self):
+        """Paste pipeline from JSON on clipboard"""
+        if not self.root:
+            return
+
+        try:
+            text = self.root.clipboard_get()
+            config = json.loads(text)
+
+            # Load the pipeline
+            self._load_pipeline(config)
+            self.pipeline_name.set(config.get('name', ''))
+            self.pipeline_description.set(config.get('description', ''))
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
 
     def cleanup(self):
         """Cleanup all effects in the pipeline"""
