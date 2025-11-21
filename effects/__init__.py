@@ -354,14 +354,14 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                             font=('TkDefaultFont', 12)
                         ).pack(anchor='w', padx=(15, 0))
 
-                # Method signature (if available)
+                # Method signature (if available) - displayed below description, above params
                 if hasattr(effect, 'get_method_signature'):
                     sig = effect.get_method_signature()
                     if sig:
                         ttk.Label(
                             effect_col,
                             text=sig,
-                            font=('TkFixedFont', 12)
+                            font=('TkFixedFont', 10)
                         ).pack(anchor='w', padx=(15, 0))
 
                 # Read-only parameter values (in effect column)

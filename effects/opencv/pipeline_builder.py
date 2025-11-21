@@ -321,11 +321,21 @@ class PipelineBuilderEffect(BaseUIEffect):
         # Main frame for this effect
         effect_frame = ttk.LabelFrame(
             self.effects_container,
-            text=f"{effect_name}"
+            text=effect_name
         )
 
         # Store index as attribute
         effect_frame.effect_index = index
+
+        # Method signature on its own line, inside frame but at top
+        if hasattr(effect, 'get_method_signature'):
+            sig = effect.get_method_signature()
+            if sig:
+                ttk.Label(
+                    effect_frame,
+                    text=sig,
+                    font=('TkFixedFont', 10)
+                ).pack(anchor='w', padx=10, pady=(5, 0))
 
         # Effect's own control panel
         if hasattr(effect, 'create_control_panel'):
