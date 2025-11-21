@@ -7,6 +7,77 @@ All effects should inherit from BaseEffect and implement the required methods.
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 import numpy as np
+import tkinter as tk
+
+
+def _extract_tk_variables(obj, visited=None):
+    """Recursively extract tk.Variable values from an object.
+
+    Handles:
+    - Direct tk.Variable attributes
+    - Dicts containing tk.Variables or nested dicts/lists
+    - Lists containing tk.Variables or nested dicts/lists
+
+    Returns a serializable structure with the same shape.
+    """
+    if visited is None:
+        visited = set()
+
+    # Avoid infinite recursion
+    obj_id = id(obj)
+    if obj_id in visited:
+        return None
+    visited.add(obj_id)
+
+    if isinstance(obj, tk.Variable):
+        try:
+            return obj.get()
+        except:
+            return None
+    elif isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            extracted = _extract_tk_variables(value, visited)
+            if extracted is not None:
+                result[key] = extracted
+        return result if result else None
+    elif isinstance(obj, list):
+        result = []
+        has_values = False
+        for item in obj:
+            extracted = _extract_tk_variables(item, visited)
+            result.append(extracted)
+            if extracted is not None:
+                has_values = True
+        return result if has_values else None
+    else:
+        return None
+
+
+def _restore_tk_variables(obj, data):
+    """Recursively restore tk.Variable values from serialized data.
+
+    Handles:
+    - Direct tk.Variable attributes
+    - Dicts containing tk.Variables or nested dicts/lists
+    - Lists containing tk.Variables or nested dicts/lists
+    """
+    if data is None:
+        return
+
+    if isinstance(obj, tk.Variable):
+        try:
+            obj.set(data)
+        except:
+            pass
+    elif isinstance(obj, dict) and isinstance(data, dict):
+        for key, value in data.items():
+            if key in obj:
+                _restore_tk_variables(obj[key], value)
+    elif isinstance(obj, list) and isinstance(data, list):
+        for i, value in enumerate(data):
+            if i < len(obj):
+                _restore_tk_variables(obj[i], value)
 
 
 class BaseEffect(ABC):
@@ -98,6 +169,22 @@ class BaseUIEffect(BaseEffect):
         super().__init__(width, height)
         self.root_window = root_window
         self.control_panel = None
+        self._snapshot_data = None
+
+    def snapshot_state(self):
+        """Snapshot current state of all tk.Variable values for later restoration.
+
+        Call this before entering edit mode to capture the "before" state.
+        """
+        self._snapshot_data = _extract_tk_variables(self.__dict__)
+
+    def restore_state(self):
+        """Restore tk.Variable values from the last snapshot.
+
+        Call this when canceling edits to revert to the previous state.
+        """
+        if self._snapshot_data is not None:
+            _restore_tk_variables(self.__dict__, self._snapshot_data)
 
     @abstractmethod
     def create_control_panel(self, parent):

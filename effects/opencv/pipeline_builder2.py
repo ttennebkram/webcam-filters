@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import json
 import os
-from core.base_effect import BaseUIEffect
+from core.base_effect import BaseUIEffect, _extract_tk_variables, _restore_tk_variables
 
 
 # Constants
@@ -36,76 +36,6 @@ def _create_tooltip(widget, text):
 
     widget.bind('<Enter>', show_tooltip)
     widget.bind('<Leave>', hide_tooltip)
-
-
-def _extract_tk_variables(obj, visited=None):
-    """Recursively extract tk.Variable values from an object.
-
-    Handles:
-    - Direct tk.Variable attributes
-    - Dicts containing tk.Variables or nested dicts/lists
-    - Lists containing tk.Variables or nested dicts/lists
-
-    Returns a serializable structure with the same shape.
-    """
-    if visited is None:
-        visited = set()
-
-    # Avoid infinite recursion
-    obj_id = id(obj)
-    if obj_id in visited:
-        return None
-    visited.add(obj_id)
-
-    if isinstance(obj, tk.Variable):
-        try:
-            return obj.get()
-        except:
-            return None
-    elif isinstance(obj, dict):
-        result = {}
-        for key, value in obj.items():
-            extracted = _extract_tk_variables(value, visited)
-            if extracted is not None:
-                result[key] = extracted
-        return result if result else None
-    elif isinstance(obj, list):
-        result = []
-        has_values = False
-        for item in obj:
-            extracted = _extract_tk_variables(item, visited)
-            result.append(extracted)
-            if extracted is not None:
-                has_values = True
-        return result if has_values else None
-    else:
-        return None
-
-
-def _restore_tk_variables(obj, data):
-    """Recursively restore tk.Variable values from serialized data.
-
-    Handles:
-    - Direct tk.Variable attributes
-    - Dicts containing tk.Variables or nested dicts/lists
-    - Lists containing tk.Variables or nested dicts/lists
-    """
-    if data is None:
-        return
-
-    if isinstance(obj, tk.Variable):
-        try:
-            obj.set(data)
-        except:
-            pass
-    elif isinstance(obj, dict) and isinstance(data, dict):
-        for key, value in data.items():
-            if key in obj:
-                _restore_tk_variables(obj[key], value)
-    elif isinstance(obj, list) and isinstance(data, list):
-        for i, value in enumerate(data):
-            if i < len(obj):
-                _restore_tk_variables(obj[i], value)
 
 
 def get_opencv_effects():
@@ -192,6 +122,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Store original values for cancel functionality
         self._original_name = ""
         self._original_description = ""
+        self._original_enabled_states = []  # List of (effect, enabled_state) tuples
 
         # Flag to prevent edit mode from triggering during initialization
         self._initializing = True
@@ -205,8 +136,20 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Enter edit mode - store current values
             self._original_name = self.pipeline_name.get()
             self._original_description = self.pipeline_description.get()
+            # Note: enabled states are already stored from the last time we exited edit mode
+            # or from _snapshot_enabled_states() which should be called before any checkbox change
             self._current_mode = 'edit'
             self._update_mode_ui()
+
+    def _snapshot_enabled_states(self):
+        """Store current enabled states and effect values - call this while in view mode to prepare for edit mode"""
+        self._original_enabled_states = []
+        for effect in self.effects:
+            if hasattr(effect, 'enabled'):
+                self._original_enabled_states.append((effect, effect.enabled.get()))
+            # Ask each effect to snapshot its own state
+            if hasattr(effect, 'snapshot_state'):
+                effect.snapshot_state()
 
     @classmethod
     def get_name(cls) -> str:
@@ -411,6 +354,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Initialization complete - enable edit mode triggering
         self._initializing = False
 
+        # Snapshot enabled states so we can restore them on cancel
+        self._snapshot_enabled_states()
+
         return self.control_panel
 
     def _show_effect_selector(self, insert_index):
@@ -531,6 +477,19 @@ class PipelineBuilder2Effect(BaseUIEffect):
             effect_panel = effect.create_control_panel(effect_frame, mode='view')
             if effect_panel:
                 effect_panel.pack(fill='x', padx=5, pady=2)
+
+            # Wrap the effect's _toggle_mode to notify pipeline when entering edit mode
+            if hasattr(effect, '_toggle_mode'):
+                original_toggle = effect._toggle_mode
+                def make_wrapped_toggle(eff, orig):
+                    def wrapped_toggle():
+                        was_edit = eff._current_mode == 'edit'
+                        orig()
+                        # If we just switched to edit mode, notify the pipeline
+                        if not was_edit and eff._current_mode == 'edit':
+                            self._ensure_edit_mode()
+                    return wrapped_toggle
+                effect._toggle_mode = make_wrapped_toggle(effect, original_toggle)
         else:
             # Old-style effects need the LabelFrame wrapper
             effect_frame = ttk.LabelFrame(
@@ -796,9 +755,22 @@ class PipelineBuilder2Effect(BaseUIEffect):
             print(f"Warning: Could not load pipeline: {e}")
             return
 
+        # Use initializing flag to prevent triggering edit mode
+        self._initializing = True
         self._load_pipeline(config)
         self.pipeline_name.set(name)
         self.pipeline_description.set(config.get('description', ''))
+        self._initializing = False
+
+        # Ensure we're in view mode and update UI
+        self._current_mode = 'view'
+        self._update_mode_ui()
+
+        # Snapshot the loaded state as the "original" state
+        self._original_name = name
+        self._original_description = config.get('description', '')
+        self._snapshot_enabled_states()
+
         print(f"Pipeline loaded: '{name}' <- {pipeline_file}")
 
     def _load_pipeline(self, config):
@@ -873,14 +845,33 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Cancel - restore original values
             self.pipeline_name.set(self._original_name)
             self.pipeline_description.set(self._original_description)
+            # Set mode to view BEFORE restoring enabled states to prevent re-triggering edit mode
             self._current_mode = 'view'
+            # Use initializing flag to prevent traces from triggering edit mode
+            self._initializing = True
+            # Restore enabled states
+            for effect, enabled_state in self._original_enabled_states:
+                if hasattr(effect, 'enabled'):
+                    effect.enabled.set(enabled_state)
+            # Ask each effect to restore its own state
+            for effect in self.effects:
+                if hasattr(effect, 'restore_state'):
+                    effect.restore_state()
+            self._initializing = False
+            # Sync all effects back to view mode
+            self._update_mode_ui()
+            for effect in self.effects:
+                if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
+                    if effect._current_mode != 'view':
+                        effect._toggle_mode()
         else:
             # Enter edit mode - store current values
             self._original_name = self.pipeline_name.get()
             self._original_description = self.pipeline_description.get()
+            # Snapshot enabled states before entering edit mode
+            self._snapshot_enabled_states()
             self._current_mode = 'edit'
-
-        self._update_mode_ui()
+            self._update_mode_ui()
 
     def _on_edit_save_click(self):
         """Handle Edit All / Save All button click"""
@@ -888,13 +879,27 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Enter edit mode - store current values
             self._original_name = self.pipeline_name.get()
             self._original_description = self.pipeline_description.get()
+            # Snapshot enabled states before entering edit mode
+            self._snapshot_enabled_states()
             self._current_mode = 'edit'
+            # Sync all effects to edit mode
+            self._update_mode_ui()
+            for effect in self.effects:
+                if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
+                    if effect._current_mode != 'edit':
+                        effect._toggle_mode()
         else:
             # Save and switch to view mode
             self._save_pipeline()
             self._current_mode = 'view'
-
-        self._update_mode_ui()
+            # Snapshot enabled states after saving (for next potential edit)
+            self._snapshot_enabled_states()
+            # Sync all effects to view mode
+            self._update_mode_ui()
+            for effect in self.effects:
+                if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
+                    if effect._current_mode != 'view':
+                        effect._toggle_mode()
 
     def _update_mode_ui(self):
         """Update UI elements based on current mode"""
@@ -961,13 +966,6 @@ class PipelineBuilder2Effect(BaseUIEffect):
                 self.add_first_frame.pack(fill='x', padx=10, pady=5)
             elif self._current_mode == 'view':
                 self.add_first_frame.pack_forget()
-
-        # Update all sub-effects to match pipeline mode
-        for effect in self.effects:
-            if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
-                # Only toggle if sub-effect mode doesn't match pipeline mode
-                if effect._current_mode != self._current_mode:
-                    effect._toggle_mode()
 
     def _copy_text(self):
         """Copy pipeline settings as human-readable text to clipboard"""

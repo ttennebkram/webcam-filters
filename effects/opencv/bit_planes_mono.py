@@ -36,6 +36,9 @@ class BitPlanesEffect(BaseUIEffect):
         self.bitplane_all_gain = tk.DoubleVar(value=1.0)
         self.bitplane_all_gain_slider = tk.DoubleVar(value=0.0)
 
+        # Flag to prevent trace callbacks during programmatic changes
+        self._restoring = False
+
     @classmethod
     def get_name(cls) -> str:
         return "Bit Planes Grayscale"
@@ -63,6 +66,15 @@ class BitPlanesEffect(BaseUIEffect):
             data[f'enable_{i}'] = self.bitplane_enable[i].get()
             data[f'gain_{i}'] = self.bitplane_gain[i].get()
         return data
+
+    def restore_state(self):
+        """Restore tk.Variable values from the last snapshot.
+
+        Override to set _restoring flag to prevent traces from overwriting values.
+        """
+        self._restoring = True
+        super().restore_state()
+        self._restoring = False
 
     def get_view_mode_summary(self) -> str:
         """Return a human-readable summary of enabled bits and gains for view mode"""
@@ -174,6 +186,9 @@ class BitPlanesEffect(BaseUIEffect):
         ttk.Label(table_frame, text="All", font=('TkDefaultFont', 10, 'bold')).grid(row=1, column=0, padx=5, pady=3, sticky='e')
 
         def on_bitplane_all_enable_change(*args):
+            # Skip during restore to prevent overwriting individual values
+            if self._restoring:
+                return
             enabled = self.bitplane_all_enable.get()
             for i in range(8):
                 self.bitplane_enable[i].set(enabled)

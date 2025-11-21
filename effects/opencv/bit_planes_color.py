@@ -55,6 +55,9 @@ class ColorBitPlanesEffect(BaseUIEffect):
         self.color_bp_tab_frames = {}
         self.color_bp_selected_tab = None
 
+        # Flag to prevent trace callbacks during programmatic changes
+        self._restoring = False
+
     @classmethod
     def get_name(cls) -> str:
         return "Bit Planes Color"
@@ -83,6 +86,15 @@ class ColorBitPlanesEffect(BaseUIEffect):
                 data[f'{color}_enable_{i}'] = self.color_bitplane_enable[color][i].get()
                 data[f'{color}_gain_{i}'] = self.color_bitplane_gain[color][i].get()
         return data
+
+    def restore_state(self):
+        """Restore tk.Variable values from the last snapshot.
+
+        Override to set _restoring flag to prevent traces from overwriting values.
+        """
+        self._restoring = True
+        super().restore_state()
+        self._restoring = False
 
     def get_view_mode_summary(self) -> str:
         """Return a human-readable summary of enabled channels and gains for view mode"""
@@ -267,6 +279,9 @@ class ColorBitPlanesEffect(BaseUIEffect):
 
             # All enable checkbox
             def on_color_all_enable_change(var_name, index, mode, c=color_key):
+                # Skip during restore to prevent overwriting individual values
+                if self._restoring:
+                    return
                 enabled = self.color_bitplane_all_enable[c].get()
                 for i in range(8):
                     self.color_bitplane_enable[c][i].set(enabled)
@@ -293,8 +308,12 @@ class ColorBitPlanesEffect(BaseUIEffect):
             all_gain_label.grid(row=1, column=3, padx=(2, 5), pady=3)
 
             def update_all_color_gain_label(var_name, index, mode, c=color_key, lbl=all_gain_label):
-                gain = self.color_bitplane_all_gain[c].get()
-                lbl.config(text=f"{gain:.2f}x")
+                try:
+                    if lbl.winfo_exists():
+                        gain = self.color_bitplane_all_gain[c].get()
+                        lbl.config(text=f"{gain:.2f}x")
+                except:
+                    pass
 
             self.color_bitplane_all_gain[color_key].trace_add("write", update_all_color_gain_label)
 
