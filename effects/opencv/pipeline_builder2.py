@@ -193,8 +193,14 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._original_name = ""
         self._original_description = ""
 
+        # Flag to prevent edit mode from triggering during initialization
+        self._initializing = True
+
     def _ensure_edit_mode(self):
         """Switch to edit mode if not already in it - called when user takes any editing action"""
+        # Skip during initialization to prevent view mode from being triggered
+        if self._initializing:
+            return
         if self._current_mode != 'edit':
             # Enter edit mode - store current values
             self._original_name = self.pipeline_name.get()
@@ -401,6 +407,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Load pipeline if one was specified for editing
         if self._pipeline_to_load:
             self._load_pipeline_by_key(self._pipeline_to_load)
+
+        # Initialization complete - enable edit mode triggering
+        self._initializing = False
 
         return self.control_panel
 
