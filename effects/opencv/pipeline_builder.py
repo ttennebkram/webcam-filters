@@ -217,6 +217,20 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._control_parent = parent
         self.control_panel = ttk.Frame(parent)
 
+        # Bind Escape key to Cancel All, Enter key to Save All (only in edit mode)
+        # Bind Cmd-C/Ctrl-C to copy pipeline as text
+        # Note: bind_all() ensures key bindings work regardless of focus
+        root = self.root or self.root_window
+        if root:
+            root.bind_all('<Escape>', self._on_escape_key)
+            root.bind_all('<Return>', self._on_enter_key)
+            # Cmd-C on macOS, Ctrl-C on Windows/Linux
+            root.bind_all('<Command-c>', self._on_copy_key)
+            root.bind_all('<Control-c>', self._on_copy_key)
+            # Cmd-V on macOS, Ctrl-V on Windows/Linux
+            root.bind_all('<Command-v>', self._on_paste_key)
+            root.bind_all('<Control-v>', self._on_paste_key)
+
         padding = {'padx': 10, 'pady': 5}
 
         # Header section - use grid for title and warning on same row
@@ -335,7 +349,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._ct_btn.bind('<Button-1>', lambda e: self._copy_text())
-        _create_tooltip(self._ct_btn, "Copy as text")
+        _create_tooltip(self._ct_btn, "Copy All Text")
 
         self._pt_btn = tk.Label(
             btn_frame, text="PT", relief='raised', borderwidth=1,
@@ -349,7 +363,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._cj_btn.bind('<Button-1>', lambda e: self._copy_json())
-        _create_tooltip(self._cj_btn, "Copy as JSON")
+        _create_tooltip(self._cj_btn, "Copy All JSON")
 
         self._pj_btn = tk.Label(
             btn_frame, text="PJ", relief='raised', borderwidth=1,
@@ -1145,6 +1159,83 @@ class PipelineBuilder2Effect(BaseUIEffect):
             if hasattr(effect, 'enabled'):
                 effect.enabled.set(enabled)
 
+    def _on_escape_key(self, event=None):
+        """Handle Escape key press - Cancel All if in edit mode"""
+        if self._current_mode == 'edit':
+            self._toggle_pipeline_mode()
+
+    def _on_enter_key(self, event=None):
+        """Handle Enter key press - Save All if in edit mode, Edit All if in view mode"""
+        if self._current_mode == 'edit':
+            self._on_edit_save_click()
+        else:
+            # View mode - switch to edit mode
+            self._toggle_pipeline_mode()
+
+    def _on_copy_key(self, event=None):
+        """Handle Cmd-C/Ctrl-C key press - Copy pipeline as text"""
+        self._copy_text()
+        return "break"  # Prevent default copy behavior
+
+    def _on_paste_key(self, event=None):
+        """Handle Cmd-V/Ctrl-V key press - Paste pipeline, trying JSON first then text"""
+        if not self.root:
+            return "break"
+
+        try:
+            text = self.root.clipboard_get()
+        except:
+            messagebox.showerror("Paste Error", "No content in clipboard")
+            return "break"
+
+        pasted = False
+
+        # Try JSON first
+        try:
+            config = json.loads(text)
+            # Check if it looks like a valid pipeline config
+            if 'effects' in config:
+                self._paste_json()
+                pasted = True
+        except json.JSONDecodeError:
+            pass
+
+        # Try text format
+        if not pasted:
+            try:
+                separator = '-' * TEXT_SEPARATOR_LENGTH
+                # Check if it looks like our text format (has separators)
+                if separator in text:
+                    self._paste_text()
+                    pasted = True
+            except:
+                pass
+
+        if pasted:
+            # Switch to edit mode and sync all effects to edit mode
+            if self._current_mode != 'edit':
+                self._original_name = self.pipeline_name.get()
+                self._original_description = self.pipeline_description.get()
+                self._snapshot_enabled_states()
+                self._current_mode = 'edit'
+                self._update_mode_ui()
+            # Ensure all effects are in edit mode
+            for effect in self.effects:
+                if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
+                    if effect._current_mode != 'edit':
+                        effect._toggle_mode()
+            return "break"
+
+        # Neither format worked
+        messagebox.showerror(
+            "Paste Error",
+            "Clipboard content is not in a recognized format.\n\n"
+            "Expected either:\n"
+            "- JSON pipeline format\n"
+            "- Human-readable text format"
+        )
+        return "break"
+
     def _toggle_pipeline_mode(self):
         """Toggle between view and edit modes (Cancel All button)"""
         if self._current_mode == 'edit':
@@ -1191,7 +1282,12 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Snapshot enabled states before entering edit mode
             self._snapshot_enabled_states()
             self._current_mode = 'edit'
+            # Sync all effects to edit mode
             self._update_mode_ui()
+            for effect in self.effects:
+                if hasattr(effect, '_toggle_mode') and hasattr(effect, '_current_mode'):
+                    if effect._current_mode != 'edit':
+                        effect._toggle_mode()
 
     def _on_edit_save_click(self):
         """Handle Edit All / Save All button click"""
@@ -1485,8 +1581,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     def _set_effect_param_from_text(self, effect, key, value):
         """Set an effect parameter from a text key-value pair"""
-        # Normalize key for matching
+        # Normalize key for matching - remove spaces and underscores for comparison
         key_lower = key.lower().replace(' ', '_')
+        key_normalized = key.lower().replace(' ', '').replace('_', '')
 
         # First, check form schema for dropdown parameters
         # This handles cases where an IntVar is an index into a list of options
@@ -1531,7 +1628,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
             # Check if this attribute name matches
             attr_lower = attr_name.lower()
-            if key_lower in attr_lower or attr_lower in key_lower:
+            attr_normalized = attr_name.lower().replace('_', '')
+            # Use normalized comparison to handle "threshold 1" matching "threshold1"
+            if key_normalized == attr_normalized or key_lower in attr_lower or attr_lower in key_lower:
                 try:
                     attr = getattr(effect, attr_name)
                     if isinstance(attr, tk.BooleanVar):
@@ -1644,6 +1743,19 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
     def cleanup(self):
         """Cleanup all effects in the pipeline"""
+        # Unbind keyboard shortcuts
+        root = self.root or self.root_window
+        if root:
+            try:
+                root.unbind_all('<Escape>')
+                root.unbind_all('<Return>')
+                root.unbind_all('<Command-c>')
+                root.unbind_all('<Control-c>')
+                root.unbind_all('<Command-v>')
+                root.unbind_all('<Control-v>')
+            except:
+                pass
+
         for effect in self.effects:
             if hasattr(effect, 'cleanup'):
                 effect.cleanup()
