@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class ConnectedComponentsEffect(BaseUIEffect):
@@ -54,137 +56,227 @@ class ConnectedComponentsEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'slider', 'label': 'Threshold', 'key': 'threshold', 'min': 0, 'max': 255, 'default': 127},
+            {'type': 'checkbox', 'label': 'Invert Threshold', 'key': 'invert', 'default': False},
+            {'type': 'dropdown', 'label': 'Connectivity', 'key': 'connectivity', 'options': [4, 8], 'default': 8},
+            {'type': 'slider', 'label': 'Min Area', 'key': 'min_area', 'min': 0, 'max': 1000, 'default': 0},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        return {
+            'threshold': self.threshold.get(),
+            'invert': self.invert.get(),
+            'connectivity': self.connectivity.get(),
+            'min_area': self.min_area.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Connected Components",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.connectedComponentsWithStats(image, connectivity)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Threshold
-        thresh_frame = ttk.Frame(right_column)
-        thresh_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh_frame, text="Threshold:").pack(side='left')
-
-        thresh_slider = ttk.Scale(
-            thresh_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.threshold,
-            command=self._on_thresh_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        thresh_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.thresh_label = ttk.Label(thresh_frame, text="127")
-        self.thresh_label.pack(side='left', padx=5)
-
-        # Invert checkbox
-        invert_frame = ttk.Frame(right_column)
-        invert_frame.pack(fill='x', pady=3)
-
-        ttk.Checkbutton(
-            invert_frame,
-            text="Invert Threshold",
-            variable=self.invert
-        ).pack(side='left')
-
-        # Connectivity
-        conn_frame = ttk.Frame(right_column)
-        conn_frame.pack(fill='x', pady=3)
-
-        ttk.Label(conn_frame, text="Connectivity:").pack(side='left')
-
-        ttk.Radiobutton(
-            conn_frame,
-            text="4",
-            variable=self.connectivity,
-            value=4
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            conn_frame,
-            text="8",
-            variable=self.connectivity,
-            value=8
-        ).pack(side='left', padx=5)
-
-        # Min area
-        minarea_frame = ttk.Frame(right_column)
-        minarea_frame.pack(fill='x', pady=3)
-
-        ttk.Label(minarea_frame, text="Min Area:").pack(side='left')
-
-        minarea_slider = ttk.Scale(
-            minarea_frame,
-            from_=0,
-            to=1000,
-            orient='horizontal',
-            variable=self.min_area,
-            command=self._on_minarea_change
-        )
-        minarea_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.minarea_label = ttk.Label(minarea_frame, text="0")
-        self.minarea_label.pack(side='left', padx=5)
-
-        # Components found display
-        count_frame = ttk.Frame(right_column)
-        count_frame.pack(fill='x', pady=3)
-
-        ttk.Label(count_frame, text="Components found:").pack(side='left')
-        self.count_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
-        self.count_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_thresh_change(self, value):
-        self.thresh_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'threshold':
+                var.trace_add('write', lambda *args: self.threshold.set(int(self._subform._vars['threshold'].get())))
+            elif key == 'invert':
+                var.trace_add('write', lambda *args: self.invert.set(self._subform._vars['invert'].get()))
+            elif key == 'connectivity':
+                var.trace_add('write', lambda *args: self.connectivity.set(int(self._subform._vars['connectivity'].get())))
+            elif key == 'min_area':
+                var.trace_add('write', lambda *args: self.min_area.set(int(self._subform._vars['min_area'].get())))
 
-    def _on_minarea_change(self, value):
-        self.minarea_label.config(text=str(int(float(value))))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
+
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Threshold: {self.threshold.get()}")
+        lines.append(f"Invert Threshold: {'Yes' if self.invert.get() else 'No'}")
+        lines.append(f"Connectivity: {self.connectivity.get()}")
+        lines.append(f"Min Area: {self.min_area.get()}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'threshold': self.threshold.get(),
+            'invert': self.invert.get(),
+            'connectivity': self.connectivity.get(),
+            'min_area': self.min_area.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'threshold' in key and 'invert' not in key:
+                        self.threshold.set(max(0, min(255, int(value))))
+                    elif 'invert' in key:
+                        self.invert.set(value.lower() in ('yes', 'true', '1'))
+                    elif 'connectivity' in key:
+                        val = int(value)
+                        if val <= 4:
+                            val = 4
+                        else:
+                            val = 8
+                        self.connectivity.set(val)
+                    elif 'min area' in key or 'area' in key:
+                        self.min_area.set(max(0, min(1000, int(value))))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'threshold' in self._subform._vars:
+                    self._subform._vars['threshold'].set(self.threshold.get())
+                if 'invert' in self._subform._vars:
+                    self._subform._vars['invert'].set(self.invert.get())
+                if 'connectivity' in self._subform._vars:
+                    self._subform._vars['connectivity'].set(str(self.connectivity.get()))
+                if 'min_area' in self._subform._vars:
+                    self._subform._vars['min_area'].set(self.min_area.get())
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'threshold' in data:
+                self.threshold.set(max(0, min(255, int(data['threshold']))))
+            if 'invert' in data:
+                self.invert.set(bool(data['invert']))
+            if 'connectivity' in data:
+                val = int(data['connectivity'])
+                if val <= 4:
+                    val = 4
+                else:
+                    val = 8
+                self.connectivity.set(val)
+            if 'min_area' in data:
+                self.min_area.set(max(0, min(1000, int(data['min_area']))))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'threshold' in self._subform._vars:
+                    self._subform._vars['threshold'].set(self.threshold.get())
+                if 'invert' in self._subform._vars:
+                    self._subform._vars['invert'].set(self.invert.get())
+                if 'connectivity' in self._subform._vars:
+                    self._subform._vars['connectivity'].set(str(self.connectivity.get()))
+                if 'min_area' in self._subform._vars:
+                    self._subform._vars['min_area'].set(self.min_area.get())
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Threshold: {self.threshold.get()}")
+        lines.append(f"Invert Threshold: {'Yes' if self.invert.get() else 'No'}")
+        lines.append(f"Connectivity: {self.connectivity.get()}")
+        lines.append(f"Min Area: {self.min_area.get()}")
+        return '\n'.join(lines)
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Label connected components and colorize them"""
@@ -231,15 +323,5 @@ class ConnectedComponentsEffect(BaseUIEffect):
 
         # Map labels to colors
         result = colors[labels]
-
-        # Count visible components
-        visible_count = 0
-        for i in range(1, num_labels):
-            if not np.array_equal(colors[i], [0, 0, 0]):
-                visible_count += 1
-
-        # Update count
-        if hasattr(self, 'count_label'):
-            self.count_label.config(text=str(visible_count))
 
         return result

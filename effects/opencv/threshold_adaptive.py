@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class ThresholdAdaptiveEffect(BaseUIEffect):
@@ -53,179 +55,253 @@ class ThresholdAdaptiveEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        method_names = [name for _, name in self.ADAPTIVE_METHODS]
+        type_names = [name for _, name in self.THRESHOLD_TYPES]
+        # Odd values from 3 to 99
+        block_sizes = [i for i in range(3, 100, 2)]
+
+        return [
+            {'type': 'slider', 'label': 'Max Value', 'key': 'max_value', 'min': 0, 'max': 255, 'default': 255},
+            {'type': 'dropdown', 'label': 'Adaptive Method', 'key': 'adaptive_method_index', 'options': method_names, 'default': 'ADAPTIVE_THRESH_MEAN_C'},
+            {'type': 'dropdown', 'label': 'Threshold Type', 'key': 'thresh_type_index', 'options': type_names, 'default': 'THRESH_BINARY'},
+            {'type': 'dropdown', 'label': 'Block Size', 'key': 'block_size', 'options': block_sizes, 'default': 25},
+            {'type': 'slider', 'label': 'C (constant)', 'key': 'c_value', 'min': -50, 'max': 50, 'default': 15},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        method_names = [name for _, name in self.ADAPTIVE_METHODS]
+        type_names = [name for _, name in self.THRESHOLD_TYPES]
+        return {
+            'max_value': self.max_value.get(),
+            'adaptive_method_index': method_names[self.adaptive_method_index.get()],
+            'thresh_type_index': type_names[self.thresh_type_index.get()],
+            'block_size': self.block_size.get(),
+            'c_value': self.c_value.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title in section header font
-            title_label = ttk.Label(
-                header_frame,
-                text="Adaptive Threshold",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature for reference
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.adaptiveThreshold(src, maxValue, adaptiveMethod, thresholdType, blockSize, C)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox (vertically centered)
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        # Spacer to center the checkbox vertically
-        ttk.Frame(left_column).pack(expand=True)
-
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
 
-        # Spacer below
-        ttk.Frame(left_column).pack(expand=True)
-
-        # Right column - all parameter controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Max value control
-        max_frame = ttk.Frame(right_column)
-        max_frame.pack(fill='x', pady=3)
-
-        ttk.Label(max_frame, text="Max Value:").pack(side='left')
-
-        max_slider = ttk.Scale(
-            max_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.max_value,
-            command=self._on_max_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        max_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.max_label = ttk.Label(max_frame, text="255")
-        self.max_label.pack(side='left', padx=5)
-
-        # Adaptive method dropdown
-        method_frame = ttk.Frame(right_column)
-        method_frame.pack(fill='x', pady=3)
-
-        ttk.Label(method_frame, text="Adaptive Method:").pack(side='left')
-
-        method_names = [name for _, name in self.ADAPTIVE_METHODS]
-        self.method_combo = ttk.Combobox(
-            method_frame,
-            values=method_names,
-            state='readonly',
-            width=25
-        )
-        self.method_combo.current(0)
-        self.method_combo.pack(side='left', padx=5)
-        self.method_combo.bind('<<ComboboxSelected>>', self._on_method_change)
-
-        # Threshold type dropdown
-        type_frame = ttk.Frame(right_column)
-        type_frame.pack(fill='x', pady=3)
-
-        ttk.Label(type_frame, text="Threshold Type:").pack(side='left')
-
-        type_names = [name for _, name in self.THRESHOLD_TYPES]
-        self.type_combo = ttk.Combobox(
-            type_frame,
-            values=type_names,
-            state='readonly',
-            width=20
-        )
-        self.type_combo.current(0)
-        self.type_combo.pack(side='left', padx=5)
-        self.type_combo.bind('<<ComboboxSelected>>', self._on_type_change)
-
-        # Block size control
-        block_frame = ttk.Frame(right_column)
-        block_frame.pack(fill='x', pady=3)
-
-        ttk.Label(block_frame, text="Block Size:").pack(side='left')
-
-        block_slider = ttk.Scale(
-            block_frame,
-            from_=3,
-            to=99,
-            orient='horizontal',
-            variable=self.block_size,
-            command=self._on_block_change
-        )
-        block_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.block_label = ttk.Label(block_frame, text="25")
-        self.block_label.pack(side='left', padx=5)
-
-        ttk.Label(block_frame, text="(must be odd)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # C value control
-        c_frame = ttk.Frame(right_column)
-        c_frame.pack(fill='x', pady=3)
-
-        ttk.Label(c_frame, text="C (constant):").pack(side='left')
-
-        c_slider = ttk.Scale(
-            c_frame,
-            from_=-50,
-            to=50,
-            orient='horizontal',
-            variable=self.c_value,
-            command=self._on_c_change
-        )
-        c_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.c_label = ttk.Label(c_frame, text="15")
-        self.c_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_max_change(self, value):
-        """Handle max value slider change"""
-        maxval = int(float(value))
-        self.max_label.config(text=str(maxval))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        method_names = [name for _, name in self.ADAPTIVE_METHODS]
+        type_names = [name for _, name in self.THRESHOLD_TYPES]
 
-    def _on_method_change(self, event):
-        """Handle adaptive method change"""
-        self.adaptive_method_index.set(self.method_combo.current())
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'max_value':
+                var.trace_add('write', lambda *args: self.max_value.set(int(self._subform._vars['max_value'].get())))
+            elif key == 'adaptive_method_index':
+                def update_method(*args):
+                    val = self._subform._vars['adaptive_method_index'].get()
+                    if val in method_names:
+                        self.adaptive_method_index.set(method_names.index(val))
+                var.trace_add('write', update_method)
+            elif key == 'thresh_type_index':
+                def update_type(*args):
+                    val = self._subform._vars['thresh_type_index'].get()
+                    if val in type_names:
+                        self.thresh_type_index.set(type_names.index(val))
+                var.trace_add('write', update_type)
+            elif key == 'block_size':
+                var.trace_add('write', lambda *args: self.block_size.set(int(self._subform._vars['block_size'].get())))
+            elif key == 'c_value':
+                var.trace_add('write', lambda *args: self.c_value.set(int(self._subform._vars['c_value'].get())))
 
-    def _on_type_change(self, event):
-        """Handle threshold type change"""
-        self.thresh_type_index.set(self.type_combo.current())
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_block_change(self, value):
-        """Handle block size slider change - ensure odd value"""
-        block = int(float(value))
-        # Ensure block size is odd
-        if block % 2 == 0:
-            block = block + 1
-        self.block_size.set(block)
-        self.block_label.config(text=str(block))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_c_change(self, value):
-        """Handle C value slider change"""
-        c = int(float(value))
-        self.c_label.config(text=str(c))
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Max Value: {self.max_value.get()}")
+        method_name = self.ADAPTIVE_METHODS[self.adaptive_method_index.get()][1]
+        lines.append(f"Adaptive Method: {method_name}")
+        type_name = self.THRESHOLD_TYPES[self.thresh_type_index.get()][1]
+        lines.append(f"Threshold Type: {type_name}")
+        lines.append(f"Block Size: {self.block_size.get()}")
+        lines.append(f"C: {self.c_value.get()}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'max_value': self.max_value.get(),
+            'adaptive_method': self.ADAPTIVE_METHODS[self.adaptive_method_index.get()][1],
+            'threshold_type': self.THRESHOLD_TYPES[self.thresh_type_index.get()][1],
+            'block_size': self.block_size.get(),
+            'c_value': self.c_value.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+            method_names = [name for _, name in self.ADAPTIVE_METHODS]
+            type_names = [name for _, name in self.THRESHOLD_TYPES]
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'max' in key and 'value' in key:
+                        self.max_value.set(max(0, min(255, int(value))))
+                    elif 'adaptive' in key and 'method' in key:
+                        if value in method_names:
+                            self.adaptive_method_index.set(method_names.index(value))
+                    elif 'threshold' in key and 'type' in key:
+                        if value in type_names:
+                            self.thresh_type_index.set(type_names.index(value))
+                    elif 'block' in key:
+                        val = int(value)
+                        if val % 2 == 0:
+                            val += 1
+                        self.block_size.set(max(3, min(99, val)))
+                    elif key == 'c':
+                        self.c_value.set(max(-50, min(50, int(value))))
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+            method_names = [name for _, name in self.ADAPTIVE_METHODS]
+            type_names = [name for _, name in self.THRESHOLD_TYPES]
+
+            if 'max_value' in data:
+                self.max_value.set(max(0, min(255, int(data['max_value']))))
+            if 'adaptive_method' in data:
+                if data['adaptive_method'] in method_names:
+                    self.adaptive_method_index.set(method_names.index(data['adaptive_method']))
+            if 'threshold_type' in data:
+                if data['threshold_type'] in type_names:
+                    self.thresh_type_index.set(type_names.index(data['threshold_type']))
+            if 'block_size' in data:
+                val = int(data['block_size'])
+                if val % 2 == 0:
+                    val += 1
+                self.block_size.set(max(3, min(99, val)))
+            if 'c_value' in data:
+                self.c_value.set(max(-50, min(50, int(data['c_value']))))
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_effect(self):
+        """Sync subform variables from effect variables"""
+        if self._current_mode == 'edit' and hasattr(self, '_subform'):
+            method_names = [name for _, name in self.ADAPTIVE_METHODS]
+            type_names = [name for _, name in self.THRESHOLD_TYPES]
+
+            if 'max_value' in self._subform._vars:
+                self._subform._vars['max_value'].set(self.max_value.get())
+            if 'adaptive_method_index' in self._subform._vars:
+                self._subform._vars['adaptive_method_index'].set(method_names[self.adaptive_method_index.get()])
+            if 'thresh_type_index' in self._subform._vars:
+                self._subform._vars['thresh_type_index'].set(type_names[self.thresh_type_index.get()])
+            if 'block_size' in self._subform._vars:
+                self._subform._vars['block_size'].set(str(self.block_size.get()))
+            if 'c_value' in self._subform._vars:
+                self._subform._vars['c_value'].set(self.c_value.get())
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""

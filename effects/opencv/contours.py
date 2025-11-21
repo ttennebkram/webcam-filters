@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class ContoursEffect(BaseUIEffect):
@@ -110,282 +112,320 @@ class ContoursEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'checkbox', 'label': 'Show Original Background', 'key': 'show_original', 'default': True},
+            {'type': 'slider', 'label': 'Threshold', 'key': 'threshold_value', 'min': 0, 'max': 255, 'default': 127},
+            {'type': 'dropdown', 'label': 'Retrieval Mode', 'key': 'retrieval_mode', 'options': [name for _, name, _ in cls.RETRIEVAL_MODES], 'default': 'RETR_EXTERNAL'},
+            {'type': 'dropdown', 'label': 'Approximation', 'key': 'approx_method', 'options': [name for _, name, _ in cls.APPROX_METHODS], 'default': 'CHAIN_APPROX_NONE'},
+            {'type': 'slider', 'label': 'Line Thickness', 'key': 'thickness', 'min': 1, 'max': 10, 'default': 2},
+            {'type': 'dropdown', 'label': 'Sort By', 'key': 'sort_method', 'options': [name for name, _ in cls.SORT_METHODS], 'default': 'None'},
+            {'type': 'dropdown', 'label': 'Draw Mode', 'key': 'draw_mode', 'options': [name for name, _ in cls.DRAW_MODES], 'default': 'Contours'},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        retrieval_idx = self.retrieval_mode.get()
+        approx_idx = self.approx_method.get()
+        sort_idx = self.sort_method.get()
+        draw_idx = self.draw_mode.get()
+
+        return {
+            'show_original': self.show_original.get(),
+            'threshold_value': self.threshold_value.get(),
+            'retrieval_mode': self.RETRIEVAL_MODES[retrieval_idx][1] if retrieval_idx < len(self.RETRIEVAL_MODES) else 'RETR_EXTERNAL',
+            'approx_method': self.APPROX_METHODS[approx_idx][1] if approx_idx < len(self.APPROX_METHODS) else 'CHAIN_APPROX_NONE',
+            'thickness': self.thickness.get(),
+            'sort_method': self.SORT_METHODS[sort_idx][0] if sort_idx < len(self.SORT_METHODS) else 'None',
+            'draw_mode': self.DRAW_MODES[draw_idx][0] if draw_idx < len(self.DRAW_MODES) else 'Contours',
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Contour Detection",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.findContours(image, mode, method)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Background option
-        bg_frame = ttk.Frame(right_column)
-        bg_frame.pack(fill='x', pady=3)
-
-        ttk.Label(bg_frame, text="Background:").pack(side='left')
-
-        ttk.Radiobutton(
-            bg_frame,
-            text="Original Image",
-            variable=self.show_original,
-            value=True
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            bg_frame,
-            text="Black",
-            variable=self.show_original,
-            value=False
-        ).pack(side='left', padx=5)
-
-        # Threshold control (for pre-processing)
-        thresh_frame = ttk.Frame(right_column)
-        thresh_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh_frame, text="Threshold:").pack(side='left')
-
-        thresh_slider = ttk.Scale(
-            thresh_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.threshold_value,
-            command=self._on_thresh_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        thresh_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.thresh_label = ttk.Label(thresh_frame, text="127")
-        self.thresh_label.pack(side='left', padx=5)
-
-        # Retrieval mode dropdown
-        retrieval_frame = ttk.Frame(right_column)
-        retrieval_frame.pack(fill='x', pady=3)
-
-        ttk.Label(retrieval_frame, text="Retrieval Mode:").pack(side='left')
-
-        retrieval_values = [f"{name}" for _, name, _ in self.RETRIEVAL_MODES]
-        self.retrieval_combo = ttk.Combobox(
-            retrieval_frame,
-            values=retrieval_values,
-            state='readonly',
-            width=20
-        )
-        self.retrieval_combo.current(0)
-        self.retrieval_combo.pack(side='left', padx=5)
-        self.retrieval_combo.bind('<<ComboboxSelected>>', self._on_retrieval_change)
-
-        # Retrieval mode description
-        self.retrieval_desc = ttk.Label(
-            retrieval_frame,
-            text=self.RETRIEVAL_MODES[0][2],
-            font=('TkDefaultFont', 10, 'italic')
-        )
-        self.retrieval_desc.pack(side='left', padx=5)
-
-        # Approximation method dropdown
-        approx_frame = ttk.Frame(right_column)
-        approx_frame.pack(fill='x', pady=3)
-
-        ttk.Label(approx_frame, text="Approximation:").pack(side='left')
-
-        approx_values = [f"{name}" for _, name, _ in self.APPROX_METHODS]
-        self.approx_combo = ttk.Combobox(
-            approx_frame,
-            values=approx_values,
-            state='readonly',
-            width=25
-        )
-        self.approx_combo.current(0)
-        self.approx_combo.pack(side='left', padx=5)
-        self.approx_combo.bind('<<ComboboxSelected>>', self._on_approx_change)
-
-        # Thickness control
-        thick_frame = ttk.Frame(right_column)
-        thick_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thick_frame, text="Line Thickness:").pack(side='left')
-
-        thick_slider = ttk.Scale(
-            thick_frame,
-            from_=1,
-            to=10,
-            orient='horizontal',
-            variable=self.thickness,
-            command=self._on_thickness_change
-        )
-        thick_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.thick_label = ttk.Label(thick_frame, text="2")
-        self.thick_label.pack(side='left', padx=5)
-
-        # Color controls
-        color_frame = ttk.Frame(right_column)
-        color_frame.pack(fill='x', pady=3)
-
-        ttk.Label(color_frame, text="Contour Color (BGR):").pack(side='left')
-
-        # B
-        ttk.Label(color_frame, text="B:").pack(side='left', padx=(10, 2))
-        b_spin = ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.contour_color_b)
-        b_spin.pack(side='left')
-
-        # G
-        ttk.Label(color_frame, text="G:").pack(side='left', padx=(10, 2))
-        g_spin = ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.contour_color_g)
-        g_spin.pack(side='left')
-
-        # R
-        ttk.Label(color_frame, text="R:").pack(side='left', padx=(10, 2))
-        r_spin = ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.contour_color_r)
-        r_spin.pack(side='left')
-
-        # Sorting dropdown
-        sort_frame = ttk.Frame(right_column)
-        sort_frame.pack(fill='x', pady=3)
-
-        ttk.Label(sort_frame, text="Sort By:").pack(side='left')
-
-        sort_values = [name for name, _ in self.SORT_METHODS]
-        self.sort_combo = ttk.Combobox(
-            sort_frame,
-            values=sort_values,
-            state='readonly',
-            width=28
-        )
-        self.sort_combo.current(0)
-        self.sort_combo.pack(side='left', padx=5)
-        self.sort_combo.bind('<<ComboboxSelected>>', self._on_sort_change)
-
-        # Min/Max index selection (after sorting)
-        index_frame = ttk.Frame(right_column)
-        index_frame.pack(fill='x', pady=3)
-
-        ttk.Label(index_frame, text="Keep Contours:").pack(side='left')
-
-        # Min index
-        ttk.Label(index_frame, text="From:").pack(side='left', padx=(10, 2))
-        min_idx_spin = ttk.Spinbox(
-            index_frame,
-            from_=1,
-            to=1000,
-            width=5,
-            textvariable=self.min_index
-        )
-        min_idx_spin.pack(side='left')
-
-        # Max index
-        ttk.Label(index_frame, text="To:").pack(side='left', padx=(10, 2))
-        max_idx_spin = ttk.Spinbox(
-            index_frame,
-            from_=1,
-            to=1000,
-            width=5,
-            textvariable=self.max_index
-        )
-        max_idx_spin.pack(side='left')
-
-        ttk.Label(
-            index_frame,
-            text="(after sort)",
-            font=('TkDefaultFont', 10, 'italic')
-        ).pack(side='left', padx=5)
-
-        # Contour count display
-        count_frame = ttk.Frame(right_column)
-        count_frame.pack(fill='x', pady=3)
-
-        ttk.Label(count_frame, text="Contours found:").pack(side='left')
-        self.count_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
-        self.count_label.pack(side='left', padx=5)
-
-        ttk.Label(count_frame, text="Displayed:").pack(side='left', padx=(15, 0))
-        self.displayed_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
-        self.displayed_label.pack(side='left', padx=5)
-
-        # Drawing mode dropdown
-        draw_frame = ttk.Frame(right_column)
-        draw_frame.pack(fill='x', pady=3)
-
-        ttk.Label(draw_frame, text="Draw Mode:").pack(side='left')
-
-        draw_values = [name for name, _ in self.DRAW_MODES]
-        self.draw_combo = ttk.Combobox(
-            draw_frame,
-            values=draw_values,
-            state='readonly',
-            width=25
-        )
-        self.draw_combo.current(0)
-        self.draw_combo.pack(side='left', padx=5)
-        self.draw_combo.bind('<<ComboboxSelected>>', self._on_draw_mode_change)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_thresh_change(self, value):
-        """Handle threshold slider change"""
-        self.thresh_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'show_original':
+                var.trace_add('write', lambda *args: self.show_original.set(self._subform._vars['show_original'].get()))
+            elif key == 'threshold_value':
+                var.trace_add('write', lambda *args: self.threshold_value.set(int(self._subform._vars['threshold_value'].get())))
+            elif key == 'retrieval_mode':
+                var.trace_add('write', lambda *args: self._update_retrieval_mode())
+            elif key == 'approx_method':
+                var.trace_add('write', lambda *args: self._update_approx_method())
+            elif key == 'thickness':
+                var.trace_add('write', lambda *args: self.thickness.set(int(self._subform._vars['thickness'].get())))
+            elif key == 'sort_method':
+                var.trace_add('write', lambda *args: self._update_sort_method())
+            elif key == 'draw_mode':
+                var.trace_add('write', lambda *args: self._update_draw_mode())
 
-    def _on_retrieval_change(self, event):
-        """Handle retrieval mode change"""
-        idx = self.retrieval_combo.current()
-        self.retrieval_mode.set(idx)
-        self.retrieval_desc.config(text=self.RETRIEVAL_MODES[idx][2])
+    def _update_retrieval_mode(self):
+        """Update retrieval mode from subform value"""
+        value = self._subform._vars['retrieval_mode'].get()
+        for idx, (_, name, _) in enumerate(self.RETRIEVAL_MODES):
+            if name == value:
+                self.retrieval_mode.set(idx)
+                break
 
-    def _on_approx_change(self, event):
-        """Handle approximation method change"""
-        self.approx_method.set(self.approx_combo.current())
+    def _update_approx_method(self):
+        """Update approximation method from subform value"""
+        value = self._subform._vars['approx_method'].get()
+        for idx, (_, name, _) in enumerate(self.APPROX_METHODS):
+            if name == value:
+                self.approx_method.set(idx)
+                break
 
-    def _on_thickness_change(self, value):
-        """Handle thickness slider change"""
-        self.thick_label.config(text=str(int(float(value))))
+    def _update_sort_method(self):
+        """Update sort method from subform value"""
+        value = self._subform._vars['sort_method'].get()
+        for idx, (name, _) in enumerate(self.SORT_METHODS):
+            if name == value:
+                self.sort_method.set(idx)
+                break
 
-    def _on_draw_mode_change(self, event):
-        """Handle draw mode change"""
-        self.draw_mode.set(self.draw_combo.current())
+    def _update_draw_mode(self):
+        """Update draw mode from subform value"""
+        value = self._subform._vars['draw_mode'].get()
+        for idx, (name, _) in enumerate(self.DRAW_MODES):
+            if name == value:
+                self.draw_mode.set(idx)
+                break
 
-    def _on_sort_change(self, event):
-        """Handle sort method change"""
-        self.sort_method.set(self.sort_combo.current())
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
+
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Background: {'Original Image' if self.show_original.get() else 'Black'}")
+        lines.append(f"Threshold: {self.threshold_value.get()}")
+
+        retrieval_idx = self.retrieval_mode.get()
+        lines.append(f"Retrieval: {self.RETRIEVAL_MODES[retrieval_idx][1] if retrieval_idx < len(self.RETRIEVAL_MODES) else 'Unknown'}")
+
+        approx_idx = self.approx_method.get()
+        lines.append(f"Approximation: {self.APPROX_METHODS[approx_idx][1] if approx_idx < len(self.APPROX_METHODS) else 'Unknown'}")
+
+        lines.append(f"Thickness: {self.thickness.get()}")
+
+        sort_idx = self.sort_method.get()
+        lines.append(f"Sort By: {self.SORT_METHODS[sort_idx][0] if sort_idx < len(self.SORT_METHODS) else 'Unknown'}")
+
+        draw_idx = self.draw_mode.get()
+        lines.append(f"Draw Mode: {self.DRAW_MODES[draw_idx][0] if draw_idx < len(self.DRAW_MODES) else 'Unknown'}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        retrieval_idx = self.retrieval_mode.get()
+        approx_idx = self.approx_method.get()
+        sort_idx = self.sort_method.get()
+        draw_idx = self.draw_mode.get()
+
+        data = {
+            'effect': self.get_name(),
+            'show_original': self.show_original.get(),
+            'threshold_value': self.threshold_value.get(),
+            'retrieval_mode': self.RETRIEVAL_MODES[retrieval_idx][1] if retrieval_idx < len(self.RETRIEVAL_MODES) else 'RETR_EXTERNAL',
+            'approx_method': self.APPROX_METHODS[approx_idx][1] if approx_idx < len(self.APPROX_METHODS) else 'CHAIN_APPROX_NONE',
+            'thickness': self.thickness.get(),
+            'sort_method': self.SORT_METHODS[sort_idx][0] if sort_idx < len(self.SORT_METHODS) else 'None',
+            'draw_mode': self.DRAW_MODES[draw_idx][0] if draw_idx < len(self.DRAW_MODES) else 'Contours',
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'background' in key:
+                        self.show_original.set(value.lower() != 'black')
+                    elif 'threshold' in key:
+                        self.threshold_value.set(max(0, min(255, int(value))))
+                    elif 'retrieval' in key:
+                        for idx, (_, name, _) in enumerate(self.RETRIEVAL_MODES):
+                            if name == value:
+                                self.retrieval_mode.set(idx)
+                                break
+                    elif 'approximation' in key:
+                        for idx, (_, name, _) in enumerate(self.APPROX_METHODS):
+                            if name == value:
+                                self.approx_method.set(idx)
+                                break
+                    elif 'thickness' in key:
+                        self.thickness.set(max(1, min(10, int(value))))
+                    elif 'sort' in key:
+                        for idx, (name, _) in enumerate(self.SORT_METHODS):
+                            if name == value:
+                                self.sort_method.set(idx)
+                                break
+                    elif 'draw' in key and 'mode' in key:
+                        for idx, (name, _) in enumerate(self.DRAW_MODES):
+                            if name == value:
+                                self.draw_mode.set(idx)
+                                break
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'show_original' in data:
+                self.show_original.set(bool(data['show_original']))
+            if 'threshold_value' in data:
+                self.threshold_value.set(max(0, min(255, int(data['threshold_value']))))
+            if 'retrieval_mode' in data:
+                for idx, (_, name, _) in enumerate(self.RETRIEVAL_MODES):
+                    if name == data['retrieval_mode']:
+                        self.retrieval_mode.set(idx)
+                        break
+            if 'approx_method' in data:
+                for idx, (_, name, _) in enumerate(self.APPROX_METHODS):
+                    if name == data['approx_method']:
+                        self.approx_method.set(idx)
+                        break
+            if 'thickness' in data:
+                self.thickness.set(max(1, min(10, int(data['thickness']))))
+            if 'sort_method' in data:
+                for idx, (name, _) in enumerate(self.SORT_METHODS):
+                    if name == data['sort_method']:
+                        self.sort_method.set(idx)
+                        break
+            if 'draw_mode' in data:
+                for idx, (name, _) in enumerate(self.DRAW_MODES):
+                    if name == data['draw_mode']:
+                        self.draw_mode.set(idx)
+                        break
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_vars(self):
+        """Sync subform variables from effect variables"""
+        if 'show_original' in self._subform._vars:
+            self._subform._vars['show_original'].set(self.show_original.get())
+        if 'threshold_value' in self._subform._vars:
+            self._subform._vars['threshold_value'].set(self.threshold_value.get())
+        if 'retrieval_mode' in self._subform._vars:
+            idx = self.retrieval_mode.get()
+            self._subform._vars['retrieval_mode'].set(self.RETRIEVAL_MODES[idx][1] if idx < len(self.RETRIEVAL_MODES) else 'RETR_EXTERNAL')
+        if 'approx_method' in self._subform._vars:
+            idx = self.approx_method.get()
+            self._subform._vars['approx_method'].set(self.APPROX_METHODS[idx][1] if idx < len(self.APPROX_METHODS) else 'CHAIN_APPROX_NONE')
+        if 'thickness' in self._subform._vars:
+            self._subform._vars['thickness'].set(self.thickness.get())
+        if 'sort_method' in self._subform._vars:
+            idx = self.sort_method.get()
+            self._subform._vars['sort_method'].set(self.SORT_METHODS[idx][0] if idx < len(self.SORT_METHODS) else 'None')
+        if 'draw_mode' in self._subform._vars:
+            idx = self.draw_mode.get()
+            self._subform._vars['draw_mode'].set(self.DRAW_MODES[idx][0] if idx < len(self.DRAW_MODES) else 'Contours')
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""
@@ -540,10 +580,6 @@ class ContoursEffect(BaseUIEffect):
         # Find contours
         contours, hierarchy = cv2.findContours(binary, retrieval_mode, approx_method)
 
-        # Update count display (before sorting/index selection)
-        if hasattr(self, 'count_label'):
-            self.count_label.config(text=str(len(contours)))
-
         # Sort contours
         sort_idx = self.sort_method.get()
         sort_key = self.SORT_METHODS[sort_idx][1]
@@ -558,10 +594,6 @@ class ContoursEffect(BaseUIEffect):
             max_idx = 100
 
         selected_contours = list(sorted_contours[min_idx:max_idx])
-
-        # Update displayed count
-        if hasattr(self, 'displayed_label'):
-            self.displayed_label.config(text=str(len(selected_contours)))
 
         # Create output image
         if self.show_original.get():

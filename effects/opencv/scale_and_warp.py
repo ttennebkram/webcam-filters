@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class ScaleAndWarpEffect(BaseUIEffect):
@@ -62,228 +64,250 @@ class ScaleAndWarpEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'slider', 'label': 'Translate X', 'key': 'translate_x', 'min': -500, 'max': 500, 'default': 0},
+            {'type': 'slider', 'label': 'Translate Y', 'key': 'translate_y', 'min': -500, 'max': 500, 'default': 0},
+            {'type': 'slider', 'label': 'Rotation', 'key': 'rotation', 'min': -180, 'max': 180, 'default': 0},
+            {'type': 'slider', 'label': 'Scale', 'key': 'scale', 'min': 0.1, 'max': 4.0, 'default': 1.0},
+            {'type': 'checkbox', 'label': 'Use Image Center', 'key': 'use_image_center', 'default': True},
+            {'type': 'dropdown', 'label': 'Border Mode', 'key': 'border_mode', 'options': [name for _, name in cls.BORDER_MODES], 'default': 'Constant (black)'},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        border_idx = self.border_mode.get()
+
+        return {
+            'translate_x': self.translate_x.get(),
+            'translate_y': self.translate_y.get(),
+            'rotation': self.rotation.get(),
+            'scale': self.scale.get(),
+            'use_image_center': self.use_image_center.get(),
+            'border_mode': self.BORDER_MODES[border_idx][1] if border_idx < len(self.BORDER_MODES) else 'Constant (black)',
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Geometric Transform",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.warpAffine(src, Matrix, dsize)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Translation X
-        tx_frame = ttk.Frame(right_column)
-        tx_frame.pack(fill='x', pady=3)
-
-        ttk.Label(tx_frame, text="Translate X:").pack(side='left')
-
-        tx_slider = ttk.Scale(
-            tx_frame,
-            from_=-500,
-            to=500,
-            orient='horizontal',
-            variable=self.translate_x,
-            command=self._on_tx_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        tx_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.tx_label = ttk.Label(tx_frame, text="0")
-        self.tx_label.pack(side='left', padx=5)
-
-        # Translation Y
-        ty_frame = ttk.Frame(right_column)
-        ty_frame.pack(fill='x', pady=3)
-
-        ttk.Label(ty_frame, text="Translate Y:").pack(side='left')
-
-        ty_slider = ttk.Scale(
-            ty_frame,
-            from_=-500,
-            to=500,
-            orient='horizontal',
-            variable=self.translate_y,
-            command=self._on_ty_change
-        )
-        ty_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.ty_label = ttk.Label(ty_frame, text="0")
-        self.ty_label.pack(side='left', padx=5)
-
-        # Rotation
-        rot_frame = ttk.Frame(right_column)
-        rot_frame.pack(fill='x', pady=3)
-
-        ttk.Label(rot_frame, text="Rotation:").pack(side='left')
-
-        rot_slider = ttk.Scale(
-            rot_frame,
-            from_=-180,
-            to=180,
-            orient='horizontal',
-            variable=self.rotation,
-            command=self._on_rotation_change
-        )
-        rot_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.rot_label = ttk.Label(rot_frame, text="0.0°")
-        self.rot_label.pack(side='left', padx=5)
-
-        # Scale
-        scale_frame = ttk.Frame(right_column)
-        scale_frame.pack(fill='x', pady=3)
-
-        ttk.Label(scale_frame, text="Scale:").pack(side='left')
-
-        scale_slider = ttk.Scale(
-            scale_frame,
-            from_=0.1,
-            to=4.0,
-            orient='horizontal',
-            variable=self.scale,
-            command=self._on_scale_change
-        )
-        scale_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.scale_label = ttk.Label(scale_frame, text="1.00x")
-        self.scale_label.pack(side='left', padx=5)
-
-        # Center point option - radio buttons
-        center_frame = ttk.Frame(right_column)
-        center_frame.pack(fill='x', pady=3)
-
-        ttk.Label(center_frame, text="Center:").pack(side='left')
-
-        ttk.Radiobutton(
-            center_frame,
-            text="Image Center",
-            variable=self.use_image_center,
-            value=True,
-            command=self._on_center_toggle
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            center_frame,
-            text="Custom X/Y",
-            variable=self.use_image_center,
-            value=False,
-            command=self._on_center_toggle
-        ).pack(side='left', padx=5)
-
-        # Custom center controls (always visible, but spinboxes disabled when using image center)
-        custom_center_frame = ttk.Frame(right_column)
-        custom_center_frame.pack(fill='x', pady=3)
-
-        ttk.Label(custom_center_frame, text="Center X:").pack(side='left', padx=(20, 0))
-        self.cx_spin = ttk.Spinbox(
-            custom_center_frame,
-            from_=0,
-            to=self.width,
-            width=5,
-            textvariable=self.center_x
-        )
-        self.cx_spin.pack(side='left', padx=(2, 10))
-
-        ttk.Label(custom_center_frame, text="Center Y:").pack(side='left')
-        self.cy_spin = ttk.Spinbox(
-            custom_center_frame,
-            from_=0,
-            to=self.height,
-            width=5,
-            textvariable=self.center_y
-        )
-        self.cy_spin.pack(side='left', padx=2)
-
-        # Initially disable custom center spinboxes if using image center
-        if self.use_image_center.get():
-            self.cx_spin.config(state='disabled')
-            self.cy_spin.config(state='disabled')
-
-        # Border mode
-        border_frame = ttk.Frame(right_column)
-        border_frame.pack(fill='x', pady=3)
-
-        ttk.Label(border_frame, text="Border Mode:").pack(side='left')
-
-        border_values = [name for _, name in self.BORDER_MODES]
-        self.border_combo = ttk.Combobox(
-            border_frame,
-            values=border_values,
-            state='readonly',
-            width=18
-        )
-        self.border_combo.current(0)
-        self.border_combo.pack(side='left', padx=5)
-        self.border_combo.bind('<<ComboboxSelected>>', self._on_border_change)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_tx_change(self, value):
-        """Handle translate X slider change"""
-        self.tx_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'translate_x':
+                var.trace_add('write', lambda *args: self.translate_x.set(int(self._subform._vars['translate_x'].get())))
+            elif key == 'translate_y':
+                var.trace_add('write', lambda *args: self.translate_y.set(int(self._subform._vars['translate_y'].get())))
+            elif key == 'rotation':
+                var.trace_add('write', lambda *args: self.rotation.set(float(self._subform._vars['rotation'].get())))
+            elif key == 'scale':
+                var.trace_add('write', lambda *args: self.scale.set(float(self._subform._vars['scale'].get())))
+            elif key == 'use_image_center':
+                var.trace_add('write', lambda *args: self.use_image_center.set(self._subform._vars['use_image_center'].get()))
+            elif key == 'border_mode':
+                var.trace_add('write', lambda *args: self._update_border_mode())
 
-    def _on_ty_change(self, value):
-        """Handle translate Y slider change"""
-        self.ty_label.config(text=str(int(float(value))))
+    def _update_border_mode(self):
+        """Update border mode from subform value"""
+        value = self._subform._vars['border_mode'].get()
+        for idx, (_, name) in enumerate(self.BORDER_MODES):
+            if name == value:
+                self.border_mode.set(idx)
+                break
 
-    def _on_rotation_change(self, value):
-        """Handle rotation slider change"""
-        self.rot_label.config(text=f"{float(value):.1f}°")
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_scale_change(self, value):
-        """Handle scale slider change"""
-        self.scale_label.config(text=f"{float(value):.2f}x")
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_center_toggle(self):
-        """Handle center point toggle"""
-        if self.use_image_center.get():
-            self.cx_spin.config(state='disabled')
-            self.cy_spin.config(state='disabled')
-        else:
-            self.cx_spin.config(state='normal')
-            self.cy_spin.config(state='normal')
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-    def _on_border_change(self, event):
-        """Handle border mode change"""
-        self.border_mode.set(self.border_combo.current())
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Translate X: {self.translate_x.get()}")
+        lines.append(f"Translate Y: {self.translate_y.get()}")
+        lines.append(f"Rotation: {self.rotation.get():.1f}")
+        lines.append(f"Scale: {self.scale.get():.2f}")
+        lines.append(f"Use Image Center: {'Yes' if self.use_image_center.get() else 'No'}")
+
+        border_idx = self.border_mode.get()
+        lines.append(f"Border Mode: {self.BORDER_MODES[border_idx][1] if border_idx < len(self.BORDER_MODES) else 'Unknown'}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        border_idx = self.border_mode.get()
+
+        data = {
+            'effect': self.get_name(),
+            'translate_x': self.translate_x.get(),
+            'translate_y': self.translate_y.get(),
+            'rotation': self.rotation.get(),
+            'scale': self.scale.get(),
+            'use_image_center': self.use_image_center.get(),
+            'border_mode': self.BORDER_MODES[border_idx][1] if border_idx < len(self.BORDER_MODES) else 'Constant (black)',
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'translate' in key and 'x' in key:
+                        self.translate_x.set(max(-500, min(500, int(value))))
+                    elif 'translate' in key and 'y' in key:
+                        self.translate_y.set(max(-500, min(500, int(value))))
+                    elif 'rotation' in key:
+                        self.rotation.set(max(-180, min(180, float(value))))
+                    elif 'scale' in key:
+                        self.scale.set(max(0.1, min(4.0, float(value))))
+                    elif 'use' in key and 'center' in key:
+                        self.use_image_center.set(value.lower() in ('yes', 'true', '1'))
+                    elif 'border' in key and 'mode' in key:
+                        for idx, (_, name) in enumerate(self.BORDER_MODES):
+                            if name == value:
+                                self.border_mode.set(idx)
+                                break
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'translate_x' in data:
+                self.translate_x.set(max(-500, min(500, int(data['translate_x']))))
+            if 'translate_y' in data:
+                self.translate_y.set(max(-500, min(500, int(data['translate_y']))))
+            if 'rotation' in data:
+                self.rotation.set(max(-180, min(180, float(data['rotation']))))
+            if 'scale' in data:
+                self.scale.set(max(0.1, min(4.0, float(data['scale']))))
+            if 'use_image_center' in data:
+                self.use_image_center.set(bool(data['use_image_center']))
+            if 'border_mode' in data:
+                for idx, (_, name) in enumerate(self.BORDER_MODES):
+                    if name == data['border_mode']:
+                        self.border_mode.set(idx)
+                        break
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_vars(self):
+        """Sync subform variables from effect variables"""
+        if 'translate_x' in self._subform._vars:
+            self._subform._vars['translate_x'].set(self.translate_x.get())
+        if 'translate_y' in self._subform._vars:
+            self._subform._vars['translate_y'].set(self.translate_y.get())
+        if 'rotation' in self._subform._vars:
+            self._subform._vars['rotation'].set(self.rotation.get())
+        if 'scale' in self._subform._vars:
+            self._subform._vars['scale'].set(self.scale.get())
+        if 'use_image_center' in self._subform._vars:
+            self._subform._vars['use_image_center'].set(self.use_image_center.get())
+        if 'border_mode' in self._subform._vars:
+            idx = self.border_mode.get()
+            self._subform._vars['border_mode'].set(self.BORDER_MODES[idx][1] if idx < len(self.BORDER_MODES) else 'Constant (black)')
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""
@@ -296,7 +320,7 @@ class ScaleAndWarpEffect(BaseUIEffect):
 
         # Rotation
         rotation = self.rotation.get()
-        lines.append(f"Rotation: {rotation:.1f}°")
+        lines.append(f"Rotation: {rotation:.1f}")
 
         # Scale
         scale = self.scale.get()

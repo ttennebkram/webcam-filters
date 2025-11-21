@@ -91,14 +91,14 @@ class Subform:
             label_text = field.get('label', '')
             key = field.get('key', '')
 
-            # Create label (right-justified) - pady=8 for consistent row height
+            # Create label (right-justified)
             if label_text:
                 label = ttk.Label(
                     self.frame,
                     text=f"{label_text}:",
                     anchor='e'
                 )
-                label.grid(row=row_idx, column=0, sticky='e', padx=(5, 10), pady=8)
+                label.grid(row=row_idx, column=0, sticky='e', padx=(5, 10), pady=4)
 
             # Get value for this field
             value = values.get(key)
@@ -139,7 +139,7 @@ class Subform:
 
             # Container for slider and value label
             container = ttk.Frame(self.frame)
-            container.grid(row=row, column=1, sticky='ew', pady=3)
+            container.grid(row=row, column=1, sticky='ew')
 
             # Slider
             slider = ttk.Scale(
@@ -176,7 +176,7 @@ class Subform:
             else:
                 text = ''
             label = ttk.Label(self.frame, text=text)
-            label.grid(row=row, column=1, sticky='w', pady=2)
+            label.grid(row=row, column=1, sticky='w')
 
     def _render_dropdown(self, row: int, field: Dict[str, Any], mode: str, value):
         """Render a dropdown field"""
@@ -195,7 +195,7 @@ class Subform:
                 state='readonly',
                 width=20
             )
-            combo.grid(row=row, column=1, sticky='w', pady=3)
+            combo.grid(row=row, column=1, sticky='w')
 
             # Set initial selection
             if value is not None and str(value) in [str(o) for o in options]:
@@ -206,7 +206,7 @@ class Subform:
         else:  # view mode
             text = str(value) if value is not None else ''
             label = ttk.Label(self.frame, text=text)
-            label.grid(row=row, column=1, sticky='w', pady=2)
+            label.grid(row=row, column=1, sticky='w')
 
     def _render_checkbox(self, row: int, field: Dict[str, Any], mode: str, value):
         """Render a checkbox field"""
@@ -218,13 +218,13 @@ class Subform:
             self._vars[key] = var
 
             cb = ttk.Checkbutton(self.frame, variable=var, text='')
-            cb.grid(row=row, column=1, sticky='w', pady=3)
+            cb.grid(row=row, column=1, sticky='w')
             self._widgets[key] = cb
 
         else:  # view mode
             text = 'Yes' if value else 'No'
             label = ttk.Label(self.frame, text=text)
-            label.grid(row=row, column=1, sticky='w', pady=2)
+            label.grid(row=row, column=1, sticky='w')
 
     def _render_radio(self, row: int, field: Dict[str, Any], mode: str, value):
         """Render radio button options"""
@@ -237,7 +237,7 @@ class Subform:
             self._vars[key] = var
 
             container = ttk.Frame(self.frame)
-            container.grid(row=row, column=1, sticky='w', pady=3)
+            container.grid(row=row, column=1, sticky='w')
 
             for opt_value, opt_text in options:
                 rb = ttk.Radiobutton(
@@ -258,7 +258,7 @@ class Subform:
                     text = opt_text
                     break
             label = ttk.Label(self.frame, text=text)
-            label.grid(row=row, column=1, sticky='w', pady=2)
+            label.grid(row=row, column=1, sticky='w')
 
     def _render_label_only(self, row: int, field: Dict[str, Any]):
         """Render a label-only field (no control)"""
@@ -476,19 +476,29 @@ class EffectForm:
         copy_text_btn.bind('<Button-1>', lambda e: self._on_copy_text_click())
         self._create_tooltip(copy_text_btn, "Copy Text")
 
-        paste_text_btn = tk.Label(
-            text_btn_frame,
-            text="PT",
-            relief='raised',
-            borderwidth=1,
-            padx=2,
-            pady=0,
-            cursor='hand2' if mode == 'edit' else 'arrow',
-            fg='black' if mode == 'edit' else 'gray'
-        )
-        paste_text_btn.pack(side='left')
         if mode == 'edit':
+            paste_text_btn = tk.Label(
+                text_btn_frame,
+                text="PT",
+                relief='raised',
+                borderwidth=1,
+                padx=2,
+                pady=0,
+                cursor='hand2'
+            )
             paste_text_btn.bind('<Button-1>', lambda e: self._on_paste_text_click())
+        else:
+            paste_text_btn = tk.Label(
+                text_btn_frame,
+                text="PT",
+                relief='raised',
+                borderwidth=1,
+                padx=2,
+                pady=0,
+                cursor='arrow',
+                fg='gray'
+            )
+        paste_text_btn.pack(side='left')
         self._create_tooltip(paste_text_btn, "Paste Text")
 
         # JSON buttons row (CJ and PJ)
@@ -508,19 +518,29 @@ class EffectForm:
         copy_json_btn.bind('<Button-1>', lambda e: self._on_copy_json_click())
         self._create_tooltip(copy_json_btn, "Copy JSON")
 
-        paste_json_btn = tk.Label(
-            json_btn_frame,
-            text="PJ",
-            relief='raised',
-            borderwidth=1,
-            padx=2,
-            pady=0,
-            cursor='hand2' if mode == 'edit' else 'arrow',
-            fg='black' if mode == 'edit' else 'gray'
-        )
-        paste_json_btn.pack(side='left')
         if mode == 'edit':
+            paste_json_btn = tk.Label(
+                json_btn_frame,
+                text="PJ",
+                relief='raised',
+                borderwidth=1,
+                padx=2,
+                pady=0,
+                cursor='hand2'
+            )
             paste_json_btn.bind('<Button-1>', lambda e: self._on_paste_json_click())
+        else:
+            paste_json_btn = tk.Label(
+                json_btn_frame,
+                text="PJ",
+                relief='raised',
+                borderwidth=1,
+                padx=2,
+                pady=0,
+                cursor='arrow',
+                fg='gray'
+            )
+        paste_json_btn.pack(side='left')
         self._create_tooltip(paste_json_btn, "Paste JSON")
 
         # Spacer below to center vertically

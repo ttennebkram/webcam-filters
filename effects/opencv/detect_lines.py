@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class HoughLinesEffect(BaseUIEffect):
@@ -70,291 +72,305 @@ class HoughLinesEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'checkbox', 'label': 'Probabilistic', 'key': 'use_probabilistic', 'default': True},
+            {'type': 'checkbox', 'label': 'Show Original', 'key': 'show_original', 'default': True},
+            {'type': 'checkbox', 'label': 'Draw Features', 'key': 'draw_features', 'default': True},
+            {'type': 'slider', 'label': 'Canny Thresh 1', 'key': 'canny_thresh1', 'min': 0, 'max': 255, 'default': 50},
+            {'type': 'slider', 'label': 'Canny Thresh 2', 'key': 'canny_thresh2', 'min': 0, 'max': 255, 'default': 150},
+            {'type': 'slider', 'label': 'Threshold', 'key': 'threshold', 'min': 1, 'max': 200, 'default': 50},
+            {'type': 'slider', 'label': 'Min Line Length', 'key': 'min_line_length', 'min': 1, 'max': 200, 'default': 50},
+            {'type': 'slider', 'label': 'Max Line Gap', 'key': 'max_line_gap', 'min': 1, 'max': 100, 'default': 10},
+            {'type': 'slider', 'label': 'Max Lines', 'key': 'max_lines', 'min': 1, 'max': 500, 'default': 100},
+            {'type': 'slider', 'label': 'Thickness', 'key': 'thickness', 'min': 1, 'max': 10, 'default': 2},
+            {'type': 'slider', 'label': 'Color B', 'key': 'line_color_b', 'min': 0, 'max': 255, 'default': 0},
+            {'type': 'slider', 'label': 'Color G', 'key': 'line_color_g', 'min': 0, 'max': 255, 'default': 0},
+            {'type': 'slider', 'label': 'Color R', 'key': 'line_color_r', 'min': 0, 'max': 255, 'default': 255},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        return {
+            'use_probabilistic': self.use_probabilistic.get(),
+            'show_original': self.show_original.get(),
+            'draw_features': self.draw_features.get(),
+            'canny_thresh1': self.canny_thresh1.get(),
+            'canny_thresh2': self.canny_thresh2.get(),
+            'threshold': self.threshold.get(),
+            'min_line_length': self.min_line_length.get(),
+            'max_line_gap': self.max_line_gap.get(),
+            'max_lines': self.max_lines.get(),
+            'thickness': self.thickness.get(),
+            'line_color_b': self.line_color_b.get(),
+            'line_color_g': self.line_color_g.get(),
+            'line_color_r': self.line_color_r.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Hough Lines",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.HoughLinesP(edges, rho, theta, threshold)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Method selection
-        method_frame = ttk.Frame(right_column)
-        method_frame.pack(fill='x', pady=3)
-
-        ttk.Label(method_frame, text="Method:").pack(side='left')
-
-        ttk.Radiobutton(
-            method_frame,
-            text="Probabilistic (HoughLinesP)",
-            variable=self.use_probabilistic,
-            value=True
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            method_frame,
-            text="Standard (HoughLines)",
-            variable=self.use_probabilistic,
-            value=False
-        ).pack(side='left', padx=5)
-
-        # Input option
-        input_frame = ttk.Frame(right_column)
-        input_frame.pack(fill='x', pady=3)
-
-        ttk.Label(input_frame, text="Input:").pack(side='left')
-
-        ttk.Radiobutton(
-            input_frame,
-            text="Original Image",
-            variable=self.show_original,
-            value=True
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            input_frame,
-            text="Black",
-            variable=self.show_original,
-            value=False
-        ).pack(side='left', padx=5)
-
-        # Output option
-        output_frame = ttk.Frame(right_column)
-        output_frame.pack(fill='x', pady=3)
-
-        ttk.Label(output_frame, text="Output:").pack(side='left')
-
-        ttk.Radiobutton(
-            output_frame,
-            text="Draw Features",
-            variable=self.draw_features,
-            value=True
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            output_frame,
-            text="Raw Values Only",
-            variable=self.draw_features,
-            value=False
-        ).pack(side='left', padx=5)
-
-        # Canny thresholds for edge detection
-        canny1_frame = ttk.Frame(right_column)
-        canny1_frame.pack(fill='x', pady=3)
-
-        ttk.Label(canny1_frame, text="Canny Thresh 1:").pack(side='left')
-
-        canny1_slider = ttk.Scale(
-            canny1_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.canny_thresh1,
-            command=self._on_canny1_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        canny1_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.canny1_label = ttk.Label(canny1_frame, text="50")
-        self.canny1_label.pack(side='left', padx=5)
-
-        canny2_frame = ttk.Frame(right_column)
-        canny2_frame.pack(fill='x', pady=3)
-
-        ttk.Label(canny2_frame, text="Canny Thresh 2:").pack(side='left')
-
-        canny2_slider = ttk.Scale(
-            canny2_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.canny_thresh2,
-            command=self._on_canny2_change
-        )
-        canny2_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.canny2_label = ttk.Label(canny2_frame, text="150")
-        self.canny2_label.pack(side='left', padx=5)
-
-        # Threshold (accumulator)
-        thresh_frame = ttk.Frame(right_column)
-        thresh_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thresh_frame, text="Threshold:").pack(side='left')
-
-        thresh_slider = ttk.Scale(
-            thresh_frame,
-            from_=1,
-            to=200,
-            orient='horizontal',
-            variable=self.threshold,
-            command=self._on_thresh_change
-        )
-        thresh_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.thresh_label = ttk.Label(thresh_frame, text="50")
-        self.thresh_label.pack(side='left', padx=5)
-
-        # Min line length (HoughLinesP)
-        minlen_frame = ttk.Frame(right_column)
-        minlen_frame.pack(fill='x', pady=3)
-
-        ttk.Label(minlen_frame, text="Min Line Length:").pack(side='left')
-
-        minlen_slider = ttk.Scale(
-            minlen_frame,
-            from_=1,
-            to=200,
-            orient='horizontal',
-            variable=self.min_line_length,
-            command=self._on_minlen_change
-        )
-        minlen_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.minlen_label = ttk.Label(minlen_frame, text="50")
-        self.minlen_label.pack(side='left', padx=5)
-
-        # Max line gap (HoughLinesP)
-        maxgap_frame = ttk.Frame(right_column)
-        maxgap_frame.pack(fill='x', pady=3)
-
-        ttk.Label(maxgap_frame, text="Max Line Gap:").pack(side='left')
-
-        maxgap_slider = ttk.Scale(
-            maxgap_frame,
-            from_=1,
-            to=100,
-            orient='horizontal',
-            variable=self.max_line_gap,
-            command=self._on_maxgap_change
-        )
-        maxgap_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.maxgap_label = ttk.Label(maxgap_frame, text="10")
-        self.maxgap_label.pack(side='left', padx=5)
-
-        # Max lines to draw
-        maxlines_frame = ttk.Frame(right_column)
-        maxlines_frame.pack(fill='x', pady=3)
-
-        ttk.Label(maxlines_frame, text="Max Lines:").pack(side='left')
-
-        maxlines_slider = ttk.Scale(
-            maxlines_frame,
-            from_=1,
-            to=500,
-            orient='horizontal',
-            variable=self.max_lines,
-            command=self._on_maxlines_change
-        )
-        maxlines_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.maxlines_label = ttk.Label(maxlines_frame, text="100")
-        self.maxlines_label.pack(side='left', padx=5)
-
-        # Line color
-        color_frame = ttk.Frame(right_column)
-        color_frame.pack(fill='x', pady=3)
-
-        ttk.Label(color_frame, text="Line Color (BGR):").pack(side='left')
-
-        ttk.Label(color_frame, text="B:").pack(side='left', padx=(10, 2))
-        ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.line_color_b).pack(side='left')
-
-        ttk.Label(color_frame, text="G:").pack(side='left', padx=(10, 2))
-        ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.line_color_g).pack(side='left')
-
-        ttk.Label(color_frame, text="R:").pack(side='left', padx=(10, 2))
-        ttk.Spinbox(color_frame, from_=0, to=255, width=4, textvariable=self.line_color_r).pack(side='left')
-
-        # Thickness
-        thick_frame = ttk.Frame(right_column)
-        thick_frame.pack(fill='x', pady=3)
-
-        ttk.Label(thick_frame, text="Line Thickness:").pack(side='left')
-
-        thick_slider = ttk.Scale(
-            thick_frame,
-            from_=1,
-            to=10,
-            orient='horizontal',
-            variable=self.thickness,
-            command=self._on_thick_change
-        )
-        thick_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.thick_label = ttk.Label(thick_frame, text="2")
-        self.thick_label.pack(side='left', padx=5)
-
-        # Lines found display
-        count_frame = ttk.Frame(right_column)
-        count_frame.pack(fill='x', pady=3)
-
-        ttk.Label(count_frame, text="Lines found:").pack(side='left')
-        self.count_label = ttk.Label(count_frame, text="0", font=('TkDefaultFont', 10, 'bold'))
-        self.count_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_canny1_change(self, value):
-        self.canny1_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'use_probabilistic':
+                var.trace_add('write', lambda *args: self.use_probabilistic.set(self._subform._vars['use_probabilistic'].get()))
+            elif key == 'show_original':
+                var.trace_add('write', lambda *args: self.show_original.set(self._subform._vars['show_original'].get()))
+            elif key == 'draw_features':
+                var.trace_add('write', lambda *args: self.draw_features.set(self._subform._vars['draw_features'].get()))
+            elif key == 'canny_thresh1':
+                var.trace_add('write', lambda *args: self.canny_thresh1.set(int(self._subform._vars['canny_thresh1'].get())))
+            elif key == 'canny_thresh2':
+                var.trace_add('write', lambda *args: self.canny_thresh2.set(int(self._subform._vars['canny_thresh2'].get())))
+            elif key == 'threshold':
+                var.trace_add('write', lambda *args: self.threshold.set(int(self._subform._vars['threshold'].get())))
+            elif key == 'min_line_length':
+                var.trace_add('write', lambda *args: self.min_line_length.set(int(self._subform._vars['min_line_length'].get())))
+            elif key == 'max_line_gap':
+                var.trace_add('write', lambda *args: self.max_line_gap.set(int(self._subform._vars['max_line_gap'].get())))
+            elif key == 'max_lines':
+                var.trace_add('write', lambda *args: self.max_lines.set(int(self._subform._vars['max_lines'].get())))
+            elif key == 'thickness':
+                var.trace_add('write', lambda *args: self.thickness.set(int(self._subform._vars['thickness'].get())))
+            elif key == 'line_color_b':
+                var.trace_add('write', lambda *args: self.line_color_b.set(int(self._subform._vars['line_color_b'].get())))
+            elif key == 'line_color_g':
+                var.trace_add('write', lambda *args: self.line_color_g.set(int(self._subform._vars['line_color_g'].get())))
+            elif key == 'line_color_r':
+                var.trace_add('write', lambda *args: self.line_color_r.set(int(self._subform._vars['line_color_r'].get())))
 
-    def _on_canny2_change(self, value):
-        self.canny2_label.config(text=str(int(float(value))))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_thresh_change(self, value):
-        self.thresh_label.config(text=str(int(float(value))))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_minlen_change(self, value):
-        self.minlen_label.config(text=str(int(float(value))))
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-    def _on_maxgap_change(self, value):
-        self.maxgap_label.config(text=str(int(float(value))))
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
 
-    def _on_maxlines_change(self, value):
-        self.maxlines_label.config(text=str(int(float(value))))
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
 
-    def _on_thick_change(self, value):
-        self.thick_label.config(text=str(int(float(value))))
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Method: {'Probabilistic' if self.use_probabilistic.get() else 'Standard'}")
+        lines.append(f"Show Original: {'Yes' if self.show_original.get() else 'No'}")
+        lines.append(f"Draw Features: {'Yes' if self.draw_features.get() else 'No'}")
+        lines.append(f"Canny Thresh 1: {self.canny_thresh1.get()}")
+        lines.append(f"Canny Thresh 2: {self.canny_thresh2.get()}")
+        lines.append(f"Threshold: {self.threshold.get()}")
+        lines.append(f"Min Line Length: {self.min_line_length.get()}")
+        lines.append(f"Max Line Gap: {self.max_line_gap.get()}")
+        lines.append(f"Max Lines: {self.max_lines.get()}")
+        lines.append(f"Thickness: {self.thickness.get()}")
+        lines.append(f"Color BGR: ({self.line_color_b.get()}, {self.line_color_g.get()}, {self.line_color_r.get()})")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'use_probabilistic': self.use_probabilistic.get(),
+            'show_original': self.show_original.get(),
+            'draw_features': self.draw_features.get(),
+            'canny_thresh1': self.canny_thresh1.get(),
+            'canny_thresh2': self.canny_thresh2.get(),
+            'threshold': self.threshold.get(),
+            'min_line_length': self.min_line_length.get(),
+            'max_line_gap': self.max_line_gap.get(),
+            'max_lines': self.max_lines.get(),
+            'thickness': self.thickness.get(),
+            'line_color_b': self.line_color_b.get(),
+            'line_color_g': self.line_color_g.get(),
+            'line_color_r': self.line_color_r.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'method' in key:
+                        self.use_probabilistic.set(value.lower() == 'probabilistic')
+                    elif 'show original' in key:
+                        self.show_original.set(value.lower() in ('yes', 'true', '1'))
+                    elif 'draw features' in key:
+                        self.draw_features.set(value.lower() in ('yes', 'true', '1'))
+                    elif 'canny thresh 1' in key:
+                        self.canny_thresh1.set(max(0, min(255, int(value))))
+                    elif 'canny thresh 2' in key:
+                        self.canny_thresh2.set(max(0, min(255, int(value))))
+                    elif key == 'threshold':
+                        self.threshold.set(max(1, min(200, int(value))))
+                    elif 'min line length' in key:
+                        self.min_line_length.set(max(1, min(200, int(value))))
+                    elif 'max line gap' in key:
+                        self.max_line_gap.set(max(1, min(100, int(value))))
+                    elif 'max lines' in key:
+                        self.max_lines.set(max(1, min(500, int(value))))
+                    elif 'thickness' in key:
+                        self.thickness.set(max(1, min(10, int(value))))
+                    elif 'color bgr' in key:
+                        # Parse (b, g, r) format
+                        value = value.strip('()')
+                        parts = [int(x.strip()) for x in value.split(',')]
+                        if len(parts) >= 3:
+                            self.line_color_b.set(max(0, min(255, parts[0])))
+                            self.line_color_g.set(max(0, min(255, parts[1])))
+                            self.line_color_r.set(max(0, min(255, parts[2])))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                for key in ['use_probabilistic', 'show_original', 'draw_features', 'canny_thresh1', 'canny_thresh2', 'threshold', 'min_line_length', 'max_line_gap', 'max_lines', 'thickness', 'line_color_b', 'line_color_g', 'line_color_r']:
+                    if key in self._subform._vars:
+                        if key in ['use_probabilistic', 'show_original', 'draw_features']:
+                            self._subform._vars[key].set(getattr(self, key).get())
+                        else:
+                            self._subform._vars[key].set(getattr(self, key).get())
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'use_probabilistic' in data:
+                self.use_probabilistic.set(bool(data['use_probabilistic']))
+            if 'show_original' in data:
+                self.show_original.set(bool(data['show_original']))
+            if 'draw_features' in data:
+                self.draw_features.set(bool(data['draw_features']))
+            if 'canny_thresh1' in data:
+                self.canny_thresh1.set(max(0, min(255, int(data['canny_thresh1']))))
+            if 'canny_thresh2' in data:
+                self.canny_thresh2.set(max(0, min(255, int(data['canny_thresh2']))))
+            if 'threshold' in data:
+                self.threshold.set(max(1, min(200, int(data['threshold']))))
+            if 'min_line_length' in data:
+                self.min_line_length.set(max(1, min(200, int(data['min_line_length']))))
+            if 'max_line_gap' in data:
+                self.max_line_gap.set(max(1, min(100, int(data['max_line_gap']))))
+            if 'max_lines' in data:
+                self.max_lines.set(max(1, min(500, int(data['max_lines']))))
+            if 'thickness' in data:
+                self.thickness.set(max(1, min(10, int(data['thickness']))))
+            if 'line_color_b' in data:
+                self.line_color_b.set(max(0, min(255, int(data['line_color_b']))))
+            if 'line_color_g' in data:
+                self.line_color_g.set(max(0, min(255, int(data['line_color_g']))))
+            if 'line_color_r' in data:
+                self.line_color_r.set(max(0, min(255, int(data['line_color_r']))))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                for key in ['use_probabilistic', 'show_original', 'draw_features', 'canny_thresh1', 'canny_thresh2', 'threshold', 'min_line_length', 'max_line_gap', 'max_lines', 'thickness', 'line_color_b', 'line_color_g', 'line_color_r']:
+                    if key in self._subform._vars:
+                        if key in ['use_probabilistic', 'show_original', 'draw_features']:
+                            self._subform._vars[key].set(getattr(self, key).get())
+                        else:
+                            self._subform._vars[key].set(getattr(self, key).get())
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Method: {'Probabilistic' if self.use_probabilistic.get() else 'Standard'}")
+        lines.append(f"Input: {'Original Image' if self.show_original.get() else 'Black'}")
+        lines.append(f"Output: {'Draw Features' if self.draw_features.get() else 'Raw Values Only'}")
+        lines.append(f"Canny: {self.canny_thresh1.get()} / {self.canny_thresh2.get()}")
+        lines.append(f"Threshold: {self.threshold.get()}")
+        lines.append(f"Min Length: {self.min_line_length.get()}")
+        return '\n'.join(lines)
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Detect and draw lines on the frame"""
@@ -446,9 +462,5 @@ class HoughLinesEffect(BaseUIEffect):
                         x2 = int(x0 + length * sin_t)
                         y2 = int(y0 - length * cos_t)
                         cv2.line(result, (x1, y1), (x2, y2), color, thickness)
-
-        # Update count
-        if hasattr(self, 'count_label'):
-            self.count_label.config(text=str(lines_count))
 
         return result

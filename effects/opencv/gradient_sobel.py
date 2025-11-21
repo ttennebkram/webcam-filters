@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class GradientSobelEffect(BaseUIEffect):
@@ -20,6 +22,16 @@ class GradientSobelEffect(BaseUIEffect):
         (cv2.CV_16S, "CV_16S"),
         (cv2.CV_32F, "CV_32F"),
         (cv2.CV_64F, "CV_64F"),
+    ]
+
+    # Return mode options
+    RETURN_MODES = [
+        "gX (uses dx)",
+        "gY (uses dy)",
+        "Combined (cv2.addWeighted)",
+        "Magnitude",
+        "Orientation",
+        "Mask (angle range filter)",
     ]
 
     def __init__(self, width, height, root=None):
@@ -55,318 +67,314 @@ class GradientSobelEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
-        """Create Tkinter control panel for this effect"""
-        self.control_panel = ttk.Frame(parent)
-
-        padding = {'padx': 10, 'pady': 5}
-
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title in section header font
-            title_label = ttk.Label(
-                header_frame,
-                text="Sobel Gradient",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature for reference
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.Sobel(src, ddepth, dx, dy, ksize, scale, delta)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox (vertically centered)
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        # Spacer to center the checkbox vertically
-        ttk.Frame(left_column).pack(expand=True)
-
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
-        )
-        enabled_cb.pack()
-
-        # Spacer below
-        ttk.Frame(left_column).pack(expand=True)
-
-        # Right column - all parameter controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Depth dropdown
-        depth_frame = ttk.Frame(right_column)
-        depth_frame.pack(fill='x', pady=3)
-
-        ttk.Label(depth_frame, text="Depth (ddepth):").pack(side='left')
-
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
         depth_names = [name for _, name in self.DEPTH_OPTIONS]
-        self.depth_combo = ttk.Combobox(
-            depth_frame,
-            values=depth_names,
-            state='readonly',
-            width=10
-        )
-        self.depth_combo.current(3)  # CV_64F
-        self.depth_combo.pack(side='left', padx=5)
-        self.depth_combo.bind('<<ComboboxSelected>>', self._on_depth_change)
-
-        # dx control - dropdown
-        dx_frame = ttk.Frame(right_column)
-        dx_frame.pack(fill='x', pady=3)
-
-        ttk.Label(dx_frame, text="dx (x derivative):").pack(side='left')
-
-        self.dx_combo = ttk.Combobox(
-            dx_frame,
-            values=[0, 1, 2],
-            state='readonly',
-            width=5
-        )
-        self.dx_combo.current(1)  # Default to 1
-        self.dx_combo.pack(side='left', padx=5)
-        self.dx_combo.bind('<<ComboboxSelected>>', self._on_dx_change)
-
-        # dy control - dropdown
-        dy_frame = ttk.Frame(right_column)
-        dy_frame.pack(fill='x', pady=3)
-
-        ttk.Label(dy_frame, text="dy (y derivative):").pack(side='left')
-
-        self.dy_combo = ttk.Combobox(
-            dy_frame,
-            values=[0, 1, 2],
-            state='readonly',
-            width=5
-        )
-        self.dy_combo.current(0)  # Default to 0
-        self.dy_combo.pack(side='left', padx=5)
-        self.dy_combo.bind('<<ComboboxSelected>>', self._on_dy_change)
-
-        # ksize control
-        ksize_frame = ttk.Frame(right_column)
-        ksize_frame.pack(fill='x', pady=3)
-
-        ttk.Label(ksize_frame, text="Kernel Size:").pack(side='left')
-
-        # ksize must be 1, 3, 5, or 7
-        ksize_values = [1, 3, 5, 7]
-        self.ksize_combo = ttk.Combobox(
-            ksize_frame,
-            values=ksize_values,
-            state='readonly',
-            width=5
-        )
-        self.ksize_combo.current(1)  # Default to 3
-        self.ksize_combo.pack(side='left', padx=5)
-        self.ksize_combo.bind('<<ComboboxSelected>>', self._on_ksize_change)
-
-        ttk.Label(ksize_frame, text="(1, 3, 5, or 7)", font=('TkDefaultFont', 10, 'italic')).pack(side='left', padx=5)
-
-        # Scale control
-        scale_frame = ttk.Frame(right_column)
-        scale_frame.pack(fill='x', pady=3)
-
-        ttk.Label(scale_frame, text="Scale:").pack(side='left')
-
-        scale_slider = ttk.Scale(
-            scale_frame,
-            from_=0.1,
-            to=10,
-            orient='horizontal',
-            variable=self.scale,
-            command=self._on_scale_change
-        )
-        scale_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.scale_label = ttk.Label(scale_frame, text="1.0")
-        self.scale_label.pack(side='left', padx=5)
-
-        # Delta control
-        delta_frame = ttk.Frame(right_column)
-        delta_frame.pack(fill='x', pady=3)
-
-        ttk.Label(delta_frame, text="Delta:").pack(side='left')
-
-        delta_slider = ttk.Scale(
-            delta_frame,
-            from_=-128,
-            to=128,
-            orient='horizontal',
-            variable=self.delta,
-            command=self._on_delta_change
-        )
-        delta_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.delta_label = ttk.Label(delta_frame, text="0.0")
-        self.delta_label.pack(side='left', padx=5)
-
-        # Return mode - dropdown with descriptions
-        return_frame = ttk.Frame(right_column)
-        return_frame.pack(fill='x', pady=3)
-
-        ttk.Label(return_frame, text="Return:", font=('TkDefaultFont', 12, 'bold')).pack(side='left')
-
-        # Dropdown options with help text included
-        return_options = [
-            "gX (uses dx)",
-            "gY (uses dy)",
-            "Combined (cv2.addWeighted)",
-            "Magnitude (√(gX² + gY²))",
-            "Orientation (arctan2 → 0-180°)",
-            "Mask (angle range filter)",
+        return [
+            {'type': 'dropdown', 'label': 'Depth (ddepth)', 'key': 'depth_index', 'options': depth_names, 'default': 'CV_64F'},
+            {'type': 'dropdown', 'label': 'dx (x derivative)', 'key': 'dx', 'options': [0, 1, 2], 'default': 1},
+            {'type': 'dropdown', 'label': 'dy (y derivative)', 'key': 'dy', 'options': [0, 1, 2], 'default': 0},
+            {'type': 'dropdown', 'label': 'Kernel Size', 'key': 'ksize', 'options': [1, 3, 5, 7], 'default': 3},
+            {'type': 'slider', 'label': 'Scale', 'key': 'scale', 'min': 0.1, 'max': 10.0, 'default': 1.0, 'step': 0.1},
+            {'type': 'slider', 'label': 'Delta', 'key': 'delta', 'min': -128, 'max': 128, 'default': 0.0, 'step': 1.0},
+            {'type': 'dropdown', 'label': 'Return Mode', 'key': 'return_mode_index', 'options': self.RETURN_MODES, 'default': 'Combined (cv2.addWeighted)'},
+            {'type': 'slider', 'label': 'Weight X', 'key': 'weight_x', 'min': 0.0, 'max': 1.0, 'default': 0.5, 'step': 0.01},
+            {'type': 'slider', 'label': 'Weight Y', 'key': 'weight_y', 'min': 0.0, 'max': 1.0, 'default': 0.5, 'step': 0.01},
+            {'type': 'slider', 'label': 'Min Angle', 'key': 'min_angle', 'min': 0, 'max': 180, 'default': 0.0},
+            {'type': 'slider', 'label': 'Max Angle', 'key': 'max_angle', 'min': 0, 'max': 180, 'default': 180.0},
         ]
 
-        self.return_combo = ttk.Combobox(
-            return_frame,
-            values=return_options,
-            state='readonly',
-            width=30
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        depth_names = [name for _, name in self.DEPTH_OPTIONS]
+        return {
+            'depth_index': depth_names[self.depth_index.get()],
+            'dx': self.dx.get(),
+            'dy': self.dy.get(),
+            'ksize': self.ksize.get(),
+            'scale': self.scale.get(),
+            'delta': self.delta.get(),
+            'return_mode_index': self.RETURN_MODES[self.return_mode_index.get()],
+            'weight_x': self.weight_x.get(),
+            'weight_y': self.weight_y.get(),
+            'min_angle': self.min_angle.get(),
+            'max_angle': self.max_angle.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
+        """Create Tkinter control panel for this effect"""
+        self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
+
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        self.return_combo.current(2)  # Default to Combined
-        self.return_combo.pack(side='left', padx=5)
-        self.return_combo.bind('<<ComboboxSelected>>', self._on_return_change)
 
-        # Weight X slider (for combined mode)
-        weight_x_frame = ttk.Frame(right_column)
-        weight_x_frame.pack(fill='x', pady=3)
-
-        ttk.Label(weight_x_frame, text="Combined Weight X:").pack(side='left')
-
-        weight_x_slider = ttk.Scale(
-            weight_x_frame,
-            from_=0,
-            to=1,
-            orient='horizontal',
-            variable=self.weight_x,
-            command=self._on_weight_x_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        weight_x_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.weight_x_label = ttk.Label(weight_x_frame, text="0.5")
-        self.weight_x_label.pack(side='left', padx=5)
-
-        # Weight Y slider (for combined mode)
-        weight_y_frame = ttk.Frame(right_column)
-        weight_y_frame.pack(fill='x', pady=3)
-
-        ttk.Label(weight_y_frame, text="Combined Weight Y:").pack(side='left')
-
-        weight_y_slider = ttk.Scale(
-            weight_y_frame,
-            from_=0,
-            to=1,
-            orient='horizontal',
-            variable=self.weight_y,
-            command=self._on_weight_y_change
-        )
-        weight_y_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.weight_y_label = ttk.Label(weight_y_frame, text="0.5")
-        self.weight_y_label.pack(side='left', padx=5)
-
-        # Min Angle slider (for mask mode)
-        min_angle_frame = ttk.Frame(right_column)
-        min_angle_frame.pack(fill='x', pady=3)
-
-        ttk.Label(min_angle_frame, text="Mask Min Angle:").pack(side='left')
-
-        min_angle_slider = ttk.Scale(
-            min_angle_frame,
-            from_=0,
-            to=180,
-            orient='horizontal',
-            variable=self.min_angle,
-            command=self._on_min_angle_change
-        )
-        min_angle_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.min_angle_label = ttk.Label(min_angle_frame, text="0°")
-        self.min_angle_label.pack(side='left', padx=5)
-
-        # Max Angle slider (for mask mode)
-        max_angle_frame = ttk.Frame(right_column)
-        max_angle_frame.pack(fill='x', pady=3)
-
-        ttk.Label(max_angle_frame, text="Mask Max Angle:").pack(side='left')
-
-        max_angle_slider = ttk.Scale(
-            max_angle_frame,
-            from_=0,
-            to=180,
-            orient='horizontal',
-            variable=self.max_angle,
-            command=self._on_max_angle_change
-        )
-        max_angle_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.max_angle_label = ttk.Label(max_angle_frame, text="180°")
-        self.max_angle_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_depth_change(self, event):
-        """Handle depth change"""
-        self.depth_index.set(self.depth_combo.current())
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        depth_names = [name for _, name in self.DEPTH_OPTIONS]
 
-    def _on_dx_change(self, event):
-        """Handle dx change"""
-        self.dx.set(int(self.dx_combo.get()))
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'depth_index':
+                def update_depth(*args):
+                    val = self._subform._vars['depth_index'].get()
+                    if val in depth_names:
+                        self.depth_index.set(depth_names.index(val))
+                var.trace_add('write', update_depth)
+            elif key == 'dx':
+                var.trace_add('write', lambda *args: self.dx.set(int(self._subform._vars['dx'].get())))
+            elif key == 'dy':
+                var.trace_add('write', lambda *args: self.dy.set(int(self._subform._vars['dy'].get())))
+            elif key == 'ksize':
+                var.trace_add('write', lambda *args: self.ksize.set(int(self._subform._vars['ksize'].get())))
+            elif key == 'scale':
+                var.trace_add('write', lambda *args: self.scale.set(float(self._subform._vars['scale'].get())))
+            elif key == 'delta':
+                var.trace_add('write', lambda *args: self.delta.set(float(self._subform._vars['delta'].get())))
+            elif key == 'return_mode_index':
+                def update_return_mode(*args):
+                    val = self._subform._vars['return_mode_index'].get()
+                    if val in self.RETURN_MODES:
+                        self.return_mode_index.set(self.RETURN_MODES.index(val))
+                var.trace_add('write', update_return_mode)
+            elif key == 'weight_x':
+                var.trace_add('write', lambda *args: self.weight_x.set(float(self._subform._vars['weight_x'].get())))
+            elif key == 'weight_y':
+                var.trace_add('write', lambda *args: self.weight_y.set(float(self._subform._vars['weight_y'].get())))
+            elif key == 'min_angle':
+                var.trace_add('write', lambda *args: self.min_angle.set(float(self._subform._vars['min_angle'].get())))
+            elif key == 'max_angle':
+                var.trace_add('write', lambda *args: self.max_angle.set(float(self._subform._vars['max_angle'].get())))
 
-    def _on_dy_change(self, event):
-        """Handle dy change"""
-        self.dy.set(int(self.dy_combo.get()))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_ksize_change(self, event):
-        """Handle ksize change"""
-        self.ksize.set(int(self.ksize_combo.get()))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_scale_change(self, value):
-        """Handle scale slider change"""
-        scale = float(value)
-        self.scale_label.config(text=f"{scale:.1f}")
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-    def _on_delta_change(self, value):
-        """Handle delta slider change"""
-        delta = float(value)
-        self.delta_label.config(text=f"{delta:.1f}")
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
 
-    def _on_weight_x_change(self, value):
-        """Handle weight X slider change"""
-        weight = float(value)
-        self.weight_x_label.config(text=f"{weight:.2f}")
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
 
-    def _on_weight_y_change(self, value):
-        """Handle weight Y slider change"""
-        weight = float(value)
-        self.weight_y_label.config(text=f"{weight:.2f}")
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
 
-    def _on_min_angle_change(self, value):
-        """Handle min angle slider change"""
-        angle = float(value)
-        self.min_angle_label.config(text=f"{angle:.0f}°")
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
 
-    def _on_max_angle_change(self, value):
-        """Handle max angle slider change"""
-        angle = float(value)
-        self.max_angle_label.config(text=f"{angle:.0f}°")
+        depth_name = self.DEPTH_OPTIONS[self.depth_index.get()][1]
+        lines.append(f"Depth: {depth_name}")
+        lines.append(f"dx: {self.dx.get()}")
+        lines.append(f"dy: {self.dy.get()}")
+        lines.append(f"Kernel Size: {self.ksize.get()}")
+        lines.append(f"Scale: {self.scale.get():.1f}")
+        lines.append(f"Delta: {self.delta.get():.1f}")
+        lines.append(f"Return Mode: {self.RETURN_MODES[self.return_mode_index.get()]}")
+        lines.append(f"Weight X: {self.weight_x.get():.2f}")
+        lines.append(f"Weight Y: {self.weight_y.get():.2f}")
+        lines.append(f"Min Angle: {self.min_angle.get():.0f}")
+        lines.append(f"Max Angle: {self.max_angle.get():.0f}")
 
-    def _on_return_change(self, event):
-        """Handle return mode change"""
-        self.return_mode_index.set(self.return_combo.current())
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'depth': self.DEPTH_OPTIONS[self.depth_index.get()][1],
+            'dx': self.dx.get(),
+            'dy': self.dy.get(),
+            'ksize': self.ksize.get(),
+            'scale': self.scale.get(),
+            'delta': self.delta.get(),
+            'return_mode': self.return_mode_index.get(),
+            'weight_x': self.weight_x.get(),
+            'weight_y': self.weight_y.get(),
+            'min_angle': self.min_angle.get(),
+            'max_angle': self.max_angle.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+            depth_names = [name for _, name in self.DEPTH_OPTIONS]
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'depth' in key and 'ddepth' not in key:
+                        if value in depth_names:
+                            self.depth_index.set(depth_names.index(value))
+                    elif key == 'dx':
+                        self.dx.set(max(0, min(2, int(value))))
+                    elif key == 'dy':
+                        self.dy.set(max(0, min(2, int(value))))
+                    elif 'kernel' in key:
+                        val = int(value)
+                        if val in [1, 3, 5, 7]:
+                            self.ksize.set(val)
+                    elif 'scale' in key:
+                        self.scale.set(max(0.1, min(10.0, float(value))))
+                    elif 'delta' in key:
+                        self.delta.set(max(-128, min(128, float(value))))
+                    elif 'return' in key:
+                        for i, mode in enumerate(self.RETURN_MODES):
+                            if value in mode or mode in value:
+                                self.return_mode_index.set(i)
+                                break
+                    elif 'weight x' in key:
+                        self.weight_x.set(max(0.0, min(1.0, float(value))))
+                    elif 'weight y' in key:
+                        self.weight_y.set(max(0.0, min(1.0, float(value))))
+                    elif 'min' in key and 'angle' in key:
+                        self.min_angle.set(max(0, min(180, float(value))))
+                    elif 'max' in key and 'angle' in key:
+                        self.max_angle.set(max(0, min(180, float(value))))
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+            depth_names = [name for _, name in self.DEPTH_OPTIONS]
+
+            if 'depth' in data:
+                if data['depth'] in depth_names:
+                    self.depth_index.set(depth_names.index(data['depth']))
+            if 'dx' in data:
+                self.dx.set(max(0, min(2, int(data['dx']))))
+            if 'dy' in data:
+                self.dy.set(max(0, min(2, int(data['dy']))))
+            if 'ksize' in data:
+                val = int(data['ksize'])
+                if val in [1, 3, 5, 7]:
+                    self.ksize.set(val)
+            if 'scale' in data:
+                self.scale.set(max(0.1, min(10.0, float(data['scale']))))
+            if 'delta' in data:
+                self.delta.set(max(-128, min(128, float(data['delta']))))
+            if 'return_mode' in data:
+                self.return_mode_index.set(max(0, min(5, int(data['return_mode']))))
+            if 'weight_x' in data:
+                self.weight_x.set(max(0.0, min(1.0, float(data['weight_x']))))
+            if 'weight_y' in data:
+                self.weight_y.set(max(0.0, min(1.0, float(data['weight_y']))))
+            if 'min_angle' in data:
+                self.min_angle.set(max(0, min(180, float(data['min_angle']))))
+            if 'max_angle' in data:
+                self.max_angle.set(max(0, min(180, float(data['max_angle']))))
+
+            # Update subform variables if in edit mode
+            self._sync_subform_from_effect()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_effect(self):
+        """Sync subform variables from effect variables"""
+        if self._current_mode == 'edit' and hasattr(self, '_subform'):
+            depth_names = [name for _, name in self.DEPTH_OPTIONS]
+            if 'depth_index' in self._subform._vars:
+                self._subform._vars['depth_index'].set(depth_names[self.depth_index.get()])
+            if 'dx' in self._subform._vars:
+                self._subform._vars['dx'].set(str(self.dx.get()))
+            if 'dy' in self._subform._vars:
+                self._subform._vars['dy'].set(str(self.dy.get()))
+            if 'ksize' in self._subform._vars:
+                self._subform._vars['ksize'].set(str(self.ksize.get()))
+            if 'scale' in self._subform._vars:
+                self._subform._vars['scale'].set(self.scale.get())
+            if 'delta' in self._subform._vars:
+                self._subform._vars['delta'].set(self.delta.get())
+            if 'return_mode_index' in self._subform._vars:
+                self._subform._vars['return_mode_index'].set(self.RETURN_MODES[self.return_mode_index.get()])
+            if 'weight_x' in self._subform._vars:
+                self._subform._vars['weight_x'].set(self.weight_x.get())
+            if 'weight_y' in self._subform._vars:
+                self._subform._vars['weight_y'].set(self.weight_y.get())
+            if 'min_angle' in self._subform._vars:
+                self._subform._vars['min_angle'].set(self.min_angle.get())
+            if 'max_angle' in self._subform._vars:
+                self._subform._vars['max_angle'].set(self.max_angle.get())
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""
@@ -396,7 +404,7 @@ class GradientSobelEffect(BaseUIEffect):
         if return_idx == 2:  # Combined
             lines.append(f"Weights: X={self.weight_x.get():.2f}, Y={self.weight_y.get():.2f}")
         elif return_idx == 5:  # Mask
-            lines.append(f"Angle Range: {self.min_angle.get():.0f}° - {self.max_angle.get():.0f}°")
+            lines.append(f"Angle Range: {self.min_angle.get():.0f} - {self.max_angle.get():.0f}")
 
         return '\n'.join(lines)
 
@@ -462,7 +470,7 @@ class GradientSobelEffect(BaseUIEffect):
             result = cv2.addWeighted(absX, weight_x, absY, weight_y, 0)
 
         elif return_mode == 3:
-            # Magnitude - √(gX² + gY²)
+            # Magnitude - sqrt(gX^2 + gY^2)
             gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
 
@@ -474,7 +482,7 @@ class GradientSobelEffect(BaseUIEffect):
             result = result.astype(np.uint8)
 
         elif return_mode == 4:
-            # Orientation - arctan2(gY, gX) mapped to 0-180°
+            # Orientation - arctan2(gY, gX) mapped to 0-180
             gX = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=1, dy=0, ksize=ksize, scale=scale, delta=delta)
             gY = cv2.Sobel(gray, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=ksize, scale=scale, delta=delta)
 

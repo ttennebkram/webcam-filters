@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class MeanShiftFilterEffect(BaseUIEffect):
@@ -41,121 +43,202 @@ class MeanShiftFilterEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'slider', 'label': 'Spatial Radius', 'key': 'spatial_radius', 'min': 1, 'max': 100, 'default': 20},
+            {'type': 'slider', 'label': 'Color Radius', 'key': 'color_radius', 'min': 1, 'max': 100, 'default': 40},
+            {'type': 'slider', 'label': 'Max Level', 'key': 'max_level', 'min': 0, 'max': 4, 'default': 1},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        return {
+            'spatial_radius': self.spatial_radius.get(),
+            'color_radius': self.color_radius.get(),
+            'max_level': self.max_level.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Mean Shift Filter",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.pyrMeanShiftFiltering(src, sp, sr, maxLevel)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Spatial radius
-        spatial_frame = ttk.Frame(right_column)
-        spatial_frame.pack(fill='x', pady=3)
-
-        ttk.Label(spatial_frame, text="Spatial Radius:").pack(side='left')
-
-        spatial_slider = ttk.Scale(
-            spatial_frame,
-            from_=1,
-            to=100,
-            orient='horizontal',
-            variable=self.spatial_radius,
-            command=self._on_spatial_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        spatial_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.spatial_label = ttk.Label(spatial_frame, text="20")
-        self.spatial_label.pack(side='left', padx=5)
-
-        # Color radius
-        color_frame = ttk.Frame(right_column)
-        color_frame.pack(fill='x', pady=3)
-
-        ttk.Label(color_frame, text="Color Radius:").pack(side='left')
-
-        color_slider = ttk.Scale(
-            color_frame,
-            from_=1,
-            to=100,
-            orient='horizontal',
-            variable=self.color_radius,
-            command=self._on_color_change
-        )
-        color_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.color_label = ttk.Label(color_frame, text="40")
-        self.color_label.pack(side='left', padx=5)
-
-        # Max pyramid level
-        level_frame = ttk.Frame(right_column)
-        level_frame.pack(fill='x', pady=3)
-
-        ttk.Label(level_frame, text="Max Level:").pack(side='left')
-
-        level_slider = ttk.Scale(
-            level_frame,
-            from_=0,
-            to=4,
-            orient='horizontal',
-            variable=self.max_level,
-            command=self._on_level_change
-        )
-        level_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.level_label = ttk.Label(level_frame, text="1")
-        self.level_label.pack(side='left', padx=5)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_spatial_change(self, value):
-        self.spatial_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'spatial_radius':
+                var.trace_add('write', lambda *args: self.spatial_radius.set(int(self._subform._vars['spatial_radius'].get())))
+            elif key == 'color_radius':
+                var.trace_add('write', lambda *args: self.color_radius.set(int(self._subform._vars['color_radius'].get())))
+            elif key == 'max_level':
+                var.trace_add('write', lambda *args: self.max_level.set(int(self._subform._vars['max_level'].get())))
 
-    def _on_color_change(self, value):
-        self.color_label.config(text=str(int(float(value))))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_level_change(self, value):
-        self.level_label.config(text=str(int(float(value))))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Spatial Radius: {self.spatial_radius.get()}")
+        lines.append(f"Color Radius: {self.color_radius.get()}")
+        lines.append(f"Max Level: {self.max_level.get()}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'spatial_radius': self.spatial_radius.get(),
+            'color_radius': self.color_radius.get(),
+            'max_level': self.max_level.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'spatial' in key:
+                        self.spatial_radius.set(max(1, min(100, int(value))))
+                    elif 'color' in key:
+                        self.color_radius.set(max(1, min(100, int(value))))
+                    elif 'level' in key or 'max' in key:
+                        self.max_level.set(max(0, min(4, int(value))))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'spatial_radius' in self._subform._vars:
+                    self._subform._vars['spatial_radius'].set(self.spatial_radius.get())
+                if 'color_radius' in self._subform._vars:
+                    self._subform._vars['color_radius'].set(self.color_radius.get())
+                if 'max_level' in self._subform._vars:
+                    self._subform._vars['max_level'].set(self.max_level.get())
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'spatial_radius' in data:
+                self.spatial_radius.set(max(1, min(100, int(data['spatial_radius']))))
+            if 'color_radius' in data:
+                self.color_radius.set(max(1, min(100, int(data['color_radius']))))
+            if 'max_level' in data:
+                self.max_level.set(max(0, min(4, int(data['max_level']))))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'spatial_radius' in self._subform._vars:
+                    self._subform._vars['spatial_radius'].set(self.spatial_radius.get())
+                if 'color_radius' in self._subform._vars:
+                    self._subform._vars['color_radius'].set(self.color_radius.get())
+                if 'max_level' in self._subform._vars:
+                    self._subform._vars['max_level'].set(self.max_level.get())
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Spatial Radius: {self.spatial_radius.get()}")
+        lines.append(f"Color Radius: {self.color_radius.get()}")
+        lines.append(f"Max Level: {self.max_level.get()}")
+        return '\n'.join(lines)
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply pyramid mean shift filtering to the frame"""

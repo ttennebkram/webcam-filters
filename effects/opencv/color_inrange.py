@@ -9,6 +9,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 
 
 class InRangeEffect(BaseUIEffect):
@@ -50,268 +52,287 @@ class InRangeEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
-    def create_control_panel(self, parent):
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'checkbox', 'label': 'Use HSV (uncheck for BGR)', 'key': 'use_hsv', 'default': True},
+            {'type': 'slider', 'label': 'H/B Low', 'key': 'h_low', 'min': 0, 'max': 255, 'default': 0},
+            {'type': 'slider', 'label': 'H/B High', 'key': 'h_high', 'min': 0, 'max': 255, 'default': 179},
+            {'type': 'slider', 'label': 'S/G Low', 'key': 's_low', 'min': 0, 'max': 255, 'default': 0},
+            {'type': 'slider', 'label': 'S/G High', 'key': 's_high', 'min': 0, 'max': 255, 'default': 255},
+            {'type': 'slider', 'label': 'V/R Low', 'key': 'v_low', 'min': 0, 'max': 255, 'default': 0},
+            {'type': 'slider', 'label': 'V/R High', 'key': 'v_high', 'min': 0, 'max': 255, 'default': 255},
+            {'type': 'dropdown', 'label': 'Output', 'key': 'output_mode', 'options': ['Mask Only', 'Keep In-Range', 'Keep Out-of-Range'], 'default': 'Mask Only'},
+        ]
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        output_map = {
+            'mask': 'Mask Only',
+            'masked': 'Keep In-Range',
+            'inverse': 'Keep Out-of-Range'
+        }
+        return {
+            'use_hsv': self.use_hsv.get(),
+            'h_low': self.h_low.get(),
+            'h_high': self.h_high.get(),
+            's_low': self.s_low.get(),
+            's_high': self.s_high.get(),
+            'v_low': self.v_low.get(),
+            'v_high': self.v_high.get(),
+            'output_mode': output_map.get(self.output_mode.get(), 'Mask Only')
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Color In Range",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Method signature
-            signature_label = ttk.Label(
-                header_frame,
-                text="cv2.inRange(src, lowerb, upperb)",
-                font=('TkFixedFont', 12)
-            )
-            signature_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Color space selection
-        space_frame = ttk.Frame(right_column)
-        space_frame.pack(fill='x', pady=3)
-
-        ttk.Label(space_frame, text="Color Space:").pack(side='left')
-
-        ttk.Radiobutton(
-            space_frame,
-            text="HSV",
-            variable=self.use_hsv,
-            value=True
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            space_frame,
-            text="BGR",
-            variable=self.use_hsv,
-            value=False
-        ).pack(side='left', padx=5)
-
-        # Hue/Blue low
-        h_low_frame = ttk.Frame(right_column)
-        h_low_frame.pack(fill='x', pady=3)
-
-        self.h_low_name_label = ttk.Label(h_low_frame, text="H Low:")
-        self.h_low_name_label.pack(side='left')
-
-        self.h_low_slider = ttk.Scale(
-            h_low_frame,
-            from_=0,
-            to=179,
-            orient='horizontal',
-            variable=self.h_low,
-            command=self._on_h_low_change
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        self.h_low_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.h_low_label = ttk.Label(h_low_frame, text="0")
-        self.h_low_label.pack(side='left', padx=5)
-
-        # Hue/Blue high
-        h_high_frame = ttk.Frame(right_column)
-        h_high_frame.pack(fill='x', pady=3)
-
-        self.h_high_name_label = ttk.Label(h_high_frame, text="H High:")
-        self.h_high_name_label.pack(side='left')
-
-        self.h_high_slider = ttk.Scale(
-            h_high_frame,
-            from_=0,
-            to=179,
-            orient='horizontal',
-            variable=self.h_high,
-            command=self._on_h_high_change
-        )
-        self.h_high_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.h_high_label = ttk.Label(h_high_frame, text="179")
-        self.h_high_label.pack(side='left', padx=5)
-
-        # Saturation/Green low
-        s_low_frame = ttk.Frame(right_column)
-        s_low_frame.pack(fill='x', pady=3)
-
-        self.s_low_name_label = ttk.Label(s_low_frame, text="S Low:")
-        self.s_low_name_label.pack(side='left')
-
-        s_low_slider = ttk.Scale(
-            s_low_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.s_low,
-            command=self._on_s_low_change
-        )
-        s_low_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.s_low_label = ttk.Label(s_low_frame, text="0")
-        self.s_low_label.pack(side='left', padx=5)
-
-        # Saturation/Green high
-        s_high_frame = ttk.Frame(right_column)
-        s_high_frame.pack(fill='x', pady=3)
-
-        self.s_high_name_label = ttk.Label(s_high_frame, text="S High:")
-        self.s_high_name_label.pack(side='left')
-
-        s_high_slider = ttk.Scale(
-            s_high_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.s_high,
-            command=self._on_s_high_change
-        )
-        s_high_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.s_high_label = ttk.Label(s_high_frame, text="255")
-        self.s_high_label.pack(side='left', padx=5)
-
-        # Value/Red low
-        v_low_frame = ttk.Frame(right_column)
-        v_low_frame.pack(fill='x', pady=3)
-
-        self.v_low_name_label = ttk.Label(v_low_frame, text="V Low:")
-        self.v_low_name_label.pack(side='left')
-
-        v_low_slider = ttk.Scale(
-            v_low_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.v_low,
-            command=self._on_v_low_change
-        )
-        v_low_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.v_low_label = ttk.Label(v_low_frame, text="0")
-        self.v_low_label.pack(side='left', padx=5)
-
-        # Value/Red high
-        v_high_frame = ttk.Frame(right_column)
-        v_high_frame.pack(fill='x', pady=3)
-
-        self.v_high_name_label = ttk.Label(v_high_frame, text="V High:")
-        self.v_high_name_label.pack(side='left')
-
-        v_high_slider = ttk.Scale(
-            v_high_frame,
-            from_=0,
-            to=255,
-            orient='horizontal',
-            variable=self.v_high,
-            command=self._on_v_high_change
-        )
-        v_high_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.v_high_label = ttk.Label(v_high_frame, text="255")
-        self.v_high_label.pack(side='left', padx=5)
-
-        # Output mode
-        output_frame = ttk.Frame(right_column)
-        output_frame.pack(fill='x', pady=3)
-
-        ttk.Label(output_frame, text="Output:").pack(side='left')
-
-        ttk.Radiobutton(
-            output_frame,
-            text="Mask Only",
-            variable=self.output_mode,
-            value="mask"
-        ).pack(side='left', padx=(10, 5))
-
-        ttk.Radiobutton(
-            output_frame,
-            text="Keep In-Range",
-            variable=self.output_mode,
-            value="masked"
-        ).pack(side='left', padx=5)
-
-        ttk.Radiobutton(
-            output_frame,
-            text="Keep Out-of-Range",
-            variable=self.output_mode,
-            value="inverse"
-        ).pack(side='left', padx=5)
-
-        # Update labels when color space changes
-        def on_color_space_change(*args):
-            if self.use_hsv.get():
-                self.h_low_name_label.config(text="H Low:")
-                self.h_high_name_label.config(text="H High:")
-                self.s_low_name_label.config(text="S Low:")
-                self.s_high_name_label.config(text="S High:")
-                self.v_low_name_label.config(text="V Low:")
-                self.v_high_name_label.config(text="V High:")
-                self.h_low_slider.config(to=179)
-                self.h_high_slider.config(to=179)
-                # Clamp values to new range
-                if self.h_low.get() > 179:
-                    self.h_low.set(179)
-                if self.h_high.get() > 179:
-                    self.h_high.set(179)
-            else:
-                self.h_low_name_label.config(text="B Low:")
-                self.h_high_name_label.config(text="B High:")
-                self.s_low_name_label.config(text="G Low:")
-                self.s_high_name_label.config(text="G High:")
-                self.v_low_name_label.config(text="R Low:")
-                self.v_high_name_label.config(text="R High:")
-                self.h_low_slider.config(to=255)
-                self.h_high_slider.config(to=255)
-
-        self.use_hsv.trace_add('write', on_color_space_change)
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         return self.control_panel
 
-    def _on_h_low_change(self, value):
-        self.h_low_label.config(text=str(int(float(value))))
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'use_hsv':
+                var.trace_add('write', lambda *args: self.use_hsv.set(self._subform._vars['use_hsv'].get()))
+            elif key == 'h_low':
+                var.trace_add('write', lambda *args: self.h_low.set(int(self._subform._vars['h_low'].get())))
+            elif key == 'h_high':
+                var.trace_add('write', lambda *args: self.h_high.set(int(self._subform._vars['h_high'].get())))
+            elif key == 's_low':
+                var.trace_add('write', lambda *args: self.s_low.set(int(self._subform._vars['s_low'].get())))
+            elif key == 's_high':
+                var.trace_add('write', lambda *args: self.s_high.set(int(self._subform._vars['s_high'].get())))
+            elif key == 'v_low':
+                var.trace_add('write', lambda *args: self.v_low.set(int(self._subform._vars['v_low'].get())))
+            elif key == 'v_high':
+                var.trace_add('write', lambda *args: self.v_high.set(int(self._subform._vars['v_high'].get())))
+            elif key == 'output_mode':
+                var.trace_add('write', lambda *args: self._update_output_mode())
 
-    def _on_h_high_change(self, value):
-        self.h_high_label.config(text=str(int(float(value))))
+    def _update_output_mode(self):
+        """Update output mode from subform value"""
+        value = self._subform._vars['output_mode'].get()
+        output_map = {
+            'Mask Only': 'mask',
+            'Keep In-Range': 'masked',
+            'Keep Out-of-Range': 'inverse'
+        }
+        self.output_mode.set(output_map.get(value, 'mask'))
 
-    def _on_s_low_change(self, value):
-        self.s_low_label.config(text=str(int(float(value))))
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
 
-    def _on_s_high_change(self, value):
-        self.s_high_label.config(text=str(int(float(value))))
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
 
-    def _on_v_low_change(self, value):
-        self.v_low_label.config(text=str(int(float(value))))
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-    def _on_v_high_change(self, value):
-        self.v_high_label.config(text=str(int(float(value))))
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Color Space: {'HSV' if self.use_hsv.get() else 'BGR'}")
+
+        if self.use_hsv.get():
+            lines.append(f"H: {self.h_low.get()} - {self.h_high.get()}")
+            lines.append(f"S: {self.s_low.get()} - {self.s_high.get()}")
+            lines.append(f"V: {self.v_low.get()} - {self.v_high.get()}")
+        else:
+            lines.append(f"B: {self.h_low.get()} - {self.h_high.get()}")
+            lines.append(f"G: {self.s_low.get()} - {self.s_high.get()}")
+            lines.append(f"R: {self.v_low.get()} - {self.v_high.get()}")
+
+        output_names = {
+            'mask': 'Mask Only',
+            'masked': 'Keep In-Range',
+            'inverse': 'Keep Out-of-Range'
+        }
+        lines.append(f"Output: {output_names.get(self.output_mode.get(), self.output_mode.get())}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'use_hsv': self.use_hsv.get(),
+            'h_low': self.h_low.get(),
+            'h_high': self.h_high.get(),
+            's_low': self.s_low.get(),
+            's_high': self.s_high.get(),
+            'v_low': self.v_low.get(),
+            'v_high': self.v_high.get(),
+            'output_mode': self.output_mode.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'color' in key and 'space' in key:
+                        self.use_hsv.set(value.lower() == 'hsv')
+                    elif key in ('h', 'b') and '-' in value:
+                        low, high = value.split('-')
+                        self.h_low.set(max(0, min(255, int(low.strip()))))
+                        self.h_high.set(max(0, min(255, int(high.strip()))))
+                    elif key in ('s', 'g') and '-' in value:
+                        low, high = value.split('-')
+                        self.s_low.set(max(0, min(255, int(low.strip()))))
+                        self.s_high.set(max(0, min(255, int(high.strip()))))
+                    elif key in ('v', 'r') and '-' in value:
+                        low, high = value.split('-')
+                        self.v_low.set(max(0, min(255, int(low.strip()))))
+                        self.v_high.set(max(0, min(255, int(high.strip()))))
+                    elif 'output' in key:
+                        output_map = {
+                            'mask only': 'mask',
+                            'keep in-range': 'masked',
+                            'keep out-of-range': 'inverse'
+                        }
+                        self.output_mode.set(output_map.get(value.lower(), 'mask'))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'use_hsv' in data:
+                self.use_hsv.set(bool(data['use_hsv']))
+            if 'h_low' in data:
+                self.h_low.set(max(0, min(255, int(data['h_low']))))
+            if 'h_high' in data:
+                self.h_high.set(max(0, min(255, int(data['h_high']))))
+            if 's_low' in data:
+                self.s_low.set(max(0, min(255, int(data['s_low']))))
+            if 's_high' in data:
+                self.s_high.set(max(0, min(255, int(data['s_high']))))
+            if 'v_low' in data:
+                self.v_low.set(max(0, min(255, int(data['v_low']))))
+            if 'v_high' in data:
+                self.v_high.set(max(0, min(255, int(data['v_high']))))
+            if 'output_mode' in data:
+                self.output_mode.set(data['output_mode'])
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                self._sync_subform_from_vars()
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def _sync_subform_from_vars(self):
+        """Sync subform variables from effect variables"""
+        if 'use_hsv' in self._subform._vars:
+            self._subform._vars['use_hsv'].set(self.use_hsv.get())
+        if 'h_low' in self._subform._vars:
+            self._subform._vars['h_low'].set(self.h_low.get())
+        if 'h_high' in self._subform._vars:
+            self._subform._vars['h_high'].set(self.h_high.get())
+        if 's_low' in self._subform._vars:
+            self._subform._vars['s_low'].set(self.s_low.get())
+        if 's_high' in self._subform._vars:
+            self._subform._vars['s_high'].set(self.s_high.get())
+        if 'v_low' in self._subform._vars:
+            self._subform._vars['v_low'].set(self.v_low.get())
+        if 'v_high' in self._subform._vars:
+            self._subform._vars['v_high'].set(self.v_high.get())
+        if 'output_mode' in self._subform._vars:
+            output_map = {
+                'mask': 'Mask Only',
+                'masked': 'Keep In-Range',
+                'inverse': 'Keep Out-of-Range'
+            }
+            self._subform._vars['output_mode'].set(output_map.get(self.output_mode.get(), 'Mask Only'))
 
     def get_view_mode_summary(self) -> str:
         """Return a formatted summary of current settings for view mode"""

@@ -10,6 +10,8 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
+import json
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
@@ -88,115 +90,57 @@ class FFTFilterEffect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
+    def get_form_schema(self):
+        """Return the form schema for this effect's parameters"""
+        return [
+            {'type': 'slider', 'label': 'Radius', 'key': 'fft_radius', 'min': 0, 'max': 200, 'default': 0},
+            {'type': 'slider', 'label': 'Smoothness', 'key': 'fft_smoothness', 'min': 0, 'max': 100, 'default': 0},
+            {'type': 'checkbox', 'label': 'Show FFT Spectrum', 'key': 'show_fft', 'default': False},
+        ]
 
-    def create_control_panel(self, parent):
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        return {
+            'fft_radius': self.fft_radius.get(),
+            'fft_smoothness': self.fft_smoothness.get(),
+            'show_fft': self.show_fft.get()
+        }
+
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="FFT High-Pass Filter",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Description
-            desc_label = ttk.Label(
-                header_frame,
-                text="Frequency domain filtering with Butterworth",
-                font=('TkFixedFont', 12)
-            )
-            desc_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - all controls
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
-
-        # Radius slider
-        radius_frame = ttk.Frame(right_column)
-        radius_frame.pack(fill='x', pady=3)
-
-        ttk.Label(radius_frame, text="Radius:").pack(side='left')
-
-        def on_radius_change(*args):
-            radius = self.fft_radius.get()
-            self.radius_label.config(text=str(radius))
-            self._update_visualization()
-
-        radius_slider = ttk.Scale(
-            radius_frame,
-            from_=0,
-            to=200,
-            orient='horizontal',
-            variable=self.fft_radius,
-            command=lambda v: on_radius_change()
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
         )
-        radius_slider.pack(side='left', fill='x', expand=True, padx=5)
+        form_frame.pack(fill='both', expand=True)
 
-        self.radius_label = ttk.Label(radius_frame, text="0", width=5)
-        self.radius_label.pack(side='left', padx=5)
-
-        # Update label when radius changes (e.g., from loading pipeline)
-        self.fft_radius.trace_add("write", on_radius_change)
-
-        # Smoothness slider
-        smooth_frame = ttk.Frame(right_column)
-        smooth_frame.pack(fill='x', pady=3)
-
-        ttk.Label(smooth_frame, text="Smoothness:").pack(side='left')
-
-        def on_smoothness_change(value):
-            self.smoothness_label.config(text=str(int(float(value))))
-            self._update_visualization()
-
-        smooth_slider = ttk.Scale(
-            smooth_frame,
-            from_=0,
-            to=100,
-            orient='horizontal',
-            variable=self.fft_smoothness,
-            command=on_smoothness_change
-        )
-        smooth_slider.pack(side='left', fill='x', expand=True, padx=5)
-
-        self.smoothness_label = ttk.Label(smooth_frame, text="0", width=5)
-        self.smoothness_label.pack(side='left', padx=5)
-
-        # Show FFT checkbox
-        show_fft_frame = ttk.Frame(right_column)
-        show_fft_frame.pack(fill='x', pady=3)
-
-        show_fft_cb = ttk.Checkbutton(
-            show_fft_frame,
-            text="Show FFT Spectrum",
-            variable=self.show_fft
-        )
-        show_fft_cb.pack(side='left')
+        # Store reference to subform for syncing values back
+        self._update_vars_from_subform()
 
         # Create visualization and difference windows
         self._create_visualization_window()
@@ -204,6 +148,159 @@ class FFTFilterEffect(BaseUIEffect):
         self._create_diff_window()
 
         return self.control_panel
+
+    def _update_vars_from_subform(self):
+        """Set up tracing to sync subform values back to effect variables"""
+        # When subform values change, update effect's tk.Variables
+        for key, var in self._subform._vars.items():
+            if key == 'fft_radius':
+                var.trace_add('write', lambda *args: self._on_radius_change())
+            elif key == 'fft_smoothness':
+                var.trace_add('write', lambda *args: self._on_smoothness_change())
+            elif key == 'show_fft':
+                var.trace_add('write', lambda *args: self.show_fft.set(self._subform._vars['show_fft'].get()))
+
+    def _on_radius_change(self):
+        """Handle radius change and update visualization"""
+        self.fft_radius.set(int(self._subform._vars['fft_radius'].get()))
+        self._update_visualization()
+
+    def _on_smoothness_change(self):
+        """Handle smoothness change and update visualization"""
+        self.fft_smoothness.set(int(self._subform._vars['fft_smoothness'].get()))
+        self._update_visualization()
+
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
+
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._update_vars_from_subform()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(f"Radius: {self.fft_radius.get()}")
+        lines.append(f"Smoothness: {self.fft_smoothness.get()}")
+        lines.append(f"Show FFT Spectrum: {'Yes' if self.show_fft.get() else 'No'}")
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+            'fft_radius': self.fft_radius.get(),
+            'fft_smoothness': self.fft_smoothness.get(),
+            'show_fft': self.show_fft.get()
+        }
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            lines = text.strip().split('\n')
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if 'radius' in key:
+                        self.fft_radius.set(max(0, min(200, int(value))))
+                    elif 'smoothness' in key:
+                        self.fft_smoothness.set(max(0, min(100, int(value))))
+                    elif 'show' in key and 'fft' in key:
+                        self.show_fft.set(value.lower() in ('yes', 'true', '1'))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'fft_radius' in self._subform._vars:
+                    self._subform._vars['fft_radius'].set(self.fft_radius.get())
+                if 'fft_smoothness' in self._subform._vars:
+                    self._subform._vars['fft_smoothness'].set(self.fft_smoothness.get())
+                if 'show_fft' in self._subform._vars:
+                    self._subform._vars['show_fft'].set(self.show_fft.get())
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            if 'fft_radius' in data:
+                self.fft_radius.set(max(0, min(200, int(data['fft_radius']))))
+            if 'fft_smoothness' in data:
+                self.fft_smoothness.set(max(0, min(100, int(data['fft_smoothness']))))
+            if 'show_fft' in data:
+                self.show_fft.set(bool(data['show_fft']))
+
+            # Update subform variables if in edit mode
+            if self._current_mode == 'edit' and hasattr(self, '_subform'):
+                if 'fft_radius' in self._subform._vars:
+                    self._subform._vars['fft_radius'].set(self.fft_radius.get())
+                if 'fft_smoothness' in self._subform._vars:
+                    self._subform._vars['fft_smoothness'].set(self.fft_smoothness.get())
+                if 'show_fft' in self._subform._vars:
+                    self._subform._vars['show_fft'].set(self.show_fft.get())
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
+
+    def get_view_mode_summary(self) -> str:
+        """Return a formatted summary of current settings for view mode"""
+        lines = []
+        lines.append(f"Radius: {self.fft_radius.get()}")
+        lines.append(f"Smoothness: {self.fft_smoothness.get()}")
+        lines.append(f"Show FFT Spectrum: {'Yes' if self.show_fft.get() else 'No'}")
+        return '\n'.join(lines)
 
     def _create_visualization_window(self):
         """Create matplotlib window to visualize the filter curve"""
