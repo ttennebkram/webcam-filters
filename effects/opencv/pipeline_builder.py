@@ -123,6 +123,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._original_name = ""
         self._original_description = ""
         self._original_enabled_states = []  # List of (effect, enabled_state) tuples
+        self._original_pipeline_config = None  # Full pipeline config for restoring deleted effects
 
         # Flag to prevent edit mode from triggering during initialization
         self._initializing = True
@@ -150,6 +151,54 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Ask each effect to snapshot its own state
             if hasattr(effect, 'snapshot_state'):
                 effect.snapshot_state()
+        # Also snapshot the full pipeline config (for restoring deleted effects)
+        self._original_pipeline_config = self._get_current_pipeline_config()
+
+    def _get_current_pipeline_config(self):
+        """Get the current pipeline configuration as a dict (same format as saved JSON)"""
+        config = {
+            'name': self.pipeline_name.get().strip(),
+            'description': self.pipeline_description.get().strip(),
+            'effects': []
+        }
+
+        for effect in self.effects:
+            effect_config = {
+                'module': None,
+                'class_name': effect.__class__.__name__,
+                'params': {}
+            }
+
+            # Find module name
+            for info in self.available_effects:
+                if info['class'] == effect.__class__:
+                    effect_config['module'] = info['module']
+                    break
+
+            # Save parameter values - recursively extract all tk.Variables
+            for attr_name in dir(effect):
+                if attr_name.startswith('_'):
+                    continue
+                try:
+                    attr = getattr(effect, attr_name)
+                except:
+                    continue
+
+                # Handle direct tk.Variable
+                if isinstance(attr, tk.Variable):
+                    try:
+                        effect_config['params'][attr_name] = attr.get()
+                    except:
+                        pass
+                # Handle dicts and lists that may contain tk.Variables
+                elif isinstance(attr, (dict, list)):
+                    extracted = _extract_tk_variables(attr)
+                    if extracted is not None:
+                        effect_config['params'][attr_name] = extracted
+
+            config['effects'].append(effect_config)
+
+        return config
 
     @classmethod
     def get_name(cls) -> str:
@@ -876,18 +925,24 @@ class PipelineBuilder2Effect(BaseUIEffect):
             # Cancel - restore original values
             self.pipeline_name.set(self._original_name)
             self.pipeline_description.set(self._original_description)
-            # Set mode to view BEFORE restoring enabled states to prevent re-triggering edit mode
+            # Set mode to view BEFORE restoring to prevent re-triggering edit mode
             self._current_mode = 'view'
             # Use initializing flag to prevent traces from triggering edit mode
             self._initializing = True
-            # Restore enabled states
-            for effect, enabled_state in self._original_enabled_states:
-                if hasattr(effect, 'enabled'):
-                    effect.enabled.set(enabled_state)
-            # Ask each effect to restore its own state
-            for effect in self.effects:
-                if hasattr(effect, 'restore_state'):
-                    effect.restore_state()
+
+            # Restore the full pipeline from saved config (handles deleted effects)
+            if self._original_pipeline_config is not None:
+                self._load_pipeline(self._original_pipeline_config)
+            else:
+                # Fallback: just restore enabled states for existing effects
+                for effect, enabled_state in self._original_enabled_states:
+                    if hasattr(effect, 'enabled'):
+                        effect.enabled.set(enabled_state)
+                # Ask each effect to restore its own state
+                for effect in self.effects:
+                    if hasattr(effect, 'restore_state'):
+                        effect.restore_state()
+
             self._initializing = False
             # Sync all effects back to view mode
             self._update_mode_ui()
