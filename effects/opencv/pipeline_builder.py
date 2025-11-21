@@ -158,6 +158,7 @@ class PipelineBuilderEffect(BaseUIEffect):
         # UI references
         self.effects_container = None
         self.effect_frames = []
+        self.current_selector = None
 
         # Pipeline name for saving
         self.pipeline_name = tk.StringVar(value="")
@@ -260,9 +261,18 @@ class PipelineBuilderEffect(BaseUIEffect):
 
     def _show_effect_selector(self, insert_index):
         """Show dropdown to select an effect to add"""
+        # Close any existing selector
+        if self.current_selector is not None:
+            try:
+                self.current_selector.destroy()
+            except:
+                pass
+            self.current_selector = None
+
         # Create a popup frame
         selector_frame = ttk.Frame(self.effects_container)
         selector_frame.pack(fill='x', pady=5)
+        self.current_selector = selector_frame
 
         # Position it correctly
         if insert_index > 0 and insert_index <= len(self.effect_frames):
@@ -296,9 +306,11 @@ class PipelineBuilderEffect(BaseUIEffect):
                         self._add_effect(effect_info, insert_index)
                         break
             selector_frame.destroy()
+            self.current_selector = None
 
         def on_cancel():
             selector_frame.destroy()
+            self.current_selector = None
 
         combo.bind('<<ComboboxSelected>>', on_select)
 
