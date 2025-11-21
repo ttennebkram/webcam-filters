@@ -235,7 +235,7 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
                 command=on_edit,
                 width=6
             )
-            edit_btn.pack(side='right')
+            edit_btn.pack(side='left', padx=(10, 0))
 
             # Column header for Enabled and Effect
             header_frame = ttk.Frame(self.control_panel)

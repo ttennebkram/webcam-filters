@@ -13,6 +13,26 @@ import os
 from core.base_effect import BaseUIEffect
 
 
+def _create_tooltip(widget, text):
+    """Create a tooltip for a widget"""
+    def show_tooltip(event):
+        tooltip = tk.Toplevel(widget)
+        tooltip.wm_overrideredirect(True)
+        tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+        label = ttk.Label(tooltip, text=text, background="#ffffe0",
+                         relief='solid', borderwidth=1, padding=(5, 2))
+        label.pack()
+        widget._tooltip = tooltip
+
+    def hide_tooltip(event):
+        if hasattr(widget, '_tooltip'):
+            widget._tooltip.destroy()
+            del widget._tooltip
+
+    widget.bind('<Enter>', show_tooltip)
+    widget.bind('<Leave>', hide_tooltip)
+
+
 def _extract_tk_variables(obj, visited=None):
     """Recursively extract tk.Variable values from an object.
 
@@ -389,6 +409,7 @@ class PipelineBuilderEffect(BaseUIEffect):
                                     command=lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
                                 )
                                 plus_btn.pack(side='left', padx=(0, 1))
+                                _create_tooltip(plus_btn, "Add effect below")
 
                                 minus_btn = ttk.Button(
                                     btn_frame,
@@ -397,6 +418,7 @@ class PipelineBuilderEffect(BaseUIEffect):
                                     command=lambda f=effect_frame: self._remove_effect(f)
                                 )
                                 minus_btn.pack(side='left')
+                                _create_tooltip(minus_btn, "Remove this effect")
                                 return
 
         # Fallback: add buttons at the bottom if we couldn't find left column
@@ -410,6 +432,7 @@ class PipelineBuilderEffect(BaseUIEffect):
             command=lambda f=effect_frame: self._show_effect_selector(self._get_frame_index(f) + 1)
         )
         plus_btn.pack(side='left', padx=(0, 1))
+        _create_tooltip(plus_btn, "Add effect below")
 
         minus_btn = ttk.Button(
             btn_frame,
@@ -418,6 +441,7 @@ class PipelineBuilderEffect(BaseUIEffect):
             command=lambda f=effect_frame: self._remove_effect(f)
         )
         minus_btn.pack(side='left')
+        _create_tooltip(minus_btn, "Remove this effect")
 
     def _get_frame_index(self, frame):
         """Get the current index of a frame"""
