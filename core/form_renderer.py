@@ -415,6 +415,7 @@ class EffectForm:
         # Center column: Description, signature, and subform
         center_frame = ttk.Frame(content_frame)
         center_frame.pack(side='left', fill='both', expand=True)
+        self._center_frame = center_frame  # Expose for custom content
 
         # Description at top of center column
         if self.description:

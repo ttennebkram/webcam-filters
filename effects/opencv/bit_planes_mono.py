@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
+import json
 from core.base_effect import BaseUIEffect
+from core.form_renderer import Subform, EffectForm
 
 
 class BitPlanesEffect(BaseUIEffect):
@@ -36,7 +38,7 @@ class BitPlanesEffect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Grayscale Bit Plane Selector"
+        return "Bit Planes Grayscale"
 
     @classmethod
     def get_description(cls) -> str:
@@ -45,6 +47,22 @@ class BitPlanesEffect(BaseUIEffect):
     @classmethod
     def get_category(cls) -> str:
         return "opencv"
+
+    @classmethod
+    def get_method_signature(cls) -> str:
+        return "Bit plane decomposition with gain"
+
+    def get_form_schema(self):
+        """Return empty schema - bit planes uses custom rendering"""
+        return []
+
+    def get_current_data(self):
+        """Get current parameter values as a dictionary"""
+        data = {}
+        for i in range(8):
+            data[f'enable_{i}'] = self.bitplane_enable[i].get()
+            data[f'gain_{i}'] = self.bitplane_gain[i].get()
+        return data
 
     def get_view_mode_summary(self) -> str:
         """Return a human-readable summary of enabled bits and gains for view mode"""
@@ -94,66 +112,66 @@ class BitPlanesEffect(BaseUIEffect):
             return -1
         return math.log10(gain)
 
-    def create_control_panel(self, parent):
+    def create_control_panel(self, parent, mode='view'):
         """Create Tkinter control panel for this effect"""
         self.control_panel = ttk.Frame(parent)
+        self._control_parent = parent
+        self._current_mode = mode
 
-        padding = {'padx': 10, 'pady': 5}
+        # Create the EffectForm with empty subform (we'll add custom content)
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
 
-        # Header section (skip if in pipeline - LabelFrame already shows name)
-        if not getattr(self, '_in_pipeline', False):
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Title
-            title_label = ttk.Label(
-                header_frame,
-                text="Grayscale Bit Plane Selector",
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(anchor='w')
-
-            # Description
-            desc_label = ttk.Label(
-                header_frame,
-                text="Select and adjust gain on bit planes",
-                font=('TkFixedFont', 12)
-            )
-            desc_label.pack(anchor='w', pady=(2, 2))
-
-        # Main frame with two columns
-        main_frame = ttk.Frame(self.control_panel)
-        main_frame.pack(fill='x', **padding)
-
-        # Left column - Enabled checkbox
-        left_column = ttk.Frame(main_frame)
-        left_column.pack(side='left', fill='y', padx=(0, 15))
-
-        ttk.Frame(left_column).pack(expand=True)
-        enabled_cb = ttk.Checkbutton(
-            left_column,
-            text="Enabled",
-            variable=self.enabled
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
         )
-        enabled_cb.pack()
-        ttk.Frame(left_column).pack(expand=True)
 
-        # Right column - bit plane table
-        right_column = ttk.Frame(main_frame)
-        right_column.pack(side='left', fill='both', expand=True)
+        # Render the form
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
 
+        # In edit mode, add the custom bit plane table to the center column
+        if mode == 'edit':
+            # Find the center frame in the EffectForm and add our custom table
+            self._add_bitplane_table(self._effect_form._center_frame)
+        else:
+            # In view mode, show the bits summary
+            self._add_view_summary(self._effect_form._center_frame)
+
+        # Force geometry recalculation to ensure proper sizing
+        self.control_panel.update_idletasks()
+
+        return self.control_panel
+
+    def _add_bitplane_table(self, parent):
+        """Add the bit plane table to the given parent frame"""
         # Create table for bit planes
-        table_frame = ttk.Frame(right_column)
-        table_frame.pack(fill='x')
+        table_frame = ttk.Frame(parent)
+        table_frame.pack(fill='x', pady=(5, 0))
 
         # Header row
         ttk.Label(table_frame, text="Bit").grid(row=0, column=0, padx=5, pady=2, sticky='e')
-        ttk.Label(table_frame, text="Enabled").grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(table_frame, text="On").grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(table_frame, text="Gain (0.1x to 10x)").grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(table_frame, text="").grid(row=0, column=3, padx=2, pady=2)
 
         # "All" row at the top
-        ttk.Label(table_frame, text="All", font=('TkDefaultFont', 14, 'bold')).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(table_frame, text="All", font=('TkDefaultFont', 10, 'bold')).grid(row=1, column=0, padx=5, pady=3, sticky='e')
 
         def on_bitplane_all_enable_change(*args):
             enabled = self.bitplane_all_enable.get()
@@ -161,7 +179,7 @@ class BitPlanesEffect(BaseUIEffect):
                 self.bitplane_enable[i].set(enabled)
 
         self.bitplane_all_enable.trace_add("write", on_bitplane_all_enable_change)
-        ttk.Checkbutton(table_frame, variable=self.bitplane_all_enable).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Checkbutton(table_frame, variable=self.bitplane_all_enable).grid(row=1, column=1, padx=5, pady=3)
 
         def update_all_bitplane_gain(slider_val):
             gain = self._slider_to_gain(float(slider_val))
@@ -172,11 +190,11 @@ class BitPlanesEffect(BaseUIEffect):
 
         all_gain_slider = ttk.Scale(table_frame, from_=-1, to=1, variable=self.bitplane_all_gain_slider, orient='horizontal',
                                     command=lambda v: update_all_bitplane_gain(v))
-        all_gain_slider.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
+        all_gain_slider.grid(row=1, column=2, padx=5, pady=3, sticky='ew')
 
         # Display label for gain value
         self.all_gain_label = ttk.Label(table_frame, text="1.00x", width=6)
-        self.all_gain_label.grid(row=1, column=3, padx=(2, 10), pady=5)
+        self.all_gain_label.grid(row=1, column=3, padx=(2, 5), pady=3)
 
         def update_all_gain_label(*args):
             gain = self.bitplane_all_gain.get()
@@ -186,17 +204,17 @@ class BitPlanesEffect(BaseUIEffect):
 
         # Separator line after "All" row
         sep_frame = ttk.Frame(table_frame, height=2, relief='sunken')
-        sep_frame.grid(row=2, column=0, columnspan=4, sticky='ew', pady=(10, 10))
+        sep_frame.grid(row=2, column=0, columnspan=4, sticky='ew', pady=(5, 5))
 
         # Create 8 rows for bit planes
-        bit_labels = ["(MSB) 7", "6", "5", "4", "3", "2", "1", "(LSB) 0"]
+        bit_labels = ["7", "6", "5", "4", "3", "2", "1", "0"]
         self.gain_labels = []
 
         for i, label in enumerate(bit_labels):
             row = i + 3  # Start at row 3 (after header, All row, and separator)
 
-            ttk.Label(table_frame, text=label).grid(row=row, column=0, padx=5, pady=5, sticky='e')
-            ttk.Checkbutton(table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=5)
+            ttk.Label(table_frame, text=label).grid(row=row, column=0, padx=5, pady=2, sticky='e')
+            ttk.Checkbutton(table_frame, variable=self.bitplane_enable[i]).grid(row=row, column=1, padx=5, pady=2)
 
             def update_gain(slider_val, idx=i):
                 gain = self._slider_to_gain(float(slider_val))
@@ -204,11 +222,11 @@ class BitPlanesEffect(BaseUIEffect):
 
             gain_slider = ttk.Scale(table_frame, from_=-1, to=1, variable=self.bitplane_gain_slider[i], orient='horizontal',
                                     command=lambda v, idx=i: update_gain(v, idx))
-            gain_slider.grid(row=row, column=2, padx=5, pady=5, sticky='ew')
+            gain_slider.grid(row=row, column=2, padx=5, pady=2, sticky='ew')
 
             # Gain value label
             gain_label = ttk.Label(table_frame, text="1.00x", width=6)
-            gain_label.grid(row=row, column=3, padx=(2, 10), pady=5)
+            gain_label.grid(row=row, column=3, padx=(2, 5), pady=2)
             self.gain_labels.append(gain_label)
 
             def update_gain_label(var_name, index, mode, idx=i):
@@ -219,7 +237,155 @@ class BitPlanesEffect(BaseUIEffect):
 
         table_frame.columnconfigure(2, weight=1)
 
-        return self.control_panel
+    def _add_view_summary(self, parent):
+        """Add the bits summary label for view mode"""
+        # Build the bits string without the "Bits: " prefix since we'll use a proper label
+        enabled_bits = []
+        for i in range(8):
+            if self.bitplane_enable[i].get():
+                gain = self.bitplane_gain[i].get()
+                bit_num = 7 - i  # Convert index to bit number
+                if abs(gain - 1.0) < 0.01:
+                    enabled_bits.append(str(bit_num))
+                else:
+                    enabled_bits.append(f"{bit_num}({gain:.1f}x)")
+
+        if enabled_bits:
+            bits_value = ', '.join(enabled_bits)
+        else:
+            bits_value = "none"
+
+        # Create frame for the label row
+        summary_frame = ttk.Frame(parent)
+        summary_frame.pack(fill='x', pady=(5, 0))
+
+        # Right-justified "Bits:" label
+        ttk.Label(summary_frame, text="Bits:").grid(row=0, column=0, sticky='e', padx=(5, 10), pady=4)
+        # Value label
+        ttk.Label(summary_frame, text=bits_value).grid(row=0, column=1, sticky='w', pady=4)
+
+    def _toggle_mode(self):
+        """Toggle between edit and view modes"""
+        self._current_mode = 'view' if self._current_mode == 'edit' else 'edit'
+
+        # Re-render the entire control panel
+        for child in self.control_panel.winfo_children():
+            child.destroy()
+
+        schema = self.get_form_schema()
+        self._subform = Subform(schema)
+
+        self._effect_form = EffectForm(
+            effect_name=self.get_name(),
+            subform=self._subform,
+            enabled_var=self.enabled,
+            description=self.get_description(),
+            signature=self.get_method_signature(),
+            on_mode_toggle=self._toggle_mode,
+            on_copy_text=self._copy_text,
+            on_copy_json=self._copy_json,
+            on_paste_text=self._paste_text,
+            on_paste_json=self._paste_json,
+            on_add_below=getattr(self, '_on_add_below', None),
+            on_remove=getattr(self, '_on_remove', None)
+        )
+
+        form_frame = self._effect_form.render(
+            self.control_panel,
+            mode=self._current_mode,
+            data=self.get_current_data()
+        )
+        form_frame.pack(fill='both', expand=True)
+
+        if self._current_mode == 'edit':
+            self._add_bitplane_table(self._effect_form._center_frame)
+        else:
+            self._add_view_summary(self._effect_form._center_frame)
+
+        # Force geometry recalculation to ensure proper sizing
+        self.control_panel.update_idletasks()
+
+    def _copy_text(self):
+        """Copy settings as human-readable text to clipboard"""
+        lines = [self.get_name()]
+        lines.append(self.get_description())
+        lines.append(self.get_method_signature())
+        lines.append(self.get_view_mode_summary())
+
+        text = '\n'.join(lines)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _copy_json(self):
+        """Copy settings as JSON to clipboard"""
+        data = {
+            'effect': self.get_name(),
+        }
+        for i in range(8):
+            data[f'enable_{i}'] = self.bitplane_enable[i].get()
+            data[f'gain_{i}'] = self.bitplane_gain[i].get()
+
+        text = json.dumps(data, indent=2)
+        if self.root_window:
+            self.root_window.clipboard_clear()
+            self.root_window.clipboard_append(text)
+
+    def _paste_text(self):
+        """Paste settings from human-readable text on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            # Parse "Bits: 7, 6(2.0x), 5, ..." format
+            if 'Bits:' in text:
+                bits_part = text.split('Bits:')[1].strip().split('\n')[0]
+                # Reset all bits to disabled
+                for i in range(8):
+                    self.bitplane_enable[i].set(False)
+                    self.bitplane_gain[i].set(1.0)
+                    self.bitplane_gain_slider[i].set(0.0)
+
+                if bits_part.lower() != 'none':
+                    for bit_spec in bits_part.split(','):
+                        bit_spec = bit_spec.strip()
+                        if '(' in bit_spec:
+                            # Has gain: "7(2.0x)"
+                            bit_num = int(bit_spec.split('(')[0])
+                            gain_str = bit_spec.split('(')[1].rstrip('x)')
+                            gain = float(gain_str)
+                        else:
+                            bit_num = int(bit_spec)
+                            gain = 1.0
+
+                        # Convert bit number to index (7 -> 0, 0 -> 7)
+                        idx = 7 - bit_num
+                        if 0 <= idx < 8:
+                            self.bitplane_enable[idx].set(True)
+                            self.bitplane_gain[idx].set(gain)
+                            self.bitplane_gain_slider[idx].set(self._gain_to_slider(gain))
+        except Exception as e:
+            print(f"Error pasting text: {e}")
+
+    def _paste_json(self):
+        """Paste settings from JSON on clipboard"""
+        if not self.root_window:
+            return
+
+        try:
+            text = self.root_window.clipboard_get()
+            data = json.loads(text)
+
+            for i in range(8):
+                if f'enable_{i}' in data:
+                    self.bitplane_enable[i].set(data[f'enable_{i}'])
+                if f'gain_{i}' in data:
+                    gain = data[f'gain_{i}']
+                    self.bitplane_gain[i].set(gain)
+                    self.bitplane_gain_slider[i].set(self._gain_to_slider(gain))
+        except Exception as e:
+            print(f"Error pasting JSON: {e}")
 
     def draw(self, frame: np.ndarray, face_mask=None) -> np.ndarray:
         """Apply bit plane decomposition with gain to the frame"""
