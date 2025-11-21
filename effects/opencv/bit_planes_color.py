@@ -328,8 +328,12 @@ class ColorBitPlanesEffect(BaseUIEffect):
                 gain_labels.append(gain_label)
 
                 def update_gain_label(var_name, index, mode, c=color_key, idx=i, lbl=gain_label):
-                    gain = self.color_bitplane_gain[c][idx].get()
-                    lbl.config(text=f"{gain:.2f}x")
+                    try:
+                        if lbl.winfo_exists():
+                            gain = self.color_bitplane_gain[c][idx].get()
+                            lbl.config(text=f"{gain:.2f}x")
+                    except:
+                        pass  # Widget destroyed during hot-swap
 
                 self.color_bitplane_gain[color_key][i].trace_add("write", update_gain_label)
 

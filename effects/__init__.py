@@ -78,7 +78,7 @@ def discover_effects() -> Dict[str, Type[BaseEffect]]:
             except Exception as e:
                 print(f"Warning: Could not load effect from {module_name}: {e}")
 
-    # Also discover user pipelines
+    # Also discover user pipelines (just adds keys to dropdown, loaded via pipeline_builder2)
     user_pipelines = discover_user_pipelines()
     effects.update(user_pipelines)
 
@@ -121,68 +121,32 @@ def discover_user_pipelines() -> Dict[str, Type[BaseEffect]]:
 
 
 def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffect]:
-    """Create a dynamic effect class for a saved user pipeline
+    """Create a minimal placeholder class for a saved user pipeline.
+
+    This class only provides metadata for the dropdown list.
+    Actual rendering is handled by pipeline_builder2 when selected.
 
     Args:
         pipeline_key: The pipeline key (e.g., "user_mypipeline")
         config: The pipeline configuration dictionary
 
     Returns:
-        A dynamically created effect class
+        A minimal effect class with just metadata
     """
-    import tkinter as tk
-    from tkinter import ttk
-    import numpy as np
 
-    class UserPipelineEffect(BaseUIEffect):
-        """Dynamically created user pipeline effect"""
+    class UserPipelinePlaceholder(BaseEffect):
+        """Placeholder class for user pipeline - actual rendering via pipeline_builder2"""
 
         # Store config at class level
         _pipeline_config = config
         _pipeline_key = pipeline_key
 
-        def __init__(self, width, height, root=None):
-            super().__init__(width, height, root)
-
-            self.width = width
-            self.height = height
-            self.root = root
-
-            # Load effects from config
-            self.effects = []
-            self._load_effects_from_config()
-
-        def _load_effects_from_config(self):
-            """Load and instantiate effects from the pipeline config"""
-            for effect_config in self._pipeline_config.get('effects', []):
-                try:
-                    module_name = effect_config['module']
-                    class_name = effect_config['class_name']
-
-                    # Import the effect module
-                    module = importlib.import_module(f'effects.opencv.{module_name}')
-                    effect_class = getattr(module, class_name)
-
-                    # Create instance
-                    effect = effect_class(self.width, self.height, self.root)
-
-                    # Apply saved parameters - recursively restore tk.Variables
-                    # including those in nested dicts and lists
-                    for param_name, value in effect_config.get('params', {}).items():
-                        if hasattr(effect, param_name):
-                            attr = getattr(effect, param_name)
-                            if isinstance(attr, tk.Variable):
-                                try:
-                                    attr.set(value)
-                                except:
-                                    pass
-                            elif isinstance(attr, (dict, list)):
-                                _restore_tk_variables(attr, value)
-
-                    self.effects.append(effect)
-
-                except Exception as e:
-                    print(f"Warning: Could not load effect from pipeline: {e}")
+        def __init__(self, width, height):
+            # This should never be instantiated - main.py redirects to pipeline_builder2
+            raise RuntimeError(
+                f"UserPipelinePlaceholder should not be instantiated. "
+                f"Select '{pipeline_key}' from dropdown to load via pipeline_builder2."
+            )
 
         @classmethod
         def get_name(cls) -> str:
@@ -197,297 +161,15 @@ def create_user_pipeline_class(pipeline_key: str, config: dict) -> Type[BaseEffe
         def get_category(cls) -> str:
             return "opencv"
 
-        def get_preferred_window_height(self):
-            """Calculate preferred height based on number of effects"""
-            num_effects = len(self.effects)
-            # Base height for header + some padding, plus height per effect
-            # Keep similar to edit mode height
-            base_height = 150
-            per_effect_height = 130  # Each effect in view mode
-            return base_height + (num_effects * per_effect_height)
-
-        def create_control_panel(self, parent):
-            """Create control panel showing all effect controls"""
-            self.control_panel = ttk.Frame(parent)
-
-            padding = {'padx': 10, 'pady': 5}
-
-            # Header
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            title_label = ttk.Label(
-                header_frame,
-                text=self.get_name(),
-                font=('TkDefaultFont', 14, 'bold')
-            )
-            title_label.pack(side='left')
-
-            # Edit button to open in Pipeline Builder
-            def on_edit():
-                # Signal restart - main loop will read _pipeline_key from effect
-                if self.root:
-                    self.root.event_generate('<<EditPipeline>>')
-
-            edit_btn = ttk.Button(
-                header_frame,
-                text="Edit",
-                command=on_edit,
-                width=6
-            )
-            edit_btn.pack(side='left', padx=(10, 0))
-
-            # Column header for Enabled and Effect
-            header_frame = ttk.Frame(self.control_panel)
-            header_frame.pack(fill='x', **padding)
-
-            # Fixed width for Enabled column (match checkbox below)
-            ttk.Label(
-                header_frame,
-                text="Enabled",
-                font=('TkDefaultFont', 12, 'bold'),
-                anchor='center'
-            ).pack(side='left', padx=(10, 30))
-
-            ttk.Label(
-                header_frame,
-                text="Effect",
-                font=('TkDefaultFont', 12, 'bold')
-            ).pack(side='left')
-
-            # Show effects with enable checkboxes and read-only parameters
-            for i, effect in enumerate(self.effects):
-                effect_frame = ttk.Frame(self.control_panel)
-                effect_frame.pack(fill='x', **padding)
-
-                # Effect header with enabled checkbox
-                effect_name = effect.__class__.__name__
-                if hasattr(effect, 'get_name'):
-                    effect_name = effect.get_name()
-
-                header_row = ttk.Frame(effect_frame)
-                header_row.pack(fill='x')
-
-                # Enabled checkbox on the left
-                if hasattr(effect, 'enabled'):
-                    ttk.Checkbutton(
-                        header_row,
-                        text="",
-                        variable=effect.enabled
-                    ).pack(side='left', padx=(25, 35))
-
-                # Effect name and details in the Effect column
-                effect_col = ttk.Frame(header_row)
-                effect_col.pack(side='left', fill='x', expand=True)
-
-                ttk.Label(
-                    effect_col,
-                    text=f"{i+1}. {effect_name}",
-                    font=('TkDefaultFont', 12, 'bold')
-                ).pack(anchor='w')
-
-                # Copy Settings button on the right
-                def make_copy_handler(eff, eff_name):
-                    def copy_settings():
-                        # Build text representation
-                        lines = [eff_name]
-
-                        # Add description
-                        if hasattr(eff, 'get_description'):
-                            desc = eff.get_description()
-                            if desc:
-                                lines.append(desc)
-
-                        # Add method signature
-                        if hasattr(eff, 'get_method_signature'):
-                            sig = eff.get_method_signature()
-                            if sig:
-                                lines.append(sig)
-
-                        # Add parameters
-                        if hasattr(eff, 'get_view_mode_summary'):
-                            summary = eff.get_view_mode_summary()
-                            if summary:
-                                lines.append(summary)
-                        else:
-                            # Default parameter display
-                            for attr_name in sorted(dir(eff)):
-                                if attr_name.startswith('_'):
-                                    continue
-                                if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
-                                    continue
-                                attr = getattr(eff, attr_name)
-                                if isinstance(attr, tk.Variable):
-                                    try:
-                                        value = attr.get()
-                                        display_name = attr_name.replace('_', ' ').title()
-                                        if isinstance(value, float):
-                                            lines.append(f"{display_name}: {value:.2f}")
-                                        elif isinstance(value, bool):
-                                            lines.append(f"{display_name}: {'Yes' if value else 'No'}")
-                                        else:
-                                            lines.append(f"{display_name}: {value}")
-                                    except:
-                                        pass
-
-                        # Copy to clipboard
-                        text = '\n'.join(lines)
-                        self.root.clipboard_clear()
-                        self.root.clipboard_append(text)
-
-                    return copy_settings
-
-                ttk.Button(
-                    header_row,
-                    text="Copy Settings",
-                    command=make_copy_handler(effect, effect_name),
-                    width=12
-                ).pack(side='right', padx=(10, 10))
-
-                # Description
-                if hasattr(effect, 'get_description'):
-                    desc = effect.get_description()
-                    if desc:
-                        ttk.Label(
-                            effect_col,
-                            text=desc,
-                            font=('TkDefaultFont', 12)
-                        ).pack(anchor='w', padx=(15, 0))
-
-                # Method signature (if available) - displayed below description, above params
-                if hasattr(effect, 'get_method_signature'):
-                    sig = effect.get_method_signature()
-                    if sig:
-                        ttk.Label(
-                            effect_col,
-                            text=sig,
-                            font=('TkFixedFont', 10)
-                        ).pack(anchor='w', padx=(15, 0))
-
-                # Read-only parameter values (in effect column)
-                params_frame = ttk.Frame(effect_col)
-                params_frame.pack(fill='x', padx=(15, 0))
-
-                # Check if effect has a custom view mode summary
-                if hasattr(effect, 'get_view_mode_summary'):
-                    summary = effect.get_view_mode_summary()
-                    if summary:
-                        for line in summary.split('\n'):
-                            ttk.Label(
-                                params_frame,
-                                text=line,
-                                font=('TkDefaultFont', 12)
-                            ).pack(anchor='w')
-                else:
-                    # Default: show all tk.Variable parameters
-                    param_count = 0
-                    for attr_name in sorted(dir(effect)):
-                        # Skip private and internal variables
-                        if attr_name.startswith('_'):
-                            continue
-                        if attr_name in ['enabled', 'control_panel', 'root_window', 'width', 'height']:
-                            continue
-
-                        attr = getattr(effect, attr_name)
-                        if isinstance(attr, tk.Variable):
-                            try:
-                                value = attr.get()
-
-                                # Handle index variables - try to get display value
-                                if attr_name.endswith('_index'):
-                                    # Look for corresponding list to get display name
-                                    # e.g., conversion_index -> COLOR_CONVERSIONS
-                                    base_name = attr_name[:-6].upper()  # Remove '_index'
-                                    lookup_names = [
-                                        f'{base_name}S',  # e.g., CONVERSIONS
-                                        f'COLOR_{base_name}S',  # e.g., COLOR_CONVERSIONS
-                                        f'{base_name}_OPTIONS',
-                                    ]
-                                    found = False
-                                    for lookup in lookup_names:
-                                        if hasattr(effect, lookup):
-                                            options = getattr(effect, lookup)
-                                            if isinstance(options, list) and 0 <= value < len(options):
-                                                # Get display name from tuple (code, name)
-                                                if isinstance(options[value], tuple):
-                                                    value_str = options[value][1]
-                                                else:
-                                                    value_str = str(options[value])
-                                                display_name = base_name.replace('_', ' ').title()
-                                                found = True
-                                                break
-                                    if not found:
-                                        continue  # Skip if we can't resolve
-                                else:
-                                    # Format the value nicely
-                                    if isinstance(value, float):
-                                        value_str = f"{value:.2f}"
-                                    elif isinstance(value, bool):
-                                        value_str = "Yes" if value else "No"
-                                    else:
-                                        value_str = str(value)
-
-                                    # Make parameter name more readable
-                                    display_name = attr_name.replace('_', ' ').title()
-
-                                ttk.Label(
-                                    params_frame,
-                                    text=f"{display_name}: {value_str}",
-                                    font=('TkDefaultFont', 12)
-                                ).pack(anchor='w')
-                                param_count += 1
-                            except:
-                                pass
-
-                # Add separator between effects
-                if i < len(self.effects) - 1:
-                    ttk.Separator(self.control_panel, orient='horizontal').pack(fill='x', pady=5)
-
-            # Create visualization windows for effects that have them (e.g., FFT filter)
-            for effect in self.effects:
-                if hasattr(effect, '_create_visualization_window'):
-                    effect._create_visualization_window()
-                    if hasattr(effect, '_update_visualization'):
-                        effect._update_visualization()
-                    # Show the window (main.py won't know about sub-effect windows)
-                    if hasattr(effect, 'viz_window') and effect.viz_window is not None:
-                        effect.viz_window.deiconify()
-                if hasattr(effect, '_create_diff_window'):
-                    effect._create_diff_window()
-                    # Show the window
-                    if hasattr(effect, 'diff_window') and effect.diff_window is not None:
-                        effect.diff_window.deiconify()
-
-            return self.control_panel
-
         def draw(self, frame, face_mask=None):
-            """Apply all effects in the pipeline"""
-            result = frame
-
-            for effect in self.effects:
-                if hasattr(effect, 'enabled'):
-                    if not effect.enabled.get():
-                        continue
-
-                if hasattr(effect, 'update'):
-                    effect.update()
-
-                result = effect.draw(result, face_mask)
-
-            return result
-
-        def cleanup(self):
-            """Cleanup all effects"""
-            for effect in self.effects:
-                if hasattr(effect, 'cleanup'):
-                    effect.cleanup()
+            return frame
 
     # Create a unique class name
     class_name = f"UserPipeline_{pipeline_key.replace('user_', '')}"
-    UserPipelineEffect.__name__ = class_name
-    UserPipelineEffect.__qualname__ = class_name
+    UserPipelinePlaceholder.__name__ = class_name
+    UserPipelinePlaceholder.__qualname__ = class_name
 
-    return UserPipelineEffect
+    return UserPipelinePlaceholder
 
 
 def list_effects() -> List[tuple]:
