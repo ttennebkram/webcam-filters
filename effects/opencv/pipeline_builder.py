@@ -230,6 +230,88 @@ class PipelineBuilder2Effect(BaseUIEffect):
     def get_category(cls) -> str:
         return "opencv"
 
+    def _create_button_row(self, parent_frame, row):
+        """Create a button row with All checkbox and Pipeline buttons.
+
+        Returns dict with button references: cancel, edit_save, ct, cj, paste
+        """
+        # All checkbox in column 0
+        all_frame = ttk.Frame(parent_frame)
+        all_frame.grid(row=row, column=0, pady=(5, 2))
+
+        ttk.Label(all_frame, text="All:").pack(side='left')
+        ttk.Checkbutton(all_frame, variable=self.all_enabled).pack(side='left')
+
+        # Buttons row in column 1, right-aligned
+        btn_frame = ttk.Frame(parent_frame)
+        btn_frame.grid(row=row, column=1, sticky='e', pady=(5, 2))
+
+        # Pipeline label
+        ttk.Label(btn_frame, text="Pipeline:").pack(side='left', padx=(0, 5))
+
+        # Cancel All button (only shown in edit mode)
+        cancel_btn = tk.Label(
+            btn_frame, text="Cancel All", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        cancel_btn.bind('<Button-1>', lambda e: self._toggle_pipeline_mode())
+        _create_tooltip(cancel_btn, "Switch to view mode (Esc)")
+
+        # Edit All / Save All button
+        edit_save_btn = tk.Label(
+            btn_frame, text=" Edit All ", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        edit_save_btn.bind('<Button-1>', lambda e: self._on_edit_save_click())
+        _create_tooltip(edit_save_btn, "Edit all effects (↵)")
+
+        # Clipboard buttons
+        ct_btn = tk.Label(
+            btn_frame, text="CT", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        ct_btn.bind('<Button-1>', lambda e: self._copy_text())
+        _create_tooltip(ct_btn, "Copy All Text (⌘C)")
+
+        cj_btn = tk.Label(
+            btn_frame, text="CJ", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        cj_btn.bind('<Button-1>', lambda e: self._copy_json())
+        _create_tooltip(cj_btn, "Copy All JSON (⌘J)")
+
+        paste_btn = tk.Label(
+            btn_frame, text=" Paste ", relief='raised', borderwidth=1,
+            padx=2, pady=0, cursor='arrow'
+        )
+        paste_btn.bind('<Button-1>', lambda e: self._on_paste_key() if self._current_mode == 'edit' else None)
+        _create_tooltip(paste_btn, "Paste (auto-detects format) (⌘V)")
+
+        # Gray out paste button in view mode
+        if self._current_mode == 'view':
+            paste_btn.config(fg='gray')
+
+        # Pack all buttons in correct order based on mode
+        if self._current_mode == 'edit':
+            cancel_btn.pack(side='left', padx=(0, 5))
+            edit_save_btn.pack(side='left')
+            edit_save_btn.config(text="Save All")
+        else:
+            edit_save_btn.pack(side='left')
+            edit_save_btn.config(text=" Edit All ")
+
+        ct_btn.pack(side='left', padx=(10, 1))
+        cj_btn.pack(side='left', padx=1)
+        paste_btn.pack(side='left', padx=1)
+
+        return {
+            'cancel': cancel_btn,
+            'edit_save': edit_save_btn,
+            'ct': ct_btn,
+            'cj': cj_btn,
+            'paste': paste_btn
+        }
+
     def create_control_panel(self, parent):
         """Create the pipeline builder UI"""
         self._control_parent = parent
@@ -331,77 +413,16 @@ class PipelineBuilder2Effect(BaseUIEffect):
         else:
             self._desc_label.grid(row=1, column=1, sticky='w', pady=0)
 
-        # All checkbox in column 0
-        all_frame = ttk.Frame(self._fields_frame)
-        all_frame.grid(row=2, column=0, pady=(5, 2))
-
-        ttk.Label(all_frame, text="All:").pack(side='left')
-        ttk.Checkbutton(all_frame, variable=self.all_enabled).pack(side='left')
-
         # Wire up the All checkbox to toggle all effects
         self.all_enabled.trace_add('write', lambda *args: self._toggle_all_effects())
 
-        # Buttons row
-        btn_frame = ttk.Frame(self._fields_frame)
-        btn_frame.grid(row=2, column=1, sticky='e', pady=(5, 2))
-
-        # Pipeline label
-        ttk.Label(btn_frame, text="Pipeline:").pack(side='left', padx=(0, 5))
-
-        # Cancel All button (only shown in edit mode)
-        self._cancel_btn = tk.Label(
-            btn_frame, text="Cancel All", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._cancel_btn.bind('<Button-1>', lambda e: self._toggle_pipeline_mode())
-        _create_tooltip(self._cancel_btn, "Switch to view mode (Esc)")
-
-        # Edit All / Save All button
-        self._edit_save_btn = tk.Label(
-            btn_frame, text=" Edit All ", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._edit_save_btn.bind('<Button-1>', lambda e: self._on_edit_save_click())
-        _create_tooltip(self._edit_save_btn, "Edit all effects (↵)")
-
-        # Clipboard buttons (styled like effect buttons)
-        self._ct_btn = tk.Label(
-            btn_frame, text="CT", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._ct_btn.bind('<Button-1>', lambda e: self._copy_text())
-        _create_tooltip(self._ct_btn, "Copy All Text (⌘C)")
-
-        self._cj_btn = tk.Label(
-            btn_frame, text="CJ", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._cj_btn.bind('<Button-1>', lambda e: self._copy_json())
-        _create_tooltip(self._cj_btn, "Copy All JSON (⌘J)")
-
-        self._paste_btn = tk.Label(
-            btn_frame, text=" Paste ", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._paste_btn.bind('<Button-1>', lambda e: self._on_paste_key() if self._current_mode == 'edit' else None)
-        _create_tooltip(self._paste_btn, "Paste (auto-detects format) (⌘V)")
-
-        # Gray out paste button in view mode (no fg set in edit mode - use system default)
-        if self._current_mode == 'view':
-            self._paste_btn.config(fg='gray')
-
-        # Pack all buttons in correct order based on mode
-        if self._current_mode == 'edit':
-            self._cancel_btn.pack(side='left', padx=(0, 5))
-            self._edit_save_btn.pack(side='left')
-            self._edit_save_btn.config(text="Save All")
-        else:
-            self._edit_save_btn.pack(side='left')
-            self._edit_save_btn.config(text=" Edit All ")
-
-        self._ct_btn.pack(side='left', padx=(10, 1))
-        self._cj_btn.pack(side='left', padx=1)
-        self._paste_btn.pack(side='left', padx=1)
+        # Create top button row
+        buttons = self._create_button_row(self._fields_frame, row=2)
+        self._cancel_btn = buttons['cancel']
+        self._edit_save_btn = buttons['edit_save']
+        self._ct_btn = buttons['ct']
+        self._cj_btn = buttons['cj']
+        self._paste_btn = buttons['paste']
 
         # Configure column weights
         self._fields_frame.columnconfigure(1, weight=1)
@@ -428,6 +449,25 @@ class PipelineBuilder2Effect(BaseUIEffect):
         # Container for effect panels (minimal padding to reduce whitespace)
         self.effects_container = ttk.Frame(self.control_panel)
         self.effects_container.pack(fill='both', expand=True, padx=10, pady=0)
+
+        # Bottom separator and button row (duplicate of top for convenience)
+        self._bottom_separator = ttk.Separator(self.control_panel, orient='horizontal')
+        self._bottom_separator.pack(fill='x', pady=5)
+
+        # Use grid layout to match top row alignment
+        self._bottom_fields_frame = ttk.Frame(self.control_panel)
+        self._bottom_fields_frame.pack(fill='x', **padding)
+
+        # Create bottom button row
+        bottom_buttons = self._create_button_row(self._bottom_fields_frame, row=0)
+        self._bottom_cancel_btn = bottom_buttons['cancel']
+        self._bottom_edit_save_btn = bottom_buttons['edit_save']
+        self._bottom_ct_btn = bottom_buttons['ct']
+        self._bottom_cj_btn = bottom_buttons['cj']
+        self._bottom_paste_btn = bottom_buttons['paste']
+
+        # Configure column weights
+        self._bottom_fields_frame.columnconfigure(1, weight=1)
 
         # Load pipeline if one was specified for editing
         if self._pipeline_to_load:
@@ -1399,6 +1439,38 @@ class PipelineBuilder2Effect(BaseUIEffect):
             self._paste_btn.config(fg=default_fg)
         else:
             self._paste_btn.config(fg='gray')
+
+        # Update bottom button row to match
+        if hasattr(self, '_bottom_cancel_btn'):
+            self._bottom_cancel_btn.pack_forget()
+            self._bottom_edit_save_btn.pack_forget()
+            self._bottom_ct_btn.pack_forget()
+            self._bottom_cj_btn.pack_forget()
+            self._bottom_paste_btn.pack_forget()
+
+            if self._current_mode == 'edit':
+                self._bottom_cancel_btn.pack(side='left', padx=(0, 5))
+                self._bottom_edit_save_btn.pack(side='left')
+                self._bottom_edit_save_btn.config(text="Save All")
+                self._bottom_edit_save_btn.unbind('<Enter>')
+                self._bottom_edit_save_btn.unbind('<Leave>')
+                _create_tooltip(self._bottom_edit_save_btn, "Save all effects (⌘S)")
+            else:
+                self._bottom_edit_save_btn.pack(side='left')
+                self._bottom_edit_save_btn.config(text=" Edit All ")
+                self._bottom_edit_save_btn.unbind('<Enter>')
+                self._bottom_edit_save_btn.unbind('<Leave>')
+                _create_tooltip(self._bottom_edit_save_btn, "Edit all effects (↵)")
+
+            self._bottom_ct_btn.pack(side='left', padx=(10, 1))
+            self._bottom_cj_btn.pack(side='left', padx=1)
+            self._bottom_paste_btn.pack(side='left', padx=1)
+
+            # Update bottom paste button color
+            if self._current_mode == 'edit':
+                self._bottom_paste_btn.config(fg=default_fg)
+            else:
+                self._bottom_paste_btn.config(fg='gray')
 
         # Update Add First Effect button visibility
         if self.add_first_frame:

@@ -820,10 +820,18 @@ Examples:
         scrollbar = ttk.Scrollbar(ctrl_window, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        def _on_frame_configure(event):
+            # Save current scroll position
+            current_pos = canvas.yview()
+            # Update scroll region
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Restore scroll position (or scroll to show bottom if we were near it)
+            if current_pos[1] > 0.9:  # If near bottom, stay at bottom
+                canvas.yview_moveto(1.0)
+            else:
+                canvas.yview_moveto(current_pos[0])
+
+        scrollable_frame.bind("<Configure>", _on_frame_configure)
 
         canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
