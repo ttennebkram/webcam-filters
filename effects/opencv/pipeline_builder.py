@@ -333,7 +333,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._cancel_btn.bind('<Button-1>', lambda e: self._toggle_pipeline_mode())
-        _create_tooltip(self._cancel_btn, "Switch to view mode")
+        _create_tooltip(self._cancel_btn, "Switch to view mode (Esc)")
 
         # Edit All / Save All button
         self._edit_save_btn = tk.Label(
@@ -341,7 +341,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._edit_save_btn.bind('<Button-1>', lambda e: self._on_edit_save_click())
-        _create_tooltip(self._edit_save_btn, "Edit all effects")
+        _create_tooltip(self._edit_save_btn, "Edit/Save all effects (↵)")
 
         # Clipboard buttons (styled like effect buttons)
         self._ct_btn = tk.Label(
@@ -349,28 +349,28 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._ct_btn.bind('<Button-1>', lambda e: self._copy_text())
-        _create_tooltip(self._ct_btn, "Copy All Text")
+        _create_tooltip(self._ct_btn, "Copy All Text (⌘C)")
 
         self._pt_btn = tk.Label(
             btn_frame, text="PT", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
         )
         self._pt_btn.bind('<Button-1>', lambda e: self._paste_text() if self._current_mode == 'edit' else None)
-        _create_tooltip(self._pt_btn, "Paste from text")
+        _create_tooltip(self._pt_btn, "Paste from text (⌘V)")
 
         self._cj_btn = tk.Label(
             btn_frame, text="CJ", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
         )
         self._cj_btn.bind('<Button-1>', lambda e: self._copy_json())
-        _create_tooltip(self._cj_btn, "Copy All JSON")
+        _create_tooltip(self._cj_btn, "Copy All JSON (⌘J)")
 
         self._pj_btn = tk.Label(
             btn_frame, text="PJ", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
         )
         self._pj_btn.bind('<Button-1>', lambda e: self._paste_json() if self._current_mode == 'edit' else None)
-        _create_tooltip(self._pj_btn, "Paste from JSON")
+        _create_tooltip(self._pj_btn, "Paste from JSON (⌘V)")
 
         # Gray out paste buttons in view mode (no fg set in edit mode - use system default)
         if self._current_mode == 'view':

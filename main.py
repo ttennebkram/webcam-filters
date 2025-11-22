@@ -630,6 +630,40 @@ Examples:
         else:
             print("Paste not available for this effect")
 
+    def paste_pipeline_text():
+        """Paste pipeline from clipboard as text format (only in edit mode)"""
+        current_effect = effect_state['effect']
+        if not current_effect:
+            print("No effect loaded")
+            return
+
+        # Check if in edit mode
+        if hasattr(current_effect, '_current_mode') and current_effect._current_mode != 'edit':
+            print("Paste is only available in edit mode")
+            return
+
+        if hasattr(current_effect, '_paste_text'):
+            current_effect._paste_text()
+        else:
+            print("Paste text not available for this effect")
+
+    def paste_pipeline_json():
+        """Paste pipeline from clipboard as JSON format (only in edit mode)"""
+        current_effect = effect_state['effect']
+        if not current_effect:
+            print("No effect loaded")
+            return
+
+        # Check if in edit mode
+        if hasattr(current_effect, '_current_mode') and current_effect._current_mode != 'edit':
+            print("Paste is only available in edit mode")
+            return
+
+        if hasattr(current_effect, '_paste_json'):
+            current_effect._paste_json()
+        else:
+            print("Paste JSON not available for this effect")
+
     def save_entire_pipeline():
         """Save the entire pipeline to disk and switch to view mode"""
         current_effect = effect_state['effect']
@@ -642,14 +676,26 @@ Examples:
         else:
             print("Save not available for this effect")
 
+    def new_pipeline():
+        """Clear the current pipeline to start fresh"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, 'clear_pipeline'):
+            current_effect.clear_pipeline()
+        else:
+            print("New pipeline not available for this effect")
+
     # Bind keyboard shortcuts (Cmd on macOS, Ctrl on Windows/Linux)
+    root.bind('<Command-n>', lambda e: new_pipeline())
     root.bind('<Command-c>', lambda e: copy_all_settings_text())
     root.bind('<Command-j>', lambda e: copy_all_settings_json())
     root.bind('<Command-v>', lambda e: paste_entire_pipeline())
+    root.bind('<Command-k>', lambda e: paste_pipeline_json())
     root.bind('<Command-s>', lambda e: save_entire_pipeline())
+    root.bind('<Control-n>', lambda e: new_pipeline())
     root.bind('<Control-c>', lambda e: copy_all_settings_text())
     root.bind('<Control-j>', lambda e: copy_all_settings_json())
     root.bind('<Control-v>', lambda e: paste_entire_pipeline())
+    root.bind('<Control-k>', lambda e: paste_pipeline_json())
     root.bind('<Control-s>', lambda e: save_entire_pipeline())
 
     # Create custom menu bar
@@ -663,6 +709,7 @@ Examples:
     # File menu
     file_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="File", menu=file_menu)
+    file_menu.add_command(label="New Pipeline", command=new_pipeline, accelerator=f"{accel_mod}+N")
     file_menu.add_command(label="Save Entire Pipeline", command=save_entire_pipeline, accelerator=f"{accel_mod}+S")
 
     def edit_entire_pipeline():
