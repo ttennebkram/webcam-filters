@@ -826,7 +826,7 @@ Examples:
             # Update scroll region
             canvas.configure(scrollregion=canvas.bbox("all"))
             # Restore scroll position (or scroll to show bottom if we were near it)
-            if current_pos[1] > 0.9:  # If near bottom, stay at bottom
+            if current_pos[1] > 0.97:  # If near bottom, stay at bottom
                 canvas.yview_moveto(1.0)
             else:
                 canvas.yview_moveto(current_pos[0])
