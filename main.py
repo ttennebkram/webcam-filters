@@ -592,6 +592,109 @@ Examples:
         'canvas_window': None
     }
 
+    # Custom copy/paste functions for pipeline settings
+    def copy_all_settings_text():
+        """Copy all settings as human-readable text"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, '_copy_text'):
+            current_effect._copy_text()
+        else:
+            print("Copy text not available for this effect")
+
+    def copy_all_settings_json():
+        """Copy all settings as JSON"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, '_copy_json'):
+            current_effect._copy_json()
+        else:
+            print("Copy JSON not available for this effect")
+
+    def paste_entire_pipeline():
+        """Paste entire pipeline from clipboard (only in edit mode)
+
+        Calls the existing _on_paste_key method which auto-detects format.
+        """
+        current_effect = effect_state['effect']
+        if not current_effect:
+            print("No effect loaded")
+            return
+
+        # Check if in edit mode
+        if hasattr(current_effect, '_current_mode') and current_effect._current_mode != 'edit':
+            print("Paste is only available in edit mode")
+            return
+
+        # Call the existing paste handler which auto-detects JSON vs text
+        if hasattr(current_effect, '_on_paste_key'):
+            current_effect._on_paste_key()
+        else:
+            print("Paste not available for this effect")
+
+    def save_entire_pipeline():
+        """Save the entire pipeline to disk and switch to view mode"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, '_on_edit_save_click'):
+            # Use the same method as the Save All button - saves and switches to view mode
+            current_effect._on_edit_save_click()
+        elif current_effect and hasattr(current_effect, '_save_pipeline'):
+            # Fallback to just saving
+            current_effect._save_pipeline()
+        else:
+            print("Save not available for this effect")
+
+    # Bind keyboard shortcuts (Cmd on macOS, Ctrl on Windows/Linux)
+    root.bind('<Command-c>', lambda e: copy_all_settings_text())
+    root.bind('<Command-j>', lambda e: copy_all_settings_json())
+    root.bind('<Command-v>', lambda e: paste_entire_pipeline())
+    root.bind('<Command-s>', lambda e: save_entire_pipeline())
+    root.bind('<Control-c>', lambda e: copy_all_settings_text())
+    root.bind('<Control-j>', lambda e: copy_all_settings_json())
+    root.bind('<Control-v>', lambda e: paste_entire_pipeline())
+    root.bind('<Control-s>', lambda e: save_entire_pipeline())
+
+    # Create custom menu bar
+    menubar = tk.Menu(root)
+    root.config(menu=menubar)
+
+    # Detect platform for accelerator display
+    import platform
+    accel_mod = "Cmd" if platform.system() == "Darwin" else "Ctrl"
+
+    # File menu
+    file_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="File", menu=file_menu)
+    file_menu.add_command(label="Save Entire Pipeline", command=save_entire_pipeline, accelerator=f"{accel_mod}+S")
+
+    def edit_entire_pipeline():
+        """Enter edit mode for the pipeline"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, '_on_edit_save_click'):
+            # Only enter edit mode if currently in view mode
+            if hasattr(current_effect, '_current_mode') and current_effect._current_mode == 'view':
+                current_effect._on_edit_save_click()
+        else:
+            print("Edit not available for this effect")
+
+    def update_edit_menu_state():
+        """Update paste menu item based on current mode"""
+        current_effect = effect_state['effect']
+        if current_effect and hasattr(current_effect, '_current_mode'):
+            if current_effect._current_mode == 'edit':
+                edit_menu.entryconfig(3, state='normal')   # Paste enabled in edit mode
+            else:
+                edit_menu.entryconfig(3, state='disabled') # Paste disabled in view mode
+        else:
+            edit_menu.entryconfig(3, state='disabled')
+
+    # Edit menu with our custom items
+    edit_menu = tk.Menu(menubar, tearoff=0, postcommand=update_edit_menu_state)
+    menubar.add_cascade(label="Edit", menu=edit_menu)
+
+    edit_menu.add_command(label="Edit Entire Pipeline", command=edit_entire_pipeline, accelerator="↵")
+    edit_menu.add_command(label="Copy Entire Pipeline as Text", command=copy_all_settings_text, accelerator=f"{accel_mod}+C")
+    edit_menu.add_command(label="Copy Entire Pipeline as JSON", command=copy_all_settings_json, accelerator=f"{accel_mod}+J")
+    edit_menu.add_command(label="Paste Entire Pipeline", command=paste_entire_pipeline, accelerator=f"{accel_mod}+V", state='disabled')
+
     def create_effect_instance(effect_key, effect_cls, w, h):
         """Create an effect instance with proper initialization"""
         if issubclass(effect_cls, BaseUIEffect):
