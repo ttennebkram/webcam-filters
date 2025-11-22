@@ -244,7 +244,7 @@ Examples:
     # Create global controls window
     global_controls = tk.Toplevel(root)
     global_controls.withdraw()  # Hide until positioned
-    global_controls.title("Webcam Filters - Global Controls")
+    global_controls.title("Global Filter Controls")
     global_controls.protocol("WM_DELETE_WINDOW", on_any_window_close)
     global_controls.configure(highlightthickness=0)
 
@@ -706,8 +706,22 @@ Examples:
     import platform
     accel_mod = "Cmd" if platform.system() == "Darwin" else "Ctrl"
 
+    def is_opencv_pipeline():
+        """Check if current effect is an opencv pipeline effect"""
+        current_effect = effect_state['effect']
+        return current_effect and hasattr(current_effect, '_current_mode')
+
+    def update_file_menu_state():
+        """Enable/disable file menu items based on current effect"""
+        if is_opencv_pipeline():
+            file_menu.entryconfig(0, state='normal')  # New Pipeline
+            file_menu.entryconfig(1, state='normal')  # Save Entire Pipeline
+        else:
+            file_menu.entryconfig(0, state='disabled')
+            file_menu.entryconfig(1, state='disabled')
+
     # File menu
-    file_menu = tk.Menu(menubar, tearoff=0)
+    file_menu = tk.Menu(menubar, tearoff=0, postcommand=update_file_menu_state)
     menubar.add_cascade(label="File", menu=file_menu)
     file_menu.add_command(label="New Pipeline", command=new_pipeline, accelerator=f"{accel_mod}+N")
     file_menu.add_command(label="Save Entire Pipeline", command=save_entire_pipeline, accelerator=f"{accel_mod}+S")
@@ -723,14 +737,23 @@ Examples:
             print("Edit not available for this effect")
 
     def update_edit_menu_state():
-        """Update paste menu item based on current mode"""
-        current_effect = effect_state['effect']
-        if current_effect and hasattr(current_effect, '_current_mode'):
+        """Update edit menu items based on current effect and mode"""
+        if is_opencv_pipeline():
+            current_effect = effect_state['effect']
+            # Enable all items
+            edit_menu.entryconfig(0, state='normal')  # Edit Entire Pipeline
+            edit_menu.entryconfig(1, state='normal')  # Copy as Text
+            edit_menu.entryconfig(2, state='normal')  # Copy as JSON
+            # Paste only enabled in edit mode
             if current_effect._current_mode == 'edit':
-                edit_menu.entryconfig(3, state='normal')   # Paste enabled in edit mode
+                edit_menu.entryconfig(3, state='normal')
             else:
-                edit_menu.entryconfig(3, state='disabled') # Paste disabled in view mode
+                edit_menu.entryconfig(3, state='disabled')
         else:
+            # Disable all items
+            edit_menu.entryconfig(0, state='disabled')
+            edit_menu.entryconfig(1, state='disabled')
+            edit_menu.entryconfig(2, state='disabled')
             edit_menu.entryconfig(3, state='disabled')
 
     # Edit menu with our custom items
@@ -764,9 +787,12 @@ Examples:
 
         ctrl_window = tk.Toplevel(root)
         ctrl_window.withdraw()  # Hide until positioned
-        # Use custom title if effect has one, otherwise default
-        if hasattr(effect_cls, 'get_control_title'):
-            ctrl_window.title(effect_cls.get_control_title())
+        # Use custom title if effect instance has one, otherwise default
+        if hasattr(eff, 'get_control_title'):
+            ctrl_window.title(eff.get_control_title())
+            # Store window reference for dynamic title updates
+            if hasattr(eff, '_control_window'):
+                eff._control_window = ctrl_window
         else:
             ctrl_window.title(f"{effect_cls.get_name()} - Controls")
 

@@ -313,8 +313,8 @@ class EffectForm:
             on_mode_toggle: Callback when Edit/View button is clicked
             on_copy_text: Callback when Copy Text button is clicked
             on_copy_json: Callback when Copy JSON button is clicked
-            on_paste_text: Callback when Paste Text button is clicked
-            on_paste_json: Callback when Paste JSON button is clicked
+            on_paste_text: Callback when Paste Text is needed
+            on_paste_json: Callback when Paste JSON is needed
             on_add_below: Callback when + button is clicked (pipeline mode)
             on_remove: Callback when - button is clicked (pipeline mode)
         """
@@ -346,10 +346,26 @@ class EffectForm:
             The frame containing the complete form
         """
         self._current_mode = mode
-        self.frame = ttk.LabelFrame(parent, text=self.effect_name)
+
+        # Create style for LabelFrame with no left margin on label
+        style = ttk.Style()
+        style.layout('LeftAligned.TLabelframe', [
+            ('Labelframe.border', {'sticky': 'nswe', 'border': 1, 'children': [
+                ('Labelframe.padding', {'sticky': 'nswe'})
+            ]})
+        ])
+        style.configure('LeftAligned.TLabelframe.Label', padding=(0, 0, 0, 0))
+        style.configure('LeftAligned.TLabelframe', labelmargins=0, borderwidth=1)
+        style.map('LeftAligned.TLabelframe', relief=[('', 'groove')])
+
+        # Create label widget with spacer for proper vertical spacing
+        label_container = tk.Frame(parent, bd=0, highlightthickness=0, padx=0, pady=0)
+        tk.Label(label_container, text=self.effect_name, bd=0, highlightthickness=0, padx=0, pady=0).pack(anchor='w', padx=0, pady=0)
+        tk.Label(label_container, text=" ", font=('TkDefaultFont', 3), bd=0, highlightthickness=0, padx=0, pady=0).pack(anchor='w', padx=0, pady=0)
+
+        self.frame = ttk.LabelFrame(parent, labelwidget=label_container, labelanchor='nw', style='LeftAligned.TLabelframe')
 
         # Create disabled button style with gray text
-        style = ttk.Style()
         style.configure('Disabled.TButton', foreground='gray')
 
         # Main content area with 3 columns: enabled, subform, buttons
@@ -460,12 +476,12 @@ class EffectForm:
         self._mode_button.pack(pady=2)
         self._mode_button.bind('<Button-1>', lambda e: self._on_mode_button_click())
 
-        # Text buttons row (CT and PT)
-        text_btn_frame = ttk.Frame(buttons_frame)
-        text_btn_frame.pack(pady=2)
+        # Copy buttons row (CT and CJ)
+        copy_btn_frame = ttk.Frame(buttons_frame)
+        copy_btn_frame.pack(pady=2)
 
         copy_text_btn = tk.Label(
-            text_btn_frame,
+            copy_btn_frame,
             text="CT",
             relief='raised',
             borderwidth=1,
@@ -477,37 +493,8 @@ class EffectForm:
         copy_text_btn.bind('<Button-1>', lambda e: self._on_copy_text_click())
         self._create_tooltip(copy_text_btn, "Copy Text")
 
-        if mode == 'edit':
-            paste_text_btn = tk.Label(
-                text_btn_frame,
-                text="PT",
-                relief='raised',
-                borderwidth=1,
-                padx=2,
-                pady=0,
-                cursor='arrow'
-            )
-            paste_text_btn.bind('<Button-1>', lambda e: self._on_paste_text_click())
-        else:
-            paste_text_btn = tk.Label(
-                text_btn_frame,
-                text="PT",
-                relief='raised',
-                borderwidth=1,
-                padx=2,
-                pady=0,
-                cursor='arrow',
-                fg='gray'
-            )
-        paste_text_btn.pack(side='left')
-        self._create_tooltip(paste_text_btn, "Paste Text")
-
-        # JSON buttons row (CJ and PJ)
-        json_btn_frame = ttk.Frame(buttons_frame)
-        json_btn_frame.pack(pady=2)
-
         copy_json_btn = tk.Label(
-            json_btn_frame,
+            copy_btn_frame,
             text="CJ",
             relief='raised',
             borderwidth=1,
@@ -515,25 +502,26 @@ class EffectForm:
             pady=0,
             cursor='arrow'
         )
-        copy_json_btn.pack(side='left', padx=(0, 1))
+        copy_json_btn.pack(side='left')
         copy_json_btn.bind('<Button-1>', lambda e: self._on_copy_json_click())
         self._create_tooltip(copy_json_btn, "Copy JSON")
 
+        # Paste button
         if mode == 'edit':
-            paste_json_btn = tk.Label(
-                json_btn_frame,
-                text="PJ",
+            paste_btn = tk.Label(
+                buttons_frame,
+                text=" Paste ",
                 relief='raised',
                 borderwidth=1,
                 padx=2,
                 pady=0,
                 cursor='arrow'
             )
-            paste_json_btn.bind('<Button-1>', lambda e: self._on_paste_json_click())
+            paste_btn.bind('<Button-1>', lambda e: self._on_paste_click())
         else:
-            paste_json_btn = tk.Label(
-                json_btn_frame,
-                text="PJ",
+            paste_btn = tk.Label(
+                buttons_frame,
+                text=" Paste ",
                 relief='raised',
                 borderwidth=1,
                 padx=2,
@@ -541,8 +529,8 @@ class EffectForm:
                 cursor='arrow',
                 fg='gray'
             )
-        paste_json_btn.pack(side='left')
-        self._create_tooltip(paste_json_btn, "Paste JSON")
+        paste_btn.pack(pady=2)
+        self._create_tooltip(paste_btn, "Paste (auto-detects format)")
 
         # Spacer below to center vertically
         ttk.Frame(buttons_frame).pack(expand=True)
@@ -564,15 +552,29 @@ class EffectForm:
         if self.on_copy_json:
             self.on_copy_json()
 
-    def _on_paste_text_click(self):
-        """Handle Paste Text button click"""
-        if self.on_paste_text:
-            self.on_paste_text()
+    def _on_paste_click(self):
+        """Handle Paste button click - auto-detects JSON or text format"""
+        import json
+        try:
+            # Get clipboard content
+            clipboard = self.frame.clipboard_get()
 
-    def _on_paste_json_click(self):
-        """Handle Paste JSON button click"""
-        if self.on_paste_json:
-            self.on_paste_json()
+            # Try JSON first
+            try:
+                json.loads(clipboard)
+                # It's valid JSON, use JSON paste
+                if self.on_paste_json:
+                    self.on_paste_json()
+                    return
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            # Fall back to text paste
+            if self.on_paste_text:
+                self.on_paste_text()
+        except tk.TclError:
+            # Clipboard empty or unavailable
+            pass
 
     def _create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""

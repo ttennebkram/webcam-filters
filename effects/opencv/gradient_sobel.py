@@ -53,7 +53,7 @@ class GradientSobelEffect(BaseUIEffect):
 
     @classmethod
     def get_name(cls) -> str:
-        return "Gradient (Sobel)"
+        return "Gradient Sobel"
 
     @classmethod
     def get_description(cls) -> str:

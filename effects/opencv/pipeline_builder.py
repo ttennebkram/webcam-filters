@@ -100,6 +100,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self.pipeline_description = tk.StringVar(value="")
         self.all_enabled = tk.BooleanVar(value=True)
 
+        # Update window title when pipeline name changes
+        self.pipeline_name.trace_add('write', lambda *args: self._update_window_title())
+
         # Add first button/frame references
         self.add_first_btn = None
         self.add_first_frame = None
@@ -127,6 +130,21 @@ class PipelineBuilder2Effect(BaseUIEffect):
 
         # Flag to prevent edit mode from triggering during initialization
         self._initializing = True
+
+        # Store reference to control window for title updates
+        self._control_window = None
+
+    def get_control_title(self):
+        """Return the title for the control window"""
+        name = self.pipeline_name.get()
+        if name:
+            return f"Pipeline Editor - {name}"
+        return "Pipeline Editor"
+
+    def _update_window_title(self):
+        """Update the control window title with current pipeline name"""
+        if self._control_window:
+            self._control_window.title(self.get_control_title())
 
     def _ensure_edit_mode(self):
         """Switch to edit mode if not already in it - called when user takes any editing action"""
@@ -327,6 +345,9 @@ class PipelineBuilder2Effect(BaseUIEffect):
         btn_frame = ttk.Frame(self._fields_frame)
         btn_frame.grid(row=2, column=1, sticky='e', pady=(5, 2))
 
+        # Pipeline label
+        ttk.Label(btn_frame, text="Pipeline:").pack(side='left', padx=(0, 5))
+
         # Cancel All button (only shown in edit mode)
         self._cancel_btn = tk.Label(
             btn_frame, text="Cancel All", relief='raised', borderwidth=1,
@@ -341,7 +362,7 @@ class PipelineBuilder2Effect(BaseUIEffect):
             padx=2, pady=0, cursor='arrow'
         )
         self._edit_save_btn.bind('<Button-1>', lambda e: self._on_edit_save_click())
-        _create_tooltip(self._edit_save_btn, "Edit/Save all effects (↵)")
+        _create_tooltip(self._edit_save_btn, "Edit all effects (↵)")
 
         # Clipboard buttons (styled like effect buttons)
         self._ct_btn = tk.Label(
@@ -351,13 +372,6 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._ct_btn.bind('<Button-1>', lambda e: self._copy_text())
         _create_tooltip(self._ct_btn, "Copy All Text (⌘C)")
 
-        self._pt_btn = tk.Label(
-            btn_frame, text="PT", relief='raised', borderwidth=1,
-            padx=2, pady=0, cursor='arrow'
-        )
-        self._pt_btn.bind('<Button-1>', lambda e: self._paste_text() if self._current_mode == 'edit' else None)
-        _create_tooltip(self._pt_btn, "Paste from text (⌘V)")
-
         self._cj_btn = tk.Label(
             btn_frame, text="CJ", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
@@ -365,17 +379,16 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._cj_btn.bind('<Button-1>', lambda e: self._copy_json())
         _create_tooltip(self._cj_btn, "Copy All JSON (⌘J)")
 
-        self._pj_btn = tk.Label(
-            btn_frame, text="PJ", relief='raised', borderwidth=1,
+        self._paste_btn = tk.Label(
+            btn_frame, text=" Paste ", relief='raised', borderwidth=1,
             padx=2, pady=0, cursor='arrow'
         )
-        self._pj_btn.bind('<Button-1>', lambda e: self._paste_json() if self._current_mode == 'edit' else None)
-        _create_tooltip(self._pj_btn, "Paste from JSON (⌘V)")
+        self._paste_btn.bind('<Button-1>', lambda e: self._on_paste_key() if self._current_mode == 'edit' else None)
+        _create_tooltip(self._paste_btn, "Paste (auto-detects format) (⌘V)")
 
-        # Gray out paste buttons in view mode (no fg set in edit mode - use system default)
+        # Gray out paste button in view mode (no fg set in edit mode - use system default)
         if self._current_mode == 'view':
-            self._pt_btn.config(fg='gray')
-            self._pj_btn.config(fg='gray')
+            self._paste_btn.config(fg='gray')
 
         # Pack all buttons in correct order based on mode
         if self._current_mode == 'edit':
@@ -387,9 +400,8 @@ class PipelineBuilder2Effect(BaseUIEffect):
             self._edit_save_btn.config(text=" Edit All ")
 
         self._ct_btn.pack(side='left', padx=(10, 1))
-        self._pt_btn.pack(side='left', padx=1)
         self._cj_btn.pack(side='left', padx=1)
-        self._pj_btn.pack(side='left', padx=1)
+        self._paste_btn.pack(side='left', padx=1)
 
         # Configure column weights
         self._fields_frame.columnconfigure(1, weight=1)
@@ -1354,35 +1366,39 @@ class PipelineBuilder2Effect(BaseUIEffect):
         self._cancel_btn.pack_forget()
         self._edit_save_btn.pack_forget()
         self._ct_btn.pack_forget()
-        self._pt_btn.pack_forget()
         self._cj_btn.pack_forget()
-        self._pj_btn.pack_forget()
+        self._paste_btn.pack_forget()
 
         if self._current_mode == 'edit':
             self._cancel_btn.pack(side='left', padx=(0, 5))
             self._edit_save_btn.pack(side='left')
             self._edit_save_btn.config(text="Save All")
+            # Update tooltip for Save mode
+            self._edit_save_btn.unbind('<Enter>')
+            self._edit_save_btn.unbind('<Leave>')
+            _create_tooltip(self._edit_save_btn, "Save all effects (⌘S)")
         else:
             self._edit_save_btn.pack(side='left')
             self._edit_save_btn.config(text=" Edit All ")
+            # Update tooltip for Edit mode
+            self._edit_save_btn.unbind('<Enter>')
+            self._edit_save_btn.unbind('<Leave>')
+            _create_tooltip(self._edit_save_btn, "Edit all effects (↵)")
 
         self._ct_btn.pack(side='left', padx=(10, 1))
-        self._pt_btn.pack(side='left', padx=1)
         self._cj_btn.pack(side='left', padx=1)
-        self._pj_btn.pack(side='left', padx=1)
+        self._paste_btn.pack(side='left', padx=1)
 
-        # Update paste button colors based on mode
+        # Update paste button color based on mode
         if self._current_mode == 'edit':
             # Reset to system default by getting the default from another label
             default_fg = self._ct_btn.cget('foreground')
             if default_fg == 'gray':
                 # If CT is also gray, get the original default
                 default_fg = 'SystemButtonText'
-            self._pt_btn.config(fg=default_fg)
-            self._pj_btn.config(fg=default_fg)
+            self._paste_btn.config(fg=default_fg)
         else:
-            self._pt_btn.config(fg='gray')
-            self._pj_btn.config(fg='gray')
+            self._paste_btn.config(fg='gray')
 
         # Update Add First Effect button visibility
         if self.add_first_frame:
