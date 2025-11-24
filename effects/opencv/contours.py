@@ -117,11 +117,11 @@ class ContoursEffect(BaseUIEffect):
         return [
             {'type': 'checkbox', 'label': 'Show Original Background', 'key': 'show_original', 'default': True},
             {'type': 'slider', 'label': 'Threshold', 'key': 'threshold_value', 'min': 0, 'max': 255, 'default': 127},
-            {'type': 'dropdown', 'label': 'Retrieval Mode', 'key': 'retrieval_mode', 'options': [name for _, name, _ in cls.RETRIEVAL_MODES], 'default': 'RETR_EXTERNAL'},
-            {'type': 'dropdown', 'label': 'Approximation', 'key': 'approx_method', 'options': [name for _, name, _ in cls.APPROX_METHODS], 'default': 'CHAIN_APPROX_NONE'},
+            {'type': 'dropdown', 'label': 'Retrieval Mode', 'key': 'retrieval_mode', 'options': [name for _, name, _ in self.RETRIEVAL_MODES], 'default': 'RETR_EXTERNAL'},
+            {'type': 'dropdown', 'label': 'Approximation', 'key': 'approx_method', 'options': [name for _, name, _ in self.APPROX_METHODS], 'default': 'CHAIN_APPROX_NONE'},
             {'type': 'slider', 'label': 'Line Thickness', 'key': 'thickness', 'min': 1, 'max': 10, 'default': 2},
-            {'type': 'dropdown', 'label': 'Sort By', 'key': 'sort_method', 'options': [name for name, _ in cls.SORT_METHODS], 'default': 'None'},
-            {'type': 'dropdown', 'label': 'Draw Mode', 'key': 'draw_mode', 'options': [name for name, _ in cls.DRAW_MODES], 'default': 'Contours'},
+            {'type': 'dropdown', 'label': 'Sort By', 'key': 'sort_method', 'options': [name for name, _ in self.SORT_METHODS], 'default': 'None'},
+            {'type': 'dropdown', 'label': 'Draw Mode', 'key': 'draw_mode', 'options': [name for name, _ in self.DRAW_MODES], 'default': 'Contours'},
         ]
 
     def get_current_data(self):
